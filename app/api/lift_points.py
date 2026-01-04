@@ -239,7 +239,7 @@ class LiftPointsManager:
 
 
 # 初始化管理器
-STORAGE_PATH = Path.home() / "qyh_jushen_ws" / "persistent" / "preset" / "lift_points.json"
+STORAGE_PATH = Path.home() / "qyh-robot-system" / "persistent" / "preset" / "lift_points.json"
 lift_points_manager = LiftPointsManager(STORAGE_PATH)
 
 

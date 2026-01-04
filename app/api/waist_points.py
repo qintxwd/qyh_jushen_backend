@@ -234,7 +234,7 @@ class WaistPointsManager:
 
 
 # 初始化管理器
-STORAGE_PATH = Path.home() / "qyh_jushen_ws" / "persistent" / "preset" / "waist_points.json"
+STORAGE_PATH = Path.home() / "qyh-robot-system" / "persistent" / "preset" / "waist_points.json"
 waist_points_manager = WaistPointsManager(STORAGE_PATH)
 
 

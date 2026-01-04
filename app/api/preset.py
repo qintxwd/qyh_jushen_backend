@@ -116,7 +116,7 @@ async def list_presets(
     
     # 特殊处理: arm_pose 从 arm_points.json 读取
     if preset_type == PresetType.ARM_POSE:
-        arm_points_file = Path.home() / "qyh_jushen_ws" / "persistent" / "preset" / "arm_points.json"
+        arm_points_file = Path.home() / "qyh-robot-system" / "persistent" / "preset" / "arm_points.json"
         if arm_points_file.exists():
             try:
                 with open(arm_points_file, 'r', encoding='utf-8') as f:

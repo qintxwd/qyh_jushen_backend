@@ -16,7 +16,7 @@ router = APIRouter()
 HOME_DIR = Path.home()
 
 # ROS2 工作空间路径 (部署环境使用 install 目录)
-ROS2_WS = HOME_DIR / "qyh_jushen_ws" / "qyh_jushen_ws"
+ROS2_WS = HOME_DIR / "qyh-robot-system" / "qyh_jushen_ws"
 
 # 模型文件目录 (可配置) - 支持多个可能的路径
 # 优先使用 install 目录 (部署环境)，其次使用 src 目录 (开发环境)

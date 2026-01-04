@@ -26,7 +26,7 @@ from app.safety.watchdog import watchdog
 router = APIRouter(prefix="/arm/points", tags=["arm_points"])
 
 # 存储路径
-STORAGE_PATH = Path.home() / "qyh_jushen_ws" / "persistent" / "preset"
+STORAGE_PATH = Path.home() / "qyh-robot-system" / "persistent" / "preset"
 POINTS_FILE = STORAGE_PATH / "arm_points.json"
 
 # 内置点位 ID（不可删除）

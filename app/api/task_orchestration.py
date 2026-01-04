@@ -24,7 +24,7 @@ from app.safety.watchdog import watchdog
 router = APIRouter()
 
 # 任务存储路径
-TASKS_DIR = Path.home() / "qyh_jushen_ws" / "persistent" / "tasks"
+TASKS_DIR = Path.home() / "qyh-robot-system" / "persistent" / "tasks"
 TASKS_DIR.mkdir(parents=True, exist_ok=True)
 
 
