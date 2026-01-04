@@ -79,10 +79,25 @@ def preprocess_urdf():
     global _cached_urdf, _cached_urdf_source
     
     urdf_dir = get_urdf_dir()
-    xacro_file = urdf_dir / "dual_arms.urdf.xacro"
     
+    # 优先尝试 .urdf 文件（已编译）
+    urdf_file = urdf_dir / "dual_arms.urdf"
+    if urdf_file.exists():
+        try:
+            with open(urdf_file, 'r') as f:
+                _cached_urdf = f.read()
+            # 手动处理 package:// 路径
+            _cached_urdf = process_package_urls(_cached_urdf)
+            _cached_urdf_source = "urdf_file"
+            print(f"URDF 预处理成功 (直接读取 .urdf): {urdf_file}")
+            return
+        except Exception as e:
+            print(f"读取 URDF 文件失败: {e}")
+    
+    # 备选：尝试 .xacro 文件
+    xacro_file = urdf_dir / "dual_arms.urdf.xacro"
     if not xacro_file.exists():
-        print(f"URDF 文件不存在: {xacro_file}")
+        print(f"URDF 文件不存在: {urdf_file} 或 {xacro_file}")
         return
     
     # 尝试处理 xacro
@@ -286,34 +301,50 @@ async def get_robot_urdf():
         urdf_content = _cached_urdf
         source = _cached_urdf_source + "_cached"
     
-    # 优先级3: 实时处理 xacro
+    # 优先级3: 实时读取 URDF 文件
     if not urdf_content:
-        urdf_file = URDF_DIR / "dual_arms.urdf.xacro"
-        if not urdf_file.exists():
+        # 优先尝试 .urdf 文件
+        urdf_file = URDF_DIR / "dual_arms.urdf"
+        xacro_file = URDF_DIR / "dual_arms.urdf.xacro"
+        
+        if urdf_file.exists():
+            # 直接读取 .urdf 文件
+            try:
+                with open(urdf_file, 'r') as f:
+                    urdf_content = f.read()
+                source = "urdf_file"
+            except Exception as e:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to read URDF file: {e}"
+                )
+        elif xacro_file.exists():
+            # 尝试处理 .xacro 文件
+            urdf_file = xacro_file
+            # 尝试多种方式处理 xacro
+            urdf_content = process_xacro_file(urdf_file)
+            if urdf_content:
+                source = "xacro_processed"
+                # 缓存结果
+                _cached_urdf = urdf_content
+                _cached_urdf_source = source
+            else:
+                # 最后的备选：读取原始文件并手动处理
+                with open(urdf_file, 'r') as f:
+                    urdf_content = f.read()
+                # 手动处理 $(find xxx) 和 xacro:include
+                urdf_content = manual_process_xacro(
+                    urdf_content, urdf_file.parent
+                )
+                source = "manual_processed"
+                # 缓存结果
+                _cached_urdf = urdf_content
+                _cached_urdf_source = source
+        else:
             raise HTTPException(
                 status_code=404,
-                detail=f"URDF file not found: {urdf_file}"
+                detail=f"URDF file not found: {URDF_DIR}/dual_arms.urdf or dual_arms.urdf.xacro"
             )
-        
-        # 尝试多种方式处理 xacro
-        urdf_content = process_xacro_file(urdf_file)
-        if urdf_content:
-            source = "xacro_processed"
-            # 缓存结果
-            _cached_urdf = urdf_content
-            _cached_urdf_source = source
-        else:
-            # 最后的备选：读取原始文件并手动处理
-            with open(urdf_file, 'r') as f:
-                urdf_content = f.read()
-            # 手动处理 $(find xxx) 和 xacro:include
-            urdf_content = manual_process_xacro(
-                urdf_content, urdf_file.parent
-            )
-            source = "manual_processed"
-            # 缓存结果
-            _cached_urdf = urdf_content
-            _cached_urdf_source = source
     
     # 处理 package:// 路径，替换为后端 API URL
     processed_urdf = process_package_urls(urdf_content)
