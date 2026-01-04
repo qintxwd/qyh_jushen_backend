@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    # Token 自动刷新阈值（剩余时间少于此值时自动刷新，单位：分钟）
+    TOKEN_REFRESH_THRESHOLD_MINUTES: int = 10
     
     # ROS2 - 从文件读取
     MOCK_MODE: bool = False

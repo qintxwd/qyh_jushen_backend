@@ -49,3 +49,40 @@ def decode_access_token(token: str) -> dict:
         return payload
     except JWTError:
         raise ValueError("无效的 Token")
+
+
+def should_refresh_token(token: str) -> bool:
+    """检查是否应该刷新 Token
+    
+    如果 Token 剩余有效时间少于阈值，返回 True
+    """
+    try:
+        payload = decode_access_token(token)
+        exp = payload.get("exp")
+        if not exp:
+            return False
+        
+        # 计算剩余有效时间（秒）
+        remaining_seconds = exp - datetime.utcnow().timestamp()
+        remaining_minutes = remaining_seconds / 60
+        
+        # 如果剩余时间少于阈值，需要刷新
+        return remaining_minutes < settings.TOKEN_REFRESH_THRESHOLD_MINUTES
+    except:
+        return False
+
+
+def refresh_access_token(old_token: str) -> str:
+    """刷新 Token（保留原有信息，延长过期时间）"""
+    try:
+        # 解码旧 Token
+        payload = decode_access_token(old_token)
+        
+        # 移除过期时间和签发时间
+        payload.pop("exp", None)
+        payload.pop("iat", None)
+        
+        # 创建新 Token
+        return create_access_token(data=payload)
+    except:
+        raise ValueError("无法刷新 Token")
