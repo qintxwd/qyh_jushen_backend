@@ -3,7 +3,7 @@
 # QYH Jushen Web 后端启动脚本
 
 # 读取 ROS_DOMAIN_ID
-ROS_DOMAIN_ID_FILE="$HOME/qyh_jushen_ws/persistent/ros/ROS_DOMAIN_ID"
+ROS_DOMAIN_ID_FILE="$HOME/qyh-robot-system/persistent/ros/ROS_DOMAIN_ID"
 if [ -f "$ROS_DOMAIN_ID_FILE" ]; then
     export ROS_DOMAIN_ID=$(cat "$ROS_DOMAIN_ID_FILE")
 else
@@ -15,7 +15,7 @@ echo "🔧 ROS_DOMAIN_ID = $ROS_DOMAIN_ID"
 source /opt/ros/humble/setup.bash
 
 # Source 工作空间（包含 qyh_lift_msgs 等自定义消息）
-WS_SETUP="$HOME/qyh_jushen_ws/qyh_jushen_ws/install/setup.bash"
+WS_SETUP="$HOME/qyh-robot-system/qyh_jushen_ws/install/setup.bash"
 if [ -f "$WS_SETUP" ]; then
     source "$WS_SETUP"
     echo "✅ 已加载 ROS2 工作空间"

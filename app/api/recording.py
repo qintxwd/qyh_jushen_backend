@@ -77,7 +77,7 @@ async def start_recording(request: StartRecordingRequest):
     - version: 版本号
     - topics: 要录制的话题列表（可选）
     
-    录制文件将保存到: ~/qyh_jushen_ws/DATA/{action_name}/qyh_{user_name}_{version}_{timestamp}/
+    录制文件将保存到: ~/qyh-robot-system/DATA/{action_name}/qyh_{user_name}_{version}_{timestamp}/
     """
     logger.info(f"开始录制请求: action={request.action_name}, user={request.user_name}, version={request.version}")
     

@@ -6,7 +6,7 @@ import os
 
 def get_ros_domain_id() -> int:
     """从配置文件读取 ROS_DOMAIN_ID，默认为 0"""
-    config_file = os.path.expanduser("~/qyh_jushen_ws/persistent/ros/ROS_DOMAIN_ID")
+    config_file = os.path.expanduser("~/qyh-robot-system/persistent/ros/ROS_DOMAIN_ID")
     try:
         with open(config_file, 'r') as f:
             return int(f.read().strip())
@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     
     # 数据库
-    DATABASE_URL: str = f"sqlite:///{os.path.expanduser('~/qyh_jushen_ws/persistent/web/web.db')}"
+    DATABASE_URL: str = f"sqlite:///{os.path.expanduser('~/qyh-robot-system/persistent/web/web.db')}"
     
     # JWT 认证
     SECRET_KEY: str

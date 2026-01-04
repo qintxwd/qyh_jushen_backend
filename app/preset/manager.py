@@ -55,12 +55,12 @@ class PresetManager:
         初始化预设管理器
         
         Args:
-            storage_path: 存储路径，默认为 ~/qyh_jushen_ws/persistent/preset/
+            storage_path: 存储路径，默认为 ~/qyh-robot-system/persistent/preset/
         """
         if storage_path is None:
             # 默认路径
             home = Path.home()
-            storage_path = home / "qyh_jushen_ws" / "persistent" / "preset"
+            storage_path = home / "qyh-robot-system" / "persistent" / "preset"
         
         self.storage_path = Path(storage_path)
         self.storage_path.mkdir(parents=True, exist_ok=True)
