@@ -109,6 +109,7 @@ class WaistPointsManager:
                     points.append(WaistPoint(**builtin))
                     modified = True
             
+            # 只在有新增内置点位时才保存（_save会修改各点位的updated_at，但这是合理的）
             if modified:
                 self._save(points)
     

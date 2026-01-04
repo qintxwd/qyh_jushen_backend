@@ -81,6 +81,7 @@ class HeadPointsManager:
     
     def __init__(self):
         self._points: Dict[str, HeadPoint] = {}
+        self._file_updated_at: Optional[str] = None
         self._load()
         self._ensure_builtin()
     
@@ -92,17 +93,22 @@ class HeadPointsManager:
             try:
                 with open(POINTS_FILE, 'r', encoding='utf-8') as f:
                     data = json.load(f)
+                    self._file_updated_at = data.get('updated_at')
                     for point_data in data.get('points', []):
                         point = HeadPoint(**point_data)
                         self._points[point.id] = point
             except Exception as e:
                 print(f"加载头部点位失败: {e}")
     
-    def _save(self):
-        """保存点位到文件"""
+    def _save(self, force_update_time: bool = True):
+        """保存点位到文件
+        
+        Args:
+            force_update_time: 是否强制更新时间戳（默认True，创建/更新/删除时使用）
+        """
         data = {
             "version": "1.0",
-            "updated_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat() if force_update_time else (self._file_updated_at or datetime.now().isoformat()),
             "points": [p.model_dump() for p in self._points.values()]
         }
         
@@ -116,6 +122,8 @@ class HeadPointsManager:
     
     def _ensure_builtin(self):
         """确保内置点位存在"""
+        modified = False
+        
         # 零位（正中）
         if "zero" not in self._points:
             self._points["zero"] = HeadPoint(
@@ -126,6 +134,7 @@ class HeadPointsManager:
                 pan=0.0,
                 tilt=0.0
             )
+            modified = True
         else:
             self._points["zero"].is_builtin = True
             self._points["zero"].name = "零位"
@@ -140,10 +149,13 @@ class HeadPointsManager:
                 pan=0.0,
                 tilt=-0.2
             )
+            modified = True
         else:
             self._points["forward"].is_builtin = True
         
-        self._save()
+        # 只在有新增点位时才保存，且不更新时间戳
+        if modified:
+            self._save(force_update_time=False)
     
     def list_all(self) -> List[HeadPoint]:
         """获取所有点位，内置点位排在前面"""
