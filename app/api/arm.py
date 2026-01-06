@@ -191,10 +191,10 @@ class GripperPayloadConfig(BaseModel):
     )
 
 
-# Mock 状态
+# Mock 状态 - 默认未连接
 _mock_arm_state = ArmState(
-    connected=True,
-    robot_ip="192.168.2.200",
+    connected=False,  # 默认未连接，只有真实硬件连接时才为 True
+    robot_ip="",
     powered_on=False,
     enabled=False
 )
@@ -211,7 +211,17 @@ async def get_arm_state(current_user=Depends(get_current_admin)):
         if state:
             return ArmState(**state)
     
-    return _mock_arm_state
+    # ROS2 未连接或未获取到状态，返回断开状态
+    return ArmState(
+        connected=False,
+        robot_ip="",
+        powered_on=False,
+        enabled=False,
+        in_estop=False,
+        in_error=False,
+        servo_mode_enabled=False,
+        error_message="ROS2 未连接"
+    )
 
 
 @router.get("/arm/servo/status", response_model=ServoStatus)
