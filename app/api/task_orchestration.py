@@ -14,6 +14,7 @@ import json
 import asyncio
 import os
 import uuid
+import copy
 from datetime import datetime
 from pathlib import Path
 
@@ -112,6 +113,21 @@ _mock_task_status = {
     'elapsed_time': 0.0,
     'node_statuses': []
 }
+
+
+def _get_status_snapshot() -> Dict[str, Any]:
+    """获取当前状态的深拷贝快照，确保 node_statuses 中的字典也被拷贝"""
+    return {
+        'task_id': _mock_task_status['task_id'],
+        'task_name': _mock_task_status['task_name'],
+        'status': _mock_task_status['status'],
+        'current_node_id': _mock_task_status['current_node_id'],
+        'completed_nodes': _mock_task_status['completed_nodes'],
+        'total_nodes': _mock_task_status['total_nodes'],
+        'progress': _mock_task_status['progress'],
+        'elapsed_time': _mock_task_status['elapsed_time'],
+        'node_statuses': copy.deepcopy(_mock_task_status['node_statuses'])
+    }
 
 # 用于 mock 模式的任务模拟器
 _mock_execution_task: Optional[asyncio.Task] = None
@@ -316,7 +332,7 @@ async def execute_task(
             # 最终广播完成状态
             await task_status_manager.broadcast({
                 'type': 'task_status',
-                'data': dict(_mock_task_status)
+                'data': _get_status_snapshot()
             })
         except asyncio.CancelledError:
             _mock_task_status['status'] = 'cancelled'
@@ -326,7 +342,7 @@ async def execute_task(
                     ns['status'] = 'idle'
             await task_status_manager.broadcast({
                 'type': 'task_status',
-                'data': dict(_mock_task_status)
+                'data': _get_status_snapshot()
             })
         except Exception as e:
             _mock_task_status['status'] = 'failed'
@@ -337,7 +353,7 @@ async def execute_task(
                     ns['status'] = 'failure'
             await task_status_manager.broadcast({
                 'type': 'task_status',
-                'data': dict(_mock_task_status)
+                'data': _get_status_snapshot()
             })
     
     _mock_execution_task = asyncio.create_task(_execute_wrapper())
@@ -403,7 +419,7 @@ async def _mock_execute_nodes(nodes: List[Dict]):
             # 广播状态更新
             await task_status_manager.broadcast({
                 'type': 'task_status',
-                'data': dict(_mock_task_status)
+                'data': _get_status_snapshot()
             })
             
             # 模拟执行时间
@@ -425,7 +441,7 @@ async def _mock_execute_nodes(nodes: List[Dict]):
         
         await task_status_manager.broadcast({
             'type': 'task_status',
-            'data': dict(_mock_task_status)
+            'data': _get_status_snapshot()
         })
         
     except asyncio.CancelledError:
@@ -471,7 +487,7 @@ async def _mock_execute_tree(node: Dict[str, Any]) -> bool:
     # 广播状态更新 - 让前端看到 running 状态
     await task_status_manager.broadcast({
         'type': 'task_status',
-        'data': dict(_mock_task_status)
+        'data': _get_status_snapshot()
     })
     
     # 控制节点开始执行前有个小延迟，让用户看到转圈效果
@@ -509,9 +525,33 @@ async def _mock_execute_tree(node: Dict[str, Any]) -> bool:
         params = node.get('params', {})
         iterations = params.get('iterations', 1)
         
+        # 收集所有子节点ID（用于在每次迭代前重置状态）
+        def collect_child_ids(n):
+            ids = []
+            if n:
+                ids.append(n.get('id'))
+                for c in n.get('children', []):
+                    ids.extend(collect_child_ids(c))
+            return ids
+        
+        all_child_ids = set()
+        for child in children:
+            all_child_ids.update(collect_child_ids(child))
+        
         # 循环执行子节点
-        # 注意：子节点会被多次执行，每次执行时状态会自动从当前状态变为running再变为success
         for i in range(iterations):
+            # 每次迭代开始前，重置子节点状态为 idle（除了第一次）
+            if i > 0:
+                for ns in _mock_task_status['node_statuses']:
+                    if ns['node_id'] in all_child_ids:
+                        ns['status'] = 'idle'
+                # 广播重置状态
+                await task_status_manager.broadcast({
+                    'type': 'task_status',
+                    'data': _get_status_snapshot()
+                })
+                await asyncio.sleep(0.1)  # 让前端看到重置
+            
             for child in children:
                 result = await _mock_execute_tree(child)
                 if not result:
@@ -544,7 +584,7 @@ async def _mock_execute_tree(node: Dict[str, Any]) -> bool:
     # 广播完成状态 - 添加延迟让前端能看到success/failure状态
     await task_status_manager.broadcast({
         'type': 'task_status',
-        'data': dict(_mock_task_status)
+        'data': _get_status_snapshot()
     })
     
     # 给前端一点时间显示完成状态
@@ -828,14 +868,14 @@ class TaskStatusManager:
                         if _mock_task_status['status'] != 'idle' or _mock_task_status['total_nodes'] > 0:
                             await self.broadcast({
                                 'type': 'task_status',
-                                'data': dict(_mock_task_status)  # 使用副本
+                                'data': _get_status_snapshot()
                             })
                 else:
                     # 只在有任务执行时才广播Mock状态
                     if _mock_task_status['status'] != 'idle' or _mock_task_status['total_nodes'] > 0:
                         await self.broadcast({
                             'type': 'task_status',
-                            'data': dict(_mock_task_status)  # 使用副本避免引用问题
+                            'data': _get_status_snapshot()
                         })
                 
                 await asyncio.sleep(0.2)  # 5Hz
