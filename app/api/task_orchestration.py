@@ -509,31 +509,9 @@ async def _mock_execute_tree(node: Dict[str, Any]) -> bool:
         params = node.get('params', {})
         iterations = params.get('iterations', 1)
         
-        # 收集所有子节点ID（包括子节点的子节点）
-        def collect_child_ids(node):
-            ids = [node.get('id')]
-            for child in node.get('children', []):
-                ids.extend(collect_child_ids(child))
-            return ids
-        
-        all_child_ids = []
-        for child in children:
-            all_child_ids.extend(collect_child_ids(child))
-        
+        # 循环执行子节点
+        # 注意：子节点会被多次执行，每次执行时状态会自动从当前状态变为running再变为success
         for i in range(iterations):
-            # 在每次迭代开始前（除了第一次），重置子节点状态为idle
-            if i > 0:
-                for ns in _mock_task_status['node_statuses']:
-                    if ns['node_id'] in all_child_ids:
-                        ns['status'] = 'idle'
-                # 广播状态重置
-                await task_status_manager.broadcast({
-                    'type': 'task_status',
-                    'data': dict(_mock_task_status)
-                })
-                await asyncio.sleep(0.05)  # 短暂延迟让前端看到重置
-            
-            # 执行子节点
             for child in children:
                 result = await _mock_execute_tree(child)
                 if not result:
@@ -551,9 +529,17 @@ async def _mock_execute_tree(node: Dict[str, Any]) -> bool:
             ns['status'] = 'success' if success else 'failure'
             break
     
-    # 更新完成数和进度
-    _mock_task_status['completed_nodes'] += 1
-    _mock_task_status['progress'] = _mock_task_status['completed_nodes'] / _mock_task_status['total_nodes']
+    # 更新完成数和进度 - 计算实际完成的唯一节点数（而非累加）
+    # 这样在Loop中同一节点执行多次也只计数一次
+    completed_count = sum(1 for ns in _mock_task_status['node_statuses'] 
+                         if ns['status'] in ['success', 'failure'])
+    _mock_task_status['completed_nodes'] = completed_count
+    _mock_task_status['progress'] = completed_count / max(_mock_task_status['total_nodes'], 1)
+    
+    # 🔍 调试日志
+    status_icon = '✅' if success else '❌'
+    print(f"{status_icon} [{node_type}] {node_id} -> {'SUCCESS' if success else 'FAILURE'}")
+    print(f"📊 进度更新: {completed_count}/{_mock_task_status['total_nodes']} ({_mock_task_status['progress']*100:.1f}%)")
     
     # 广播完成状态 - 添加延迟让前端能看到success/failure状态
     await task_status_manager.broadcast({
@@ -838,15 +824,19 @@ class TaskStatusManager:
                             'data': cached_status
                         })
                     else:
+                        # Mock模式：只在有任务时广播
+                        if _mock_task_status['status'] != 'idle' or _mock_task_status['total_nodes'] > 0:
+                            await self.broadcast({
+                                'type': 'task_status',
+                                'data': dict(_mock_task_status)  # 使用副本
+                            })
+                else:
+                    # 只在有任务执行时才广播Mock状态
+                    if _mock_task_status['status'] != 'idle' or _mock_task_status['total_nodes'] > 0:
                         await self.broadcast({
                             'type': 'task_status',
-                            'data': _mock_task_status
+                            'data': dict(_mock_task_status)  # 使用副本避免引用问题
                         })
-                else:
-                    await self.broadcast({
-                        'type': 'task_status',
-                        'data': _mock_task_status
-                    })
                 
                 await asyncio.sleep(0.2)  # 5Hz
             except Exception as e:
