@@ -300,17 +300,45 @@ async def execute_task(
         start_time = time.time()
         try:
             success = await _mock_execute_tree(root_node)
-            _mock_task_status['status'] = 'completed' if success else 'failed'
+            
+            # 任务完成时，将所有still running的节点标记为对应状态
+            final_status = 'completed' if success else 'failed'
+            for ns in _mock_task_status['node_statuses']:
+                if ns['status'] == 'running':
+                    # 如果任务成功完成，running节点也标记为success
+                    # 如果任务失败，running节点标记为failure
+                    ns['status'] = 'success' if success else 'failure'
+            
+            _mock_task_status['status'] = final_status
             _mock_task_status['elapsed_time'] = time.time() - start_time
+            _mock_task_status['current_node_id'] = None
+            
+            # 最终广播完成状态
             await task_status_manager.broadcast({
                 'type': 'task_status',
                 'data': dict(_mock_task_status)
             })
         except asyncio.CancelledError:
             _mock_task_status['status'] = 'cancelled'
+            # 取消时也要清理running状态
+            for ns in _mock_task_status['node_statuses']:
+                if ns['status'] == 'running':
+                    ns['status'] = 'idle'
+            await task_status_manager.broadcast({
+                'type': 'task_status',
+                'data': dict(_mock_task_status)
+            })
         except Exception as e:
             _mock_task_status['status'] = 'failed'
             _mock_task_status['error'] = str(e)
+            # 错误时也要清理running状态
+            for ns in _mock_task_status['node_statuses']:
+                if ns['status'] == 'running':
+                    ns['status'] = 'failure'
+            await task_status_manager.broadcast({
+                'type': 'task_status',
+                'data': dict(_mock_task_status)
+            })
     
     _mock_execution_task = asyncio.create_task(_execute_wrapper())
     
@@ -427,16 +455,28 @@ async def _mock_execute_tree(node: Dict[str, Any]) -> bool:
             return False
     
     # 更新节点状态为 running
+    node_found = False
     for ns in _mock_task_status['node_statuses']:
         if ns['node_id'] == node_id:
             ns['status'] = 'running'
+            node_found = True
             break
     
-    # 广播状态更新
+    if not node_found:
+        print(f"⚠️  节点 {node_id} 未在 node_statuses 中找到")
+    
+    # 更新 current_node_id
+    _mock_task_status['current_node_id'] = node_id
+    
+    # 广播状态更新 - 让前端看到 running 状态
     await task_status_manager.broadcast({
         'type': 'task_status',
         'data': dict(_mock_task_status)
     })
+    
+    # 控制节点开始执行前有个小延迟，让用户看到转圈效果
+    if node_type in CONTROL_NODE_TYPES:
+        await asyncio.sleep(0.15)
     
     success = True
     
@@ -468,7 +508,32 @@ async def _mock_execute_tree(node: Dict[str, Any]) -> bool:
         # 循环：执行指定次数
         params = node.get('params', {})
         iterations = params.get('iterations', 1)
-        for _ in range(iterations):
+        
+        # 收集所有子节点ID（包括子节点的子节点）
+        def collect_child_ids(node):
+            ids = [node.get('id')]
+            for child in node.get('children', []):
+                ids.extend(collect_child_ids(child))
+            return ids
+        
+        all_child_ids = []
+        for child in children:
+            all_child_ids.extend(collect_child_ids(child))
+        
+        for i in range(iterations):
+            # 在每次迭代开始前（除了第一次），重置子节点状态为idle
+            if i > 0:
+                for ns in _mock_task_status['node_statuses']:
+                    if ns['node_id'] in all_child_ids:
+                        ns['status'] = 'idle'
+                # 广播状态重置
+                await task_status_manager.broadcast({
+                    'type': 'task_status',
+                    'data': dict(_mock_task_status)
+                })
+                await asyncio.sleep(0.05)  # 短暂延迟让前端看到重置
+            
+            # 执行子节点
             for child in children:
                 result = await _mock_execute_tree(child)
                 if not result:
@@ -480,21 +545,27 @@ async def _mock_execute_tree(node: Dict[str, Any]) -> bool:
         # 叶子节点（技能节点）：模拟执行时间
         await asyncio.sleep(0.3 + (0.2 if 'Move' in node_type else 0.1))
     
-    # 更新节点状态
+    # 更新节点状态为完成状态
     for ns in _mock_task_status['node_statuses']:
         if ns['node_id'] == node_id:
             ns['status'] = 'success' if success else 'failure'
             break
     
-    # 更新完成数
+    # 更新完成数和进度
     _mock_task_status['completed_nodes'] += 1
     _mock_task_status['progress'] = _mock_task_status['completed_nodes'] / _mock_task_status['total_nodes']
     
-    # 广播状态更新
+    # 广播完成状态 - 添加延迟让前端能看到success/failure状态
     await task_status_manager.broadcast({
         'type': 'task_status',
         'data': dict(_mock_task_status)
     })
+    
+    # 给前端一点时间显示完成状态
+    if node_type in CONTROL_NODE_TYPES:
+        await asyncio.sleep(0.05)  # 控制节点快速完成
+    else:
+        await asyncio.sleep(0.15)  # 叶子节点稍长
     
     return success
 
