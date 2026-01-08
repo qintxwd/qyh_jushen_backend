@@ -14,8 +14,8 @@ WEB_VIDEO_SERVER_PORT = 8080
 # 相机话题映射
 CAMERA_TOPICS = {
     "head": "/head_camera/color/image_raw",
-    "left_hand": "/left_hand_camera/color/image_raw",
-    "right_hand": "/right_hand_camera/color/image_raw",
+    "left_hand": "/left_camera/color/image_raw",
+    "right_hand": "/right_camera/color/image_raw",
 }
 
 
