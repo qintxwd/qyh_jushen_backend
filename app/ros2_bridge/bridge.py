@@ -1053,6 +1053,23 @@ class ROS2Bridge:
             
             # 任务状态订阅
             def task_status_callback(msg: TaskStatus):
+                # 解析节点状态列表
+                node_statuses = []
+                for ns in msg.node_statuses:
+                    node_statuses.append({
+                        "node_id": ns.node_id,
+                        "node_type": ns.node_type,
+                        "node_name": ns.node_name,
+                        "status": ns.status,
+                        "message": ns.message,
+                        "duration": ns.duration,
+                        # 扩展字段
+                        "children_count": ns.children_count,
+                        "current_child_index": ns.current_child_index,
+                        "current_iteration": ns.current_iteration,
+                        "total_iterations": ns.total_iterations
+                    })
+                
                 self.task_status = {
                     "task_id": msg.task_id,
                     "task_name": msg.task_name,
@@ -1062,7 +1079,8 @@ class ROS2Bridge:
                     "completed_nodes": msg.completed_nodes,
                     "total_nodes": msg.total_nodes,
                     "message": msg.message,
-                    "elapsed_time": msg.elapsed_time
+                    "elapsed_time": msg.elapsed_time,
+                    "node_statuses": node_statuses
                 }
             
             self.node.create_subscription(

@@ -303,7 +303,7 @@ async def execute_task(
         'current_node_id': None,
         'completed_nodes': 0,
         'total_nodes': len(all_nodes),
-        'node_statuses': [{'node_id': n['id'], 'status': 'idle'} for n in all_nodes]
+        'node_statuses': all_nodes  # all_nodes 现在已经是完整的 node_status 结构
     })
     
     # 取消之前的模拟任务
@@ -370,7 +370,7 @@ CONTROL_NODE_TYPES = {'Sequence', 'Parallel', 'Selector', 'Loop'}
 
 
 def _collect_nodes(node: Dict[str, Any], nodes: List[Dict] = None) -> List[Dict]:
-    """递归收集所有节点"""
+    """递归收集所有节点，生成完整的 node_statuses 结构"""
     if nodes is None:
         nodes = []
     
@@ -379,11 +379,28 @@ def _collect_nodes(node: Dict[str, Any], nodes: List[Dict] = None) -> List[Dict]
     
     node_id = node.get('id', f'node_{len(nodes)}')
     node_type = node.get('type', 'Unknown')
-    nodes.append({'id': node_id, 'type': node_type})
+    node_name = node.get('name', node_type)
+    children = node.get('children', [])
+    params = node.get('params', {})
+    
+    # 构建完整的节点状态对象
+    node_status = {
+        'node_id': node_id,
+        'node_type': node_type,
+        'node_name': node_name,
+        'status': 'idle',
+        'message': '',
+        'duration': 0.0,
+        # 扩展字段
+        'children_count': len(children) if node_type in CONTROL_NODE_TYPES else 0,
+        'current_child_index': 0,
+        'current_iteration': 0,
+        'total_iterations': params.get('iterations', 0) if node_type == 'Loop' else 0
+    }
+    nodes.append(node_status)
     
     # 只有控制节点才递归处理子节点
     if node_type in CONTROL_NODE_TYPES:
-        children = node.get('children', [])
         for child in children:
             _collect_nodes(child, nodes)
     
@@ -505,7 +522,13 @@ async def _mock_execute_tree(node: Dict[str, Any]) -> bool:
         
     elif node_type == 'Sequence':
         # 顺序执行子节点
-        for child in children:
+        for idx, child in enumerate(children):
+            # 更新当前子节点索引
+            for ns in _mock_task_status['node_statuses']:
+                if ns['node_id'] == node_id:
+                    ns['current_child_index'] = idx
+                    break
+            
             result = await _mock_execute_tree(child)
             if not result:
                 success = False
@@ -514,7 +537,13 @@ async def _mock_execute_tree(node: Dict[str, Any]) -> bool:
     elif node_type == 'Selector':
         # 选择器：执行直到有一个成功
         success = False
-        for child in children:
+        for idx, child in enumerate(children):
+            # 更新当前子节点索引
+            for ns in _mock_task_status['node_statuses']:
+                if ns['node_id'] == node_id:
+                    ns['current_child_index'] = idx
+                    break
+            
             result = await _mock_execute_tree(child)
             if result:
                 success = True
@@ -540,6 +569,12 @@ async def _mock_execute_tree(node: Dict[str, Any]) -> bool:
         
         # 循环执行子节点
         for i in range(iterations):
+            # 更新当前迭代次数
+            for ns in _mock_task_status['node_statuses']:
+                if ns['node_id'] == node_id:
+                    ns['current_iteration'] = i
+                    break
+            
             # 每次迭代开始前，重置子节点状态为 idle（除了第一次）
             if i > 0:
                 for ns in _mock_task_status['node_statuses']:
@@ -552,7 +587,13 @@ async def _mock_execute_tree(node: Dict[str, Any]) -> bool:
                 })
                 await asyncio.sleep(0.1)  # 让前端看到重置
             
-            for child in children:
+            for idx, child in enumerate(children):
+                # 更新当前子节点索引
+                for ns in _mock_task_status['node_statuses']:
+                    if ns['node_id'] == node_id:
+                        ns['current_child_index'] = idx
+                        break
+                
                 result = await _mock_execute_tree(child)
                 if not result:
                     success = False
