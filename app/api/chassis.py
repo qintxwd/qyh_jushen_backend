@@ -13,7 +13,7 @@ router = APIRouter()
 
 def _get_chassis_config_file() -> Path:
     """获取地盘配置文件路径"""
-    workspace_root = Path(__file__).parent.parent.parent.parent.parent
+    workspace_root = Path(__file__).parent.parent.parent.parent
     config_dir = workspace_root / "persistent" / "web"
     config_dir.mkdir(parents=True, exist_ok=True)
     return config_dir / "chassis_config.json"
@@ -120,7 +120,7 @@ class ManualControlCommand(BaseModel):
 
 def _get_current_map_from_file() -> str:
     """从 maps/current_map.txt 读取当前地图名"""
-    workspace_root = Path(__file__).parent.parent.parent.parent.parent
+    workspace_root = Path(__file__).parent.parent.parent.parent
     current_map_file = workspace_root / "maps" / "current_map.txt"
     if current_map_file.exists():
         return current_map_file.read_text(encoding='utf-8').strip()
@@ -684,17 +684,45 @@ async def set_map(req: SetMapRequest):
 # ==================== 预设站点管理 ====================
 
 @router.get("/chassis/stations")
+@router.get("/chassis/stations")
 async def get_stations():
-    """获取预设站点列表"""
-    # TODO: 从配置文件或 ROS2 获取
-    return {
-        "stations": [
-            {"id": 1, "name": "充电站", "x": 0.0, "y": 0.0, "yaw": 0.0},
-            {"id": 2, "name": "工作台 A", "x": 1.5, "y": 2.0, "yaw": 1.57},
-            {"id": 3, "name": "工作台 B", "x": 3.0, "y": 1.0, "yaw": 3.14},
-            {"id": 4, "name": "物料区", "x": -1.0, "y": 2.5, "yaw": 0.78}
-        ]
-    }
+    """获取预设站点列表（从地图数据读取）"""
+    from pathlib import Path
+    import json
+    workspace_root = Path(__file__).parent.parent.parent.parent
+    maps_dir = workspace_root / "maps"
+    
+    # 读取当前地图名
+    current_map_file = maps_dir / "current_map.txt"
+    if not current_map_file.exists():
+        return {"stations": []}
+    
+    current_map = current_map_file.read_text(encoding="utf-8").strip()
+    if not current_map:
+        return {"stations": []}
+    
+    # 读取地图JSON
+    map_json_file = maps_dir / current_map / f"{current_map}.json"
+    if not map_json_file.exists():
+        return {"stations": []}
+    
+    with open(map_json_file, "r", encoding="utf-8") as f:
+        map_data = json.load(f)
+    
+    stations = map_data.get("data", {}).get("station", [])
+    # 转换为前端需要的格式
+    result_stations = []
+    for station in stations:
+        result_stations.append({
+            "id": station.get("id"),
+            "name": station.get("name", "站点" + str(station.get("id", ""))),
+            "x": station.get("pos.x", 0) / 1000.0,  # mm转m
+            "y": station.get("pos.y", 0) / 1000.0,  # mm转m
+            "yaw": station.get("pos.yaw", 0) / 1000.0  # 1/1000 rad转rad
+        })
+    
+    return {"stations": result_stations}
+
 
 
 # ==================== 地图同步 ====================
@@ -706,7 +734,7 @@ async def sync_maps():
     执行 qyh_standard_api/get_map.py 脚本
     """
     # 获取 get_map.py 路径
-    workspace_root = Path(__file__).parent.parent.parent.parent.parent
+    workspace_root = Path(__file__).parent.parent.parent.parent
     get_map_script = workspace_root / "qyh_standard_api" / "get_map.py"
     
     if not get_map_script.exists():
@@ -781,7 +809,7 @@ async def get_map_data():
     """
     import json
     
-    workspace_root = Path(__file__).parent.parent.parent.parent.parent
+    workspace_root = Path(__file__).parent.parent.parent.parent
     maps_dir = workspace_root / "maps"
     
     # 读取当前地图名
@@ -828,7 +856,7 @@ async def get_map_image(map_name: str):
     """获取地图图片"""
     from fastapi.responses import FileResponse
     
-    workspace_root = Path(__file__).parent.parent.parent.parent.parent
+    workspace_root = Path(__file__).parent.parent.parent.parent
     maps_dir = workspace_root / "maps"
     
     # 安全检查：防止路径遍历
@@ -851,7 +879,7 @@ async def get_map_image(map_name: str):
 @router.get("/chassis/maps")
 async def get_maps_list():
     """获取所有地图列表"""
-    workspace_root = Path(__file__).parent.parent.parent.parent.parent
+    workspace_root = Path(__file__).parent.parent.parent.parent
     maps_dir = workspace_root / "maps"
     
     if not maps_dir.exists():
