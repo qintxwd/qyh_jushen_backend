@@ -25,8 +25,7 @@ class ROS2Bridge:
         
         # 头部状态缓存
         self.head_state = None
-        self.head_pan_pub = None
-        self.head_tilt_pub = None
+        self.head_cmd_pub = None
         
         # 机械臂状态缓存
         self.arm_state = None
@@ -897,12 +896,9 @@ class ROS2Bridge:
 
         # 头部控制发布器
         try:
-            from std_msgs.msg import Float64
-            self.head_pan_pub = self.node.create_publisher(
-                Float64, '/head/pan_normalized', 10
-            )
-            self.head_tilt_pub = self.node.create_publisher(
-                Float64, '/head/tilt_normalized', 10
+            from std_msgs.msg import Float64MultiArray
+            self.head_cmd_pub = self.node.create_publisher(
+                Float64MultiArray, '/head_motor_node/cmd_position', 10
             )
             print("✅ 头部发布器创建成功")
         except Exception as e:
@@ -1344,19 +1340,22 @@ class ROS2Bridge:
                 future.add_done_callback(done_callback)
 
             elif cmd_type == 'head_control':
-                from std_msgs.msg import Float64
+                from std_msgs.msg import Float64MultiArray
                 pan = cmd['params'].get('pan')
                 tilt = cmd['params'].get('tilt')
                 
-                if pan is not None and self.head_pan_pub:
-                    msg = Float64()
-                    msg.data = float(pan)
-                    self.head_pan_pub.publish(msg)
-                
-                if tilt is not None and self.head_tilt_pub:
-                    msg = Float64()
-                    msg.data = float(tilt)
-                    self.head_tilt_pub.publish(msg)
+                # 头部需要同时发送pan和tilt
+                if (pan is not None or tilt is not None) and self.head_cmd_pub:
+                    # 如果只提供了一个值,使用当前状态填充另一个
+                    current_state = self.get_head_state()
+                    if pan is None:
+                        pan = current_state.get('pan_normalized', 0.0) if current_state else 0.0
+                    if tilt is None:
+                        tilt = current_state.get('tilt_normalized', 0.0) if current_state else 0.0
+                    
+                    msg = Float64MultiArray()
+                    msg.data = [float(tilt), float(pan)]  # 注意：节点期望顺序是 [tilt, pan]
+                    self.head_cmd_pub.publish(msg)
                 
                 if 'loop' in cmd and 'future' in cmd:
                     result = {'success': True, 'message': '头部控制已发送'}
