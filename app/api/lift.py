@@ -32,7 +32,7 @@ class LiftState(BaseModel):
     current_speed: float = 20.0
     position_reached: bool = True
     alarm: bool = False
-    shutdown_requested: bool = False  # 硬件关机请求
+
 
 
 # 模拟状态（实际应从 ROS2 获取）
@@ -56,8 +56,7 @@ async def get_lift_state(current_user=Depends(get_current_admin)):
                 current_speed=state.get("current_speed", 20.0),
                 position_reached=state.get("position_reached", True),
                 alarm=state.get("alarm", False),
-                shutdown_requested=state.get("shutdown_requested", False)
-            )
+)
     
     # 返回模拟状态（Mock 模式）
     return _mock_state
@@ -77,8 +76,7 @@ async def control_lift(
         5: "手动上升",
         6: "手动下降",
         7: "复位报警",
-        8: "停止运动",
-        9: "系统关机"
+        8: "停止运动"
     }
     
     cmd_name = command_names.get(request.command, f"未知命令({request.command})")
@@ -157,9 +155,7 @@ async def control_lift(
         _mock_state.position_reached = True
         return LiftControlResponse(success=True, message="运动已停止")
     
-    elif request.command == 9:  # 系统关机
-        return LiftControlResponse(success=True, message="系统关机命令已发送 (Mock)")
-    
+
     return LiftControlResponse(
         success=False,
         message=f"未知命令: {request.command}"
@@ -197,40 +193,3 @@ async def enable_lift(current_user=Depends(get_current_admin)):
     return LiftControlResponse(success=True, message="升降已使能 (Mock)")
 
 
-@router.post("/system/shutdown", response_model=LiftControlResponse)
-async def system_shutdown(current_user=Depends(get_current_admin)):
-    """系统关机（通过PLC）
-    
-    软件关机流程:
-    1. Web前端调用此接口
-    2. 通过ROS2发送关机命令(command=9)到升降控制节点
-    3. 升降控制节点写PLC关机线圈
-    4. 系统执行shutdown命令
-    5. PLC检测到系统关机后10秒断电
-    """
-    watchdog.heartbeat()
-    
-    # 尝试通过 ROS2 发送关机命令
-    if ros2_bridge.is_connected():
-        try:
-            result = await ros2_bridge.call_lift_control(
-                command=9,  # CMD_SHUTDOWN
-                value=0.0,
-                hold=False
-            )
-            if result:
-                return LiftControlResponse(
-                    success=result.get("success", False),
-                    message=result.get("message", "系统关机命令已发送")
-                )
-        except Exception as e:
-            return LiftControlResponse(
-                success=False,
-                message=f"系统关机命令发送失败: {str(e)}"
-            )
-    
-    # Mock 模式
-    return LiftControlResponse(
-        success=True,
-        message="系统关机命令已发送 (Mock模式，未实际关机)"
-    )

@@ -21,7 +21,17 @@ class ROS2Bridge:
         # 升降机状态缓存
         self.lift_state = None
         self.lift_client = None
-        self.shutdown_requested = False  # 硬件关机请求标志
+        # 关机服务客户端 (软件触发关机)
+        # self._shutdown_client 在node创建后初始化
+        self._shutdown_client = None
+        # 关机状态
+        self._shutdown_state = {
+            "shutdown_in_progress": False,
+            "trigger_source": 0,
+            "trigger_source_text": "",
+            "countdown_seconds": -1,
+            "plc_connected": False
+        }
         
         # 头部状态缓存
         self.head_state = None
@@ -309,6 +319,38 @@ class ROS2Bridge:
             print("✅ 升降机订阅器创建成功: /lift/state")
         except Exception as e:
             print(f"⚠️  升降机订阅器创建失败: {e}")
+        # 关机状态订阅
+        try:
+            from qyh_shutdown_msgs.msg import ShutdownState
+            
+            def shutdown_state_callback(msg):
+                trigger_text = ""
+                if msg.trigger_source == 1:
+                    trigger_text = "硬件按钮触发"
+                elif msg.trigger_source == 2:
+                    trigger_text = "软件命令触发"
+                
+                self._shutdown_state = {
+                    "shutdown_in_progress": msg.shutdown_in_progress,
+                    "trigger_source": msg.trigger_source,
+                    "trigger_source_text": trigger_text,
+                    "countdown_seconds": msg.countdown_seconds,
+                    "plc_connected": msg.plc_connected
+                }
+                
+                if msg.shutdown_in_progress:
+                    print(f"⚠️ 系统正在关机！来源={trigger_text}, 倒计时={msg.countdown_seconds}秒")
+            
+            self.node.create_subscription(
+                ShutdownState,
+                'shutdown_state',
+                shutdown_state_callback,
+                10
+            )
+            print("✅ 关机状态订阅器创建成功: /shutdown_state")
+        except Exception as e:
+            print(f"⚠️  关机状态订阅器创建失败: {e}")
+
 
         # 头部状态订阅
         try:
@@ -893,6 +935,16 @@ class ROS2Bridge:
             )
         except Exception as e:
             print(f"⚠️  升降机客户端创建失败: {e}")
+        # 关机控制客户端
+        try:
+            from std_srvs.srv import Trigger
+            self._shutdown_client = self.node.create_client(
+                Trigger, 'qyh_shutdown'
+            )
+            print("✅ 关机客户端创建成功: qyh_shutdown")
+        except Exception as e:
+            print(f"⚠️  关机客户端创建失败: {e}")
+
 
         # 头部控制发布器
         try:
@@ -1321,6 +1373,33 @@ class ROS2Bridge:
                     raise Exception("Lift service not available")
                 
                 future = self.lift_client.call_async(req)
+                
+                def done_callback(f):
+                    try:
+                        resp = f.result()
+                        result = {
+                            'success': resp.success,
+                            'message': resp.message
+                        }
+                    except Exception as e:
+                        result = {'success': False, 'message': str(e)}
+                    
+                    if 'loop' in cmd and 'future' in cmd:
+                        cmd['loop'].call_soon_threadsafe(
+                            cmd['future'].set_result, result
+                        )
+                
+                future.add_done_callback(done_callback)
+
+
+            elif cmd_type == 'shutdown':
+                from std_srvs.srv import Trigger
+                req = Trigger.Request()
+                
+                if not self._shutdown_client.wait_for_service(timeout_sec=1.0):
+                    raise Exception("Shutdown service not available")
+                
+                future = self._shutdown_client.call_async(req)
                 
                 def done_callback(f):
                     try:
@@ -2779,6 +2858,11 @@ class ROS2Bridge:
             return None
         return self.state_queue.get()
 
+    
+    def get_shutdown_state(self) -> Optional[Dict[str, Any]]:
+        """获取关机状态"""
+        return self._shutdown_state
+
     def get_lift_state(self) -> Optional[Dict[str, Any]]:
         """获取升降电机状态"""
         if self.mock_mode:
@@ -3604,6 +3688,31 @@ class ROS2Bridge:
         """发送命令到 ROS2（异步安全）"""
         self.command_queue.put(cmd)
     
+
+    async def call_shutdown(self) -> Optional[Dict[str, Any]]:
+        """调用系统关机服务"""
+        if self.mock_mode:
+            return {"success": False, "message": "Mock模式下不执行实际关机"}
+        
+        import asyncio
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        
+        cmd = {
+            'type': 'shutdown',
+            'future': future,
+            'loop': loop
+        }
+        
+        try:
+            await self.command_queue.put(cmd)
+            result = await asyncio.wait_for(future, timeout=10.0)
+            return result
+        except asyncio.TimeoutError:
+            return {"success": False, "message": "关机命令超时"}
+        except Exception as e:
+            return {"success": False, "message": f"关机命令失败: {str(e)}"}
+
     def is_connected(self) -> bool:
         """检查 ROS2 是否连接"""
         if self.mock_mode:
