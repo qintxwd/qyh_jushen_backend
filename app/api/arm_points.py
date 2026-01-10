@@ -317,8 +317,12 @@ async def create_point(
     # 获取当前关节位置
     joint_positions = ros2_bridge.joint_positions
     
-    if len(joint_positions) < 14:
-        raise HTTPException(status_code=400, detail="无法获取完整的关节数据")
+    if not joint_positions or len(joint_positions) < 14:
+        # 提供更详细的错误信息
+        if not ros2_bridge.is_connected():
+            raise HTTPException(status_code=400, detail="ROS2未连接，无法获取关节数据。请确保机械臂系统已启动。")
+        else:
+            raise HTTPException(status_code=400, detail=f"无法获取完整的关节数据（当前: {len(joint_positions) if joint_positions else 0}/14）")
     
     left_joints = list(joint_positions[:7])
     right_joints = list(joint_positions[7:14])
@@ -360,8 +364,12 @@ async def update_point(
     # 如果要更新关节数据
     if request.update_joints:
         joint_positions = ros2_bridge.joint_positions
-        if len(joint_positions) < 14:
-            raise HTTPException(status_code=400, detail="无法获取完整的关节数据")
+        if not joint_positions or len(joint_positions) < 14:
+            # 提供更详细的错误信息
+            if not ros2_bridge.is_connected():
+                raise HTTPException(status_code=400, detail="ROS2未连接，无法获取关节数据。请确保机械臂系统已启动。")
+            else:
+                raise HTTPException(status_code=400, detail=f"无法获取完整的关节数据（当前: {len(joint_positions) if joint_positions else 0}/14）")
         
         side = request.side or "both"
         

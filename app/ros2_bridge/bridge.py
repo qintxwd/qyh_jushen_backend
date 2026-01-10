@@ -2956,31 +2956,56 @@ class ROS2Bridge:
 
     def get_joint_states(self) -> Optional[Dict[str, Any]]:
         """获取 3D 场景用的关节状态"""
-        if self.mock_mode:
-            return None  # Mock 模式由 API 层处理
-        
+        # 即使在 Mock 模式也返回缓存数据，避免上层 API 收到 None
         return self.joint_states_for_3d
 
     def get_arm_state(self) -> Optional[Dict[str, Any]]:
         """获取机械臂状态"""
-        if self.mock_mode:
-            return None  # Mock 模式由 API 层处理
-        
+        # 在 Mock 模式或真实模式下均返回缓存的状态（可能为空）以便上层使用回退逻辑
+        state = {}
         if self.arm_state:
-            # 添加关节位置
             state = self.arm_state.copy()
-            if len(self.joint_positions) >= 14:
-                state['left_joint_positions'] = self.joint_positions[:7]
-                state['right_joint_positions'] = self.joint_positions[7:14]
-            return state
-        return None
+        else:
+            # 提供一个基础的默认结构，避免上层抛出 KeyError
+            state = {
+                "connected": False,
+                "robot_ip": "",
+                "powered_on": False,
+                "enabled": False,
+                "in_estop": False,
+                "in_error": False,
+                "servo_mode_enabled": False,
+                "error_message": "ROS2未连接" if self.mock_mode else "",
+                "left_in_position": True,
+                "right_in_position": True
+            }
+        
+        # 确保关节位置字段始终存在
+        if len(self.joint_positions) >= 14:
+            state['left_joint_positions'] = list(self.joint_positions[:7])
+            state['right_joint_positions'] = list(self.joint_positions[7:14])
+        else:
+            # 保证字段存在
+            state.setdefault('left_joint_positions', [0.0] * 7)
+            state.setdefault('right_joint_positions', [0.0] * 7)
+        
+        return state
 
     def get_servo_status(self) -> Optional[Dict[str, Any]]:
         """获取伺服状态"""
-        if self.mock_mode:
-            return None  # Mock 模式由 API 层处理
+        # 在 Mock 模式也返回一个默认伺服状态结构，避免上层收到 None
+        if self.servo_status:
+            return self.servo_status
         
-        return self.servo_status
+        return {
+            "mode": "idle",
+            "is_abs": True,
+            "cycle_time_ns": 8000000,
+            "publish_rate_hz": 125.0,
+            "latency_ms": 0.0,
+            "packet_loss_rate": 0.0,
+            "error_code": 0
+        }
 
     async def call_arm_service(self, service_name: str) -> Optional[Dict]:
         """调用机械臂基础服务 (Trigger 类型)"""
