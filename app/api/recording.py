@@ -72,12 +72,12 @@ async def start_recording(request: StartRecordingRequest):
     """
     开始录制
     
-    - action_name: 动作名称（用于创建子目录）
+    - action_name: 动作 ID（如 pickup_cube，用于确定保存目录）
     - user_name: 用户名
     - version: 版本号
-    - topics: 要录制的话题列表（可选）
+    - topics: 要录制的话题列表
     
-    录制文件将保存到: ~/qyh-robot-system/DATA/{action_name}/qyh_{user_name}_{version}_{timestamp}/
+    录制文件将保存到: ~/qyh-robot-system/model_actions/{action_name}/data/bags/qyh_{user_name}_{version}_{timestamp}/
     """
     logger.info(f"开始录制请求: action={request.action_name}, user={request.user_name}, version={request.version}")
     

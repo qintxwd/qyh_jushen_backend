@@ -142,12 +142,29 @@ def _determine_status(action_dir: Path, meta: dict) -> ActionStatus:
 
 
 def _count_episodes(action_dir: Path) -> int:
-    """统计已采集的轨迹数量"""
-    episodes_dir = action_dir / "data" / "episodes"
-    if not episodes_dir.exists():
-        return 0
+    """
+    统计已采集的轨迹数量
+    
+    统计两个位置：
+    1. data/episodes/ - 转换后的 HDF5 文件
+    2. data/bags/ - 原始 rosbag 文件（尚未转换）
+    """
+    count = 0
+    
     # 统计 HDF5 文件数量
-    return len(list(episodes_dir.glob("*.hdf5")))
+    episodes_dir = action_dir / "data" / "episodes"
+    if episodes_dir.exists():
+        count += len(list(episodes_dir.glob("*.hdf5")))
+    
+    # 统计 bag 目录数量（每个 bag 是一个目录）
+    bags_dir = action_dir / "data" / "bags"
+    if bags_dir.exists():
+        # rosbag2 的每个录制是一个目录
+        for item in bags_dir.iterdir():
+            if item.is_dir() and (item / "metadata.yaml").exists():
+                count += 1
+    
+    return count
 
 
 # ==================== API 路由 ====================
