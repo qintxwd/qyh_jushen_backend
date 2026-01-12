@@ -368,13 +368,29 @@ class ROS2Bridge:
             from sensor_msgs.msg import JointState as HeadJointState
             
             def head_state_callback(msg):
-                if len(msg.position) >= 2:
-                    # pan 和 tilt 弧度转换为归一化值
-                    pan_rad = msg.position[0]
-                    tilt_rad = msg.position[1]
-                    # 弧度范围约 -1.57 到 1.57，归一化到 -1 到 1
-                    pan_norm = pan_rad / 1.5708
-                    tilt_norm = tilt_rad / 1.5708
+                if len(msg.position) >= 2 and len(msg.name) >= 2:
+                    # 根据 joint name 查找正确的索引
+                    pan_idx = -1
+                    tilt_idx = -1
+                    for i, name in enumerate(msg.name):
+                        if 'pan' in name.lower():
+                            pan_idx = i
+                        elif 'tilt' in name.lower():
+                            tilt_idx = i
+                    
+                    # 如果找不到，使用默认顺序
+                    if pan_idx < 0:
+                        pan_idx = 0
+                    if tilt_idx < 0:
+                        tilt_idx = 1
+                    
+                    pan_rad = msg.position[pan_idx]
+                    tilt_rad = msg.position[tilt_idx]
+                    
+                    # 弧度范围: pan ±90° (±1.5708), tilt ±45° (±0.7854)
+                    pan_norm = pan_rad / 1.5708  # 归一化到 -1 到 1
+                    tilt_norm = tilt_rad / 0.7854  # 归一化到 -1 到 1
+                    
                     # 归一化转舵机位置 (100-900 / 200-800)
                     pan_pos = 500 + pan_norm * 400
                     tilt_pos = 500 + tilt_norm * 300
