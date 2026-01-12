@@ -2,11 +2,20 @@
 模型动作管理 API
 
 提供动作定义的查询、同步和管理功能。
-所有动作统一存储在 ~/qyh-robot-system/model_actions/ 目录。
+所有动作统一存储在 ~/qyh-robot-system/model_actions/{robot_name}/{version}/ 目录。
 动作配置从云端下载后保存到此目录。
+
+目录结构：
+  model_actions/
+    general/
+      1.0/
+        pickup_cube/
+          action.yaml
+          data/
+          model/
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any, Literal
 import logging
@@ -18,14 +27,31 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/actions", tags=["actions"])
 
-# 统一的模型动作目录
-MODEL_ACTIONS_DIR = Path(os.path.expanduser("~/qyh-robot-system/model_actions"))
+# 基础模型动作目录
+MODEL_ACTIONS_BASE = Path(os.path.expanduser("~/qyh-robot-system/model_actions"))
+
+# 默认机器人类型和版本（从环境变量获取）
+DEFAULT_ROBOT_NAME = os.environ.get('GLOBAL_ROBOT_NAME', 'general')
+DEFAULT_ROBOT_VERSION = os.environ.get('GLOBAL_ROBOT_VERSION', '1.0')
+
+
+def get_model_actions_dir(robot_name: str = None, robot_version: str = None) -> Path:
+    """获取指定机器人和版本的模型动作目录"""
+    name = robot_name or DEFAULT_ROBOT_NAME
+    version = robot_version or DEFAULT_ROBOT_VERSION
+    return MODEL_ACTIONS_BASE / name / version
 
 
 # ==================== 响应模型 ====================
 
 # 动作状态类型
 ActionStatus = Literal["collecting", "trained"]
+
+
+class RobotInfo(BaseModel):
+    """机器人信息"""
+    name: str = DEFAULT_ROBOT_NAME
+    version: str = DEFAULT_ROBOT_VERSION
 
 
 class ActionSummary(BaseModel):
@@ -38,8 +64,11 @@ class ActionSummary(BaseModel):
     status: ActionStatus = "collecting"  # 动作状态
     has_model: bool = False              # 是否有训练好的模型
     episode_count: int = 0               # 已采集轨迹数
+    model_version: int = 0               # 模型版本号
     topics: List[str] = []
     camera_count: int = 0
+    robot_name: str = DEFAULT_ROBOT_NAME      # 机器人类型
+    robot_version: str = DEFAULT_ROBOT_VERSION  # 机器人版本
     created_at: str = ""
     updated_at: str = ""
 
@@ -56,6 +85,8 @@ class ActionDetail(BaseModel):
     episode_count: int = 0
     last_training: Optional[str] = None
     model_version: Optional[str] = None
+    robot_name: str = DEFAULT_ROBOT_NAME      # 机器人类型
+    robot_version: str = DEFAULT_ROBOT_VERSION  # 机器人版本
     
     # 采集配置
     collection: Dict[str, Any] = {}
@@ -72,6 +103,8 @@ class ActionListResponse(BaseModel):
     success: bool
     actions: List[ActionSummary] = []
     total: int = 0
+    robot_name: str = DEFAULT_ROBOT_NAME
+    robot_version: str = DEFAULT_ROBOT_VERSION
 
 
 class ActionDetailResponse(BaseModel):
@@ -103,9 +136,17 @@ class TopicsForActionResponse(BaseModel):
     action_id: str = ""
 
 
+class RobotInfoResponse(BaseModel):
+    """机器人信息响应"""
+    success: bool
+    robot_name: str
+    robot_version: str
+    actions_dir: str
+
+
 # ==================== 辅助函数 ====================
 
-def _get_registry():
+def _get_registry(robot_name: str = None, robot_version: str = None):
     """获取动作注册表"""
     try:
         training_path = Path(__file__).parent.parent.parent.parent / "qyh_act_training"
@@ -113,7 +154,8 @@ def _get_registry():
             sys.path.insert(0, str(training_path))
         
         from qyh_act_training.action_registry import ActionRegistry
-        return ActionRegistry(str(MODEL_ACTIONS_DIR))
+        actions_dir = get_model_actions_dir(robot_name, robot_version)
+        return ActionRegistry(str(actions_dir))
     except ImportError as e:
         logger.warning(f"Cannot import ActionRegistry: {e}")
         return None
@@ -169,23 +211,48 @@ def _count_episodes(action_dir: Path) -> int:
 
 # ==================== API 路由 ====================
 
+@router.get("/robot-info", response_model=RobotInfoResponse)
+async def get_robot_info():
+    """获取当前机器人信息"""
+    actions_dir = get_model_actions_dir()
+    return RobotInfoResponse(
+        success=True,
+        robot_name=DEFAULT_ROBOT_NAME,
+        robot_version=DEFAULT_ROBOT_VERSION,
+        actions_dir=str(actions_dir)
+    )
+
+
 @router.get("/list", response_model=ActionListResponse)
-async def list_actions(status: Optional[ActionStatus] = None):
+async def list_actions(
+    status: Optional[ActionStatus] = None,
+    robot_name: Optional[str] = Query(None, description="机器人类型"),
+    robot_version: Optional[str] = Query(None, description="机器人版本")
+):
     """
     列出所有可用动作
     
     Args:
         status: 可选，过滤特定状态的动作（collecting/trained）
+        robot_name: 机器人类型，默认使用环境变量 GLOBAL_ROBOT_NAME
+        robot_version: 机器人版本，默认使用环境变量 GLOBAL_ROBOT_VERSION
     
-    返回 model_actions 目录中已下载的所有动作
+    返回 model_actions/{robot_name}/{version}/ 目录中的所有动作
     """
     actions = []
     
-    if not MODEL_ACTIONS_DIR.exists():
-        MODEL_ACTIONS_DIR.mkdir(parents=True, exist_ok=True)
-        return ActionListResponse(success=True, actions=[], total=0)
+    rn = robot_name or DEFAULT_ROBOT_NAME
+    rv = robot_version or DEFAULT_ROBOT_VERSION
+    model_actions_dir = get_model_actions_dir(rn, rv)
     
-    for action_dir in MODEL_ACTIONS_DIR.iterdir():
+    if not model_actions_dir.exists():
+        model_actions_dir.mkdir(parents=True, exist_ok=True)
+        return ActionListResponse(
+            success=True, actions=[], total=0,
+            robot_name=rn, robot_version=rv
+        )
+    
+    for action_dir in model_actions_dir.iterdir():
         if not action_dir.is_dir():
             continue
             
@@ -203,7 +270,8 @@ async def list_actions(status: Optional[ActionStatus] = None):
             
             # 检查模型和状态
             model_path = action_dir / "model" / "policy.pt"
-            has_model = model_path.exists()
+            model_ckpt_path = action_dir / "model" / "policy_best.ckpt"
+            has_model = model_path.exists() or model_ckpt_path.exists()
             action_status = _determine_status(action_dir, meta)
             
             # 状态过滤
@@ -236,8 +304,11 @@ async def list_actions(status: Optional[ActionStatus] = None):
                 status=action_status,
                 has_model=has_model,
                 episode_count=episode_count,
+                model_version=meta.get('model_version', 0),
                 topics=topics,
                 camera_count=len(coll.get('cameras', [])),
+                robot_name=rn,
+                robot_version=rv,
                 created_at=meta.get('created_at', ''),
                 updated_at=meta.get('updated_at', ''),
             ))
@@ -247,37 +318,53 @@ async def list_actions(status: Optional[ActionStatus] = None):
     return ActionListResponse(
         success=True,
         actions=actions,
-        total=len(actions)
+        total=len(actions),
+        robot_name=rn,
+        robot_version=rv
     )
 
 
 @router.get("/trained", response_model=ActionListResponse)
-async def list_trained_actions():
+async def list_trained_actions(
+    robot_name: Optional[str] = Query(None, description="机器人类型"),
+    robot_version: Optional[str] = Query(None, description="机器人版本")
+):
     """
     列出所有已训练的动作（可用于执行推理）
     """
-    return await list_actions(status="trained")
+    return await list_actions(status="trained", robot_name=robot_name, robot_version=robot_version)
 
 
 @router.get("/collecting", response_model=ActionListResponse)
-async def list_collecting_actions():
+async def list_collecting_actions(
+    robot_name: Optional[str] = Query(None, description="机器人类型"),
+    robot_version: Optional[str] = Query(None, description="机器人版本")
+):
     """
     列出所有数据采集中的动作
     """
-    return await list_actions(status="collecting")
+    return await list_actions(status="collecting", robot_name=robot_name, robot_version=robot_version)
 
 
 @router.get("/{action_id}", response_model=ActionDetailResponse)
-async def get_action(action_id: str):
+async def get_action(
+    action_id: str,
+    robot_name: Optional[str] = Query(None, description="机器人类型"),
+    robot_version: Optional[str] = Query(None, description="机器人版本")
+):
     """
     获取动作详情
     """
-    action_file = MODEL_ACTIONS_DIR / action_id / "action.yaml"
+    rn = robot_name or DEFAULT_ROBOT_NAME
+    rv = robot_version or DEFAULT_ROBOT_VERSION
+    model_actions_dir = get_model_actions_dir(rn, rv)
+    
+    action_file = model_actions_dir / action_id / "action.yaml"
     
     if not action_file.exists():
         raise HTTPException(
             status_code=404, 
-            detail=f"Action '{action_id}' not found"
+            detail=f"Action '{action_id}' not found for robot {rn}/{rv}"
         )
     
     try:
@@ -285,10 +372,11 @@ async def get_action(action_id: str):
         with open(action_file, 'r', encoding='utf-8') as f:
             data = yaml.safe_load(f)
         
-        action_dir = MODEL_ACTIONS_DIR / action_id
+        action_dir = model_actions_dir / action_id
         meta = data.get('metadata', {})
         model_path = action_dir / "model" / "policy.pt"
-        has_model = model_path.exists()
+        model_ckpt_path = action_dir / "model" / "policy_best.ckpt"
+        has_model = model_path.exists() or model_ckpt_path.exists()
         
         action = ActionDetail(
             id=meta.get('id', action_id),
@@ -301,6 +389,8 @@ async def get_action(action_id: str):
             episode_count=meta.get('episode_count', 0) or _count_episodes(action_dir),
             last_training=meta.get('last_training'),
             model_version=meta.get('model_version'),
+            robot_name=rn,
+            robot_version=rv,
             collection=data.get('collection', {}),
             training=data.get('training', {}),
             inference=data.get('inference', {}),
@@ -314,11 +404,16 @@ async def get_action(action_id: str):
 
 
 @router.get("/{action_id}/topics", response_model=TopicsForActionResponse)
-async def get_action_topics(action_id: str):
+async def get_action_topics(
+    action_id: str,
+    robot_name: Optional[str] = Query(None, description="机器人类型"),
+    robot_version: Optional[str] = Query(None, description="机器人版本")
+):
     """
     获取动作需要录制的话题列表
     """
-    action_file = MODEL_ACTIONS_DIR / action_id / "action.yaml"
+    model_actions_dir = get_model_actions_dir(robot_name, robot_version)
+    action_file = model_actions_dir / action_id / "action.yaml"
     
     if not action_file.exists():
         raise HTTPException(
@@ -363,11 +458,16 @@ async def get_action_topics(action_id: str):
 
 
 @router.post("/create", response_model=CreateActionResponse)
-async def create_action(request: CreateActionRequest):
+async def create_action(
+    request: CreateActionRequest,
+    robot_name: Optional[str] = Query(None, description="机器人类型"),
+    robot_version: Optional[str] = Query(None, description="机器人版本")
+):
     """
     创建新动作（初始状态为 collecting）
     """
-    action_dir = MODEL_ACTIONS_DIR / request.id
+    model_actions_dir = get_model_actions_dir(robot_name, robot_version)
+    action_dir = model_actions_dir / request.id
     
     if action_dir.exists():
         raise HTTPException(
@@ -380,10 +480,11 @@ async def create_action(request: CreateActionRequest):
         action_dir.mkdir(parents=True)
         (action_dir / "model").mkdir()
         (action_dir / "data" / "episodes").mkdir(parents=True)
+        (action_dir / "data" / "bags").mkdir(parents=True)
         
         # 复制模板或创建默认配置
         if request.template:
-            template_file = MODEL_ACTIONS_DIR / request.template / "action.yaml"
+            template_file = model_actions_dir / request.template / "action.yaml"
             if template_file.exists():
                 import shutil
                 shutil.copy(template_file, action_dir / "action.yaml")
@@ -419,11 +520,17 @@ async def create_action(request: CreateActionRequest):
 
 
 @router.delete("/{action_id}")
-async def delete_action(action_id: str, delete_data: bool = False):
+async def delete_action(
+    action_id: str, 
+    delete_data: bool = False,
+    robot_name: Optional[str] = Query(None, description="机器人类型"),
+    robot_version: Optional[str] = Query(None, description="机器人版本")
+):
     """
     删除动作
     """
-    action_dir = MODEL_ACTIONS_DIR / action_id
+    model_actions_dir = get_model_actions_dir(robot_name, robot_version)
+    action_dir = model_actions_dir / action_id
     
     if not action_dir.exists():
         raise HTTPException(
@@ -450,11 +557,16 @@ async def delete_action(action_id: str, delete_data: bool = False):
 
 
 @router.post("/{action_id}/update-episode-count")
-async def update_episode_count(action_id: str):
+async def update_episode_count(
+    action_id: str,
+    robot_name: Optional[str] = Query(None, description="机器人类型"),
+    robot_version: Optional[str] = Query(None, description="机器人版本")
+):
     """
     更新动作的轨迹数量统计
     """
-    action_dir = MODEL_ACTIONS_DIR / action_id
+    model_actions_dir = get_model_actions_dir(robot_name, robot_version)
+    action_dir = model_actions_dir / action_id
     action_file = action_dir / "action.yaml"
     
     if not action_file.exists():
@@ -492,11 +604,17 @@ async def update_episode_count(action_id: str):
 
 
 @router.post("/{action_id}/mark-trained")
-async def mark_action_trained(action_id: str, model_version: str = "1.0.0"):
+async def mark_action_trained(
+    action_id: str, 
+    model_version: str = "1.0.0",
+    robot_name: Optional[str] = Query(None, description="机器人类型"),
+    robot_version: Optional[str] = Query(None, description="机器人版本")
+):
     """
     标记动作为已训练状态
     """
-    action_dir = MODEL_ACTIONS_DIR / action_id
+    model_actions_dir = get_model_actions_dir(robot_name, robot_version)
+    action_dir = model_actions_dir / action_id
     action_file = action_dir / "action.yaml"
     
     if not action_file.exists():
@@ -543,13 +661,18 @@ async def mark_action_trained(action_id: str, model_version: str = "1.0.0"):
 
 
 @router.get("/{action_id}/inference-config")
-async def get_inference_config(action_id: str):
+async def get_inference_config(
+    action_id: str,
+    robot_name: Optional[str] = Query(None, description="机器人类型"),
+    robot_version: Optional[str] = Query(None, description="机器人版本")
+):
     """
     获取推理配置（供 act_inference 节点使用）
     
     注意：只有 trained 状态的动作才能获取推理配置
     """
-    action_dir = MODEL_ACTIONS_DIR / action_id
+    model_actions_dir = get_model_actions_dir(robot_name, robot_version)
+    action_dir = model_actions_dir / action_id
     action_file = action_dir / "action.yaml"
     
     if not action_file.exists():
