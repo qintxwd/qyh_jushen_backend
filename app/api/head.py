@@ -33,6 +33,10 @@ class HeadControlRequest(BaseModel):
         None, ge=-1.0, le=1.0,
         description="Tilt 归一化位置 (-1.0 到 1.0)"
     )
+    speed: Optional[float] = Field(
+        None, ge=0.0, le=100.0,
+        description="运动速度百分比 (0-100)，100为最快，不设置则使用默认速度"
+    )
 
 
 class HeadControlResponse(BaseModel):
@@ -71,7 +75,8 @@ async def control_head(
         try:
             result = await ros2_bridge.send_head_command(
                 pan=request.pan,
-                tilt=request.tilt
+                tilt=request.tilt,
+                speed=request.speed
             )
             if result:
                 return HeadControlResponse(**result)

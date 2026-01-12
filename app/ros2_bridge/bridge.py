@@ -1422,6 +1422,7 @@ class ROS2Bridge:
                 from std_msgs.msg import Float64MultiArray
                 pan = cmd['params'].get('pan')
                 tilt = cmd['params'].get('tilt')
+                speed = cmd['params'].get('speed')  # 速度百分比 (0-100)
                 
                 # 头部需要同时发送pan和tilt
                 if (pan is not None or tilt is not None) and self.head_cmd_pub:
@@ -1433,7 +1434,17 @@ class ROS2Bridge:
                         tilt = current_state.get('tilt_normalized', 0.0) if current_state else 0.0
                     
                     msg = Float64MultiArray()
-                    msg.data = [float(tilt), float(pan)]  # 注意：节点期望顺序是 [tilt, pan]
+                    # 检查是否需要添加 duration 参数
+                    if speed is not None:
+                        # 速度百分比转换为 duration_ms
+                        # speed 100% -> duration 100ms (最快)
+                        # speed 0% -> duration 2000ms (最慢)
+                        # 公式: duration = 100 + (100 - speed) * 19
+                        speed = max(0.0, min(100.0, float(speed)))  # 限制在0-100范围
+                        duration_ms = 100.0 + (100.0 - speed) * 19.0
+                        msg.data = [float(tilt), float(pan), float(duration_ms)]
+                    else:
+                        msg.data = [float(tilt), float(pan)]  # 注意：节点期望顺序是 [tilt, pan]
                     self.head_cmd_pub.publish(msg)
                 
                 if 'loop' in cmd and 'future' in cmd:
@@ -3198,9 +3209,16 @@ class ROS2Bridge:
     async def send_head_command(
         self,
         pan: Optional[float] = None,
-        tilt: Optional[float] = None
+        tilt: Optional[float] = None,
+        speed: Optional[float] = None
     ) -> Optional[Dict[str, Any]]:
-        """发送头部控制命令"""
+        """发送头部控制命令
+        
+        Args:
+            pan: Pan 归一化位置 (-1.0 到 1.0)
+            tilt: Tilt 归一化位置 (-1.0 到 1.0)
+            speed: 运动速度百分比 (0-100)，100为最快
+        """
         if self.mock_mode:
             return None  # Mock 模式由 API 层处理
         
@@ -3212,7 +3230,8 @@ class ROS2Bridge:
             'type': 'head_control',
             'params': {
                 'pan': pan,
-                'tilt': tilt
+                'tilt': tilt,
+                'speed': speed
             },
             'future': future,
             'loop': loop
