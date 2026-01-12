@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from app.config import settings
 from app.database import engine, Base
-from app.api import auth, control, robot, tasks, emergency, websocket, terminal, ros_gui, lift, waist, robot_model, head, arm, task_orchestration, preset, arm_points, chassis, gripper, vr_teleoperation, camera, recording, head_points, lift_points, waist_points, shutdown
+from app.api import auth, control, robot, tasks, emergency, websocket, terminal, ros_gui, lift, waist, robot_model, head, arm, task_orchestration, preset, arm_points, chassis, gripper, vr_teleoperation, camera, recording, head_points, lift_points, waist_points, shutdown, actions
 from app.ros2_bridge.bridge import ros2_bridge
 from app.safety.watchdog import watchdog
 from app.preset import preset_manager
@@ -95,6 +95,7 @@ app.include_router(vr_teleoperation.router, prefix="/api/v1", tags=["VR遥操作
 app.include_router(camera.router, prefix="/api/v1", tags=["相机视频流"])
 app.include_router(recording.router, prefix="/api/v1", tags=["数据录制"])
 app.include_router(shutdown.router, prefix="/api/v1", tags=["系统关机"])
+app.include_router(actions.router, prefix="/api/v1", tags=["动作管理"])
 
 
 @app.get("/")
