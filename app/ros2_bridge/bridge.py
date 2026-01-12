@@ -262,25 +262,21 @@ class ROS2Bridge:
                             except ValueError:
                                 pass
                 
-                self.joint_states_for_3d = {
-                    "timestamp": time.time(),
-                    "left": left_joints,
-                    "right": right_joints,
-                    "names": {
-                        "left": [f"left_joint{i+1}" for i in range(7)],
-                        "right": [f"right_joint{i+1}" for i in range(7)]
+                # 注意: 关节数据现在从 /jaka/robot_state 获取，这里不再更新
+                # 只有当解析到有效的机械臂关节数据时才考虑更新
+                has_arm_data = any(j != 0.0 for j in left_joints) or any(j != 0.0 for j in right_joints)
+                if has_arm_data:
+                    # 如果从 /joint_states 解析到了有效的机械臂数据，才更新
+                    self.joint_states_for_3d = {
+                        "timestamp": time.time(),
+                        "left": left_joints,
+                        "right": right_joints,
+                        "names": {
+                            "left": [f"left_joint{i+1}" for i in range(7)],
+                            "right": [f"right_joint{i+1}" for i in range(7)]
+                        }
                     }
-                }
-                
-                # 打印更新后的数据（每秒一次，避免过多日志）
-                if not hasattr(self, '_last_joint_log_time'):
-                    self._last_joint_log_time = 0
-                if time.time() - self._last_joint_log_time > 1.0:
-                    print(f"🔄 更新3D关节状态 - Left[0]={left_joints[0]:.3f}, Right[0]={right_joints[0]:.3f}")
-                    self._last_joint_log_time = time.time()
-                
-                # 同时更新 arm 的 joint_positions
-                self.joint_positions = left_joints + right_joints
+                    self.joint_positions = left_joints + right_joints
                 
                 # 旧的队列更新 (兼容)
                 state_data = {
@@ -406,6 +402,10 @@ class ROS2Bridge:
             from qyh_jaka_control_msgs.msg import RobotState
             
             def robot_state_callback(msg):
+                # 提取关节位置
+                left_joints = list(msg.left_joint_positions) if len(msg.left_joint_positions) == 7 else [0.0] * 7
+                right_joints = list(msg.right_joint_positions) if len(msg.right_joint_positions) == 7 else [0.0] * 7
+                
                 self.arm_state = {
                     "connected": msg.connected,
                     "robot_ip": msg.robot_ip,
@@ -416,7 +416,24 @@ class ROS2Bridge:
                     "servo_mode_enabled": msg.servo_mode_enabled,
                     "error_message": msg.error_message,
                     "left_in_position": msg.left_in_position,
-                    "right_in_position": msg.right_in_position
+                    "right_in_position": msg.right_in_position,
+                    "left_joint_positions": left_joints,
+                    "right_joint_positions": right_joints
+                }
+                
+                # 更新 joint_positions 用于其他地方
+                self.joint_positions = left_joints + right_joints
+                
+                # 更新 3D 场景用的关节数据
+                import time
+                self.joint_states_for_3d = {
+                    "timestamp": time.time(),
+                    "left": left_joints,
+                    "right": right_joints,
+                    "names": {
+                        "left": [f"left_joint{i+1}" for i in range(7)],
+                        "right": [f"right_joint{i+1}" for i in range(7)]
+                    }
                 }
             
             self.node.create_subscription(
@@ -454,31 +471,9 @@ class ROS2Bridge:
         except Exception as e:
             print(f"⚠️  伺服状态订阅器创建失败: {e}")
 
-        # 关节状态订阅 (用于更新关节位置)
-        try:
-            from sensor_msgs.msg import JointState
-            
-            def jaka_joint_state_callback(msg):
-                if len(msg.position) >= 14:
-                    self.joint_positions = list(msg.position[:14])
-                    # 更新 arm_state 中的关节位置
-                    if self.arm_state:
-                        self.arm_state['left_joint_positions'] = list(
-                            msg.position[:7]
-                        )
-                        self.arm_state['right_joint_positions'] = list(
-                            msg.position[7:14]
-                        )
-            
-            self.node.create_subscription(
-                JointState,
-                '/joint_states',
-                jaka_joint_state_callback,
-                10
-            )
-            print("✅ JAKA关节状态订阅器创建成功: /joint_states")
-        except Exception as e:
-            print(f"⚠️  JAKA关节状态订阅器创建失败: {e}")
+        # 关节状态订阅 - 已禁用，关节数据现在从 /jaka/robot_state 获取
+        # 原来的 /joint_states 订阅器会与 /jaka/robot_state 冲突导致数据跳动
+        print("ℹ️  跳过 /joint_states 订阅（关节数据从 /jaka/robot_state 获取）")
 
         # ==================== 底盘状态订阅 ====================
         self._setup_chassis_subscribers()
