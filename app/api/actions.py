@@ -64,7 +64,7 @@ class ActionSummary(BaseModel):
     status: ActionStatus = "collecting"  # 动作状态
     has_model: bool = False              # 是否有训练好的模型
     episode_count: int = 0               # 已采集轨迹数
-    model_version: int = 0               # 模型版本号
+    model_version: Optional[int] = 0               # 模型版本号
     topics: List[str] = []
     camera_count: int = 0
     robot_name: str = DEFAULT_ROBOT_NAME      # 机器人类型

@@ -11,6 +11,17 @@ else
 fi
 echo "🔧 ROS_DOMAIN_ID = $ROS_DOMAIN_ID"
 
+# Source 全局配置（GLOBAL_ROBOT_NAME, GLOBAL_ROBOT_VERSION）
+CONFIG_FILE="$HOME/qyh-robot-system/qyh_jushen_ws/config.bash"
+if [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+    echo "✅ 已加载全局配置: ROBOT_NAME=$GLOBAL_ROBOT_NAME, VERSION=$GLOBAL_ROBOT_VERSION"
+else
+    echo "⚠️  未找到配置文件: $CONFIG_FILE，使用默认值"
+    export GLOBAL_ROBOT_NAME=general
+    export GLOBAL_ROBOT_VERSION=1.0
+fi
+
 # Source ROS2 环境
 source /opt/ros/humble/setup.bash
 
