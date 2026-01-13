@@ -576,21 +576,40 @@ async def update_episode_count(
         )
     
     try:
-        import yaml
+        import re as regex
         
         # 统计轨迹数量
         count = _count_episodes(action_dir)
         
-        # 更新配置文件
+        # 使用正则表达式只更新 episode_count 字段，保留文件原有格式和注释
         with open(action_file, 'r', encoding='utf-8') as f:
-            data = yaml.safe_load(f)
+            content = f.read()
         
-        if 'metadata' not in data:
-            data['metadata'] = {}
-        data['metadata']['episode_count'] = count
+        # 匹配 episode_count: 数字 的模式（支持带注释的情况）
+        pattern = r'(episode_count:\s*)(\d+)'
+        replacement = f'\g<1>{count}'
+        
+        if regex.search(pattern, content):
+            new_content = regex.sub(pattern, replacement, content, count=1)
+        else:
+            # 如果没有 episode_count 字段，在 metadata 部分添加
+            # 这种情况下才需要用 yaml 库
+            import yaml
+            with open(action_file, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f)
+            if 'metadata' not in data:
+                data['metadata'] = {}
+            data['metadata']['episode_count'] = count
+            with open(action_file, 'w', encoding='utf-8') as f:
+                yaml.dump(data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+            return {
+                "success": True, 
+                "action_id": action_id,
+                "episode_count": count
+            }
         
         with open(action_file, 'w', encoding='utf-8') as f:
-            yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+            f.write(new_content)
         
         return {
             "success": True, 
