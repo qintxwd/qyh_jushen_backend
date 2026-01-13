@@ -43,15 +43,15 @@ class ROSRecordingClient:
             # 创建服务客户端
             self._start_client = self._node.create_client(
                 StartRecording, 
-                '/bag_recorder_node/start_recording'
+                '/bag_recorder/start_recording'
             )
             self._stop_client = self._node.create_client(
                 StopRecording,
-                '/bag_recorder_node/stop_recording'
+                '/bag_recorder/stop_recording'
             )
             self._status_client = self._node.create_client(
                 GetRecordingStatus,
-                '/bag_recorder_node/get_status'
+                '/bag_recorder/get_status'
             )
             
             self._initialized = True
