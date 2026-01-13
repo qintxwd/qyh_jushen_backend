@@ -1,5 +1,6 @@
 """底盘控制 API - Standard Robot"""
 import subprocess
+import json
 import sys
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
@@ -611,7 +612,14 @@ async def force_localize(req: ForceLocalizeRequest):
 @router.post("/chassis/set_speed_level")
 async def set_speed_level(req: SetSpeedLevelRequest):
     """设置速度级别"""
-    result = await ros2_bridge.set_chassis_speed_level(req.level)
+    import asyncio
+    try:
+        result = await asyncio.wait_for(
+            ros2_bridge.set_chassis_speed_level(req.level),
+            timeout=3.0  # 3秒超时
+        )
+    except asyncio.TimeoutError:
+        result = {"success": True, "message": f"速度级别设置为 {req.level} (命令已发送，等待确认超时)"}
     
     if result is None:
         result = {"success": True, "message": f"速度级别设置为 {req.level} (Mock)"}
@@ -656,7 +664,14 @@ async def set_current_site(req: SetCurrentSiteRequest):
 @router.post("/chassis/set_volume")
 async def set_volume(req: SetVolumeRequest):
     """设置音量"""
-    result = await ros2_bridge.set_chassis_volume(req.volume)
+    import asyncio
+    try:
+        result = await asyncio.wait_for(
+            ros2_bridge.set_chassis_volume(req.volume),
+            timeout=3.0  # 3秒超时
+        )
+    except asyncio.TimeoutError:
+        result = {"success": True, "message": f"音量设置为 {req.volume} (命令已发送，等待确认超时)"}
     
     if result is None:
         result = {"success": True, "message": f"音量设置为 {req.volume} (Mock)"}
