@@ -791,6 +791,23 @@ async def get_available_skills(current_user=Depends(get_current_admin)):
                 "condition": {"type": "string", "required": True, "description": "条件表达式 (如: arm.left.is_idle == True)"},
             }
         },
+        {
+            "type": "ACTExecute",
+            "description": "执行 ACT 模型 - 执行训练好的 ACT 动作模型",
+            "params": {
+                "action_id": {"type": "string", "required": True, "description": "动作 ID（从 model_actions 目录加载）"},
+                "max_duration": {"type": "float", "default": 30.0, "description": "最大执行时间 (秒)"},
+                "action_scale": {"type": "float", "default": 0.4, "description": "动作缩放因子 (0.1-1.0)"},
+                "smoothing_alpha": {"type": "float", "default": 0.3, "description": "动作平滑系数 (0.1-1.0)"},
+            }
+        },
+        {
+            "type": "ACTLoadModel",
+            "description": "加载 ACT 模型 - 预加载模型减少执行延迟",
+            "params": {
+                "action_id": {"type": "string", "required": True, "description": "动作 ID（从 model_actions 目录加载）"},
+            }
+        },
     ]
     
     return [SkillInfo(**s) for s in skills]
