@@ -756,9 +756,9 @@ async def get_available_skills(current_user=Depends(get_current_admin)):
             "type": "HeadLookAt",
             "description": "头部转向 - 控制头部云台看向指定角度或预设点位",
             "params": {
-                "point_id": {"type": "string", "required": False, "description": "预设点位ID"},
-                "pan": {"type": "float", "required": False, "description": "水平角 (-1.0 到 1.0)"},
-                "tilt": {"type": "float", "required": False, "description": "俯仰角 (-1.0 到 1.0)"},
+                "position_name": {"type": "string", "required": False, "description": "预设点位名称"},
+                "yaw": {"type": "float", "required": False, "description": "水平角/偏航 (-1.0 到 1.0)"},
+                "pitch": {"type": "float", "required": False, "description": "俯仰角 (-1.0 到 1.0)"},
             }
         },
         {
