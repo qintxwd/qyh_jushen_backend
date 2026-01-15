@@ -4,7 +4,7 @@
 提供升降高度点位的 CRUD 操作
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from pathlib import Path
@@ -15,6 +15,9 @@ import threading
 
 from app.dependencies import get_current_admin
 from app.ros2_bridge.bridge import ros2_bridge
+from app.schemas.response import (
+    ApiResponse, success_response, error_response, ErrorCodes
+)
 
 router = APIRouter()
 

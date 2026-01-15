@@ -1,7 +1,7 @@
 """Robot Model API - 提供URDF和模型文件"""
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import APIRouter
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pathlib import Path
 import os
 import subprocess
@@ -9,6 +9,9 @@ import re
 
 from app.ros2_bridge.bridge import ros2_bridge
 from app.safety.watchdog import watchdog
+from app.schemas.response import (
+    ApiResponse, success_response, error_response, ErrorCodes
+)
 
 router = APIRouter()
 

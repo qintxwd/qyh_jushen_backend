@@ -7,7 +7,7 @@ FastAPI 代理层，用于:
 - 订阅任务状态并通过 WebSocket 推送给前端
 """
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 import json
@@ -21,6 +21,9 @@ from pathlib import Path
 from app.dependencies import get_current_admin
 from app.ros2_bridge.bridge import ros2_bridge
 from app.safety.watchdog import watchdog
+from app.schemas.response import (
+    ApiResponse, success_response, error_response, ErrorCodes
+)
 
 router = APIRouter()
 

@@ -15,13 +15,17 @@
           model/
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any, Literal
 import logging
 import os
 import sys
 from pathlib import Path
+
+from app.schemas.response import (
+    ApiResponse, success_response, error_response, ErrorCodes
+)
 
 logger = logging.getLogger(__name__)
 

@@ -1,9 +1,13 @@
 """相机视频流 API - 代理 ROS web_video_server 的视频流"""
 import httpx
-from fastapi import APIRouter, Response, Query, HTTPException
+from fastapi import APIRouter, Response, Query
 from fastapi.responses import StreamingResponse
 from typing import Optional
 import asyncio
+
+from app.schemas.response import (
+    ApiResponse, success_response, error_response, ErrorCodes
+)
 
 router = APIRouter(prefix="/camera", tags=["camera"])
 
@@ -49,9 +53,11 @@ async def get_camera_stream(
     返回 multipart/x-mixed-replace 格式的 MJPEG 流
     """
     if camera_id not in CAMERA_TOPICS:
-        raise HTTPException(
-            status_code=404, 
-            detail=f"Unknown camera: {camera_id}. Available: {list(CAMERA_TOPICS.keys())}"
+        # 视频流端点返回错误时需要用 Response
+        return Response(
+            content=f"Unknown camera: {camera_id}. Available: {list(CAMERA_TOPICS.keys())}",
+            status_code=404,
+            media_type="text/plain"
         )
     
     topic = CAMERA_TOPICS[camera_id]
@@ -97,9 +103,10 @@ async def get_camera_snapshot(
     返回 JPEG 图片
     """
     if camera_id not in CAMERA_TOPICS:
-        raise HTTPException(
-            status_code=404, 
-            detail=f"Unknown camera: {camera_id}. Available: {list(CAMERA_TOPICS.keys())}"
+        return Response(
+            content=f"Unknown camera: {camera_id}. Available: {list(CAMERA_TOPICS.keys())}",
+            status_code=404,
+            media_type="text/plain"
         )
     
     topic = CAMERA_TOPICS[camera_id]
@@ -120,9 +127,10 @@ async def get_camera_snapshot(
         try:
             response = await client.get(url)
             if response.status_code != 200:
-                raise HTTPException(
-                    status_code=503, 
-                    detail="Camera not available or web_video_server not running"
+                return Response(
+                    content="Camera not available or web_video_server not running",
+                    status_code=503,
+                    media_type="text/plain"
                 )
             return Response(
                 content=response.content,
@@ -132,9 +140,10 @@ async def get_camera_snapshot(
                 }
             )
         except httpx.RequestError as e:
-            raise HTTPException(
-                status_code=503, 
-                detail=f"Cannot connect to web_video_server: {str(e)}"
+            return Response(
+                content=f"Cannot connect to web_video_server: {str(e)}",
+                status_code=503,
+                media_type="text/plain"
             )
 
 

@@ -4,6 +4,9 @@ from pydantic import BaseModel
 from typing import Optional, List
 from app.dependencies import get_current_admin
 from app.ros2_bridge.bridge import ros2_bridge
+from app.schemas.response import (
+    ApiResponse, success_response, error_response, ErrorCodes
+)
 
 router = APIRouter(prefix="/vr", tags=["vr_teleoperation"])
 

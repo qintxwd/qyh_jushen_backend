@@ -3,10 +3,15 @@ import subprocess
 import json
 import sys
 from pathlib import Path
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import Optional, List
 from app.ros2_bridge.bridge import ros2_bridge
+from app.dependencies import get_current_operator
+from app.safety.watchdog import watchdog
+from app.schemas.response import (
+    ApiResponse, success_response, error_response, ErrorCodes
+)
 
 router = APIRouter()
 
@@ -129,8 +134,9 @@ def _get_current_map_from_file() -> str:
 
 
 @router.get("/chassis/status")
-async def get_chassis_status():
+async def get_chassis_status(current_user=Depends(get_current_operator)):
     """获取底盘完整状态"""
+    watchdog.heartbeat()
     status = ros2_bridge.get_chassis_status()
     
     # 从文件读取真正的地图名（HTTP/WebSocket 同步的）
@@ -258,8 +264,9 @@ async def get_chassis_status():
 
 
 @router.get("/chassis/navigation_status")
-async def get_navigation_status():
+async def get_navigation_status(current_user=Depends(get_current_operator)):
     """获取导航状态"""
+    watchdog.heartbeat()
     status = ros2_bridge.get_navigation_status()
     
     if status is None:
@@ -278,8 +285,9 @@ async def get_navigation_status():
 # ==================== 控制服务 ====================
 
 @router.post("/chassis/velocity")
-async def send_velocity(cmd: VelocityCommand):
+async def send_velocity(cmd: VelocityCommand, current_user=Depends(get_current_operator)):
     """发送速度命令"""
+    watchdog.heartbeat()
     result = await ros2_bridge.send_chassis_velocity(
         cmd.linear_x, cmd.linear_y, cmd.angular_z
     )
@@ -291,8 +299,9 @@ async def send_velocity(cmd: VelocityCommand):
 
 
 @router.post("/chassis/stop")
-async def stop_chassis():
+async def stop_chassis(current_user=Depends(get_current_operator)):
     """停止底盘"""
+    watchdog.heartbeat()
     result = await ros2_bridge.call_chassis_service("stop_move")
     
     if result is None:
@@ -308,8 +317,9 @@ class ManualModeRequest(BaseModel):
 
 
 @router.post("/chassis/manual_mode")
-async def set_manual_mode(request: ManualModeRequest):
+async def set_manual_mode(request: ManualModeRequest, current_user=Depends(get_current_operator)):
     """设置手动控制模式（开启/关闭）"""
+    watchdog.heartbeat()
     if request.enable:
         # 开启手动控制
         result = await ros2_bridge.call_chassis_service("start_manual")
@@ -328,8 +338,9 @@ async def set_manual_mode(request: ManualModeRequest):
 
 
 @router.post("/chassis/manual/start")
-async def start_manual_control():
+async def start_manual_control(current_user=Depends(get_current_operator)):
     """启动手动控制"""
+    watchdog.heartbeat()
     result = await ros2_bridge.call_chassis_service("start_manual")
     
     if result is None:
@@ -339,8 +350,9 @@ async def start_manual_control():
 
 
 @router.post("/chassis/manual/stop")
-async def stop_manual_control():
+async def stop_manual_control(current_user=Depends(get_current_operator)):
     """停止手动控制"""
+    watchdog.heartbeat()
     result = await ros2_bridge.call_chassis_service("stop_manual")
     
     if result is None:
@@ -350,8 +362,9 @@ async def stop_manual_control():
 
 
 @router.post("/chassis/manual/command")
-async def send_manual_command(cmd: ManualControlCommand):
+async def send_manual_command(cmd: ManualControlCommand, current_user=Depends(get_current_operator)):
     """发送手动控制命令"""
+    watchdog.heartbeat()
     result = await ros2_bridge.send_manual_motion_command(
         forward=cmd.forward,
         backward=cmd.backward,
@@ -370,8 +383,9 @@ async def send_manual_command(cmd: ManualControlCommand):
 # ==================== 移动控制 ====================
 
 @router.post("/chassis/pause_move")
-async def pause_move():
+async def pause_move(current_user=Depends(get_current_operator)):
     """暂停移动"""
+    watchdog.heartbeat()
     result = await ros2_bridge.call_chassis_service("pause_move")
     
     if result is None:
@@ -381,8 +395,9 @@ async def pause_move():
 
 
 @router.post("/chassis/resume_move")
-async def resume_move():
+async def resume_move(current_user=Depends(get_current_operator)):
     """恢复移动"""
+    watchdog.heartbeat()
     result = await ros2_bridge.call_chassis_service("resume_move")
     
     if result is None:
@@ -392,8 +407,9 @@ async def resume_move():
 
 
 @router.post("/chassis/stop_move")
-async def stop_move():
+async def stop_move(current_user=Depends(get_current_operator)):
     """停止移动"""
+    watchdog.heartbeat()
     result = await ros2_bridge.call_chassis_service("stop_move")
     
     if result is None:
@@ -403,8 +419,9 @@ async def stop_move():
 
 
 @router.post("/chassis/stop_localization")
-async def stop_localization():
+async def stop_localization(current_user=Depends(get_current_operator)):
     """停止定位"""
+    watchdog.heartbeat()
     result = await ros2_bridge.call_chassis_service("stop_localization")
     
     if result is None:
@@ -416,8 +433,9 @@ async def stop_localization():
 # ==================== 急停控制 ====================
 
 @router.post("/chassis/emergency_stop")
-async def emergency_stop():
+async def emergency_stop(current_user=Depends(get_current_operator)):
     """紧急停止"""
+    watchdog.heartbeat()
     result = await ros2_bridge.call_chassis_service("emergency_stop")
     
     if result is None:
@@ -427,8 +445,9 @@ async def emergency_stop():
 
 
 @router.post("/chassis/release_emergency_stop")
-async def release_emergency_stop():
+async def release_emergency_stop(current_user=Depends(get_current_operator)):
     """解除急停"""
+    watchdog.heartbeat()
     result = await ros2_bridge.call_chassis_service("release_emergency_stop")
     
     if result is None:
@@ -440,8 +459,9 @@ async def release_emergency_stop():
 # ==================== 充电控制 ====================
 
 @router.post("/chassis/start_charging")
-async def start_charging():
+async def start_charging(current_user=Depends(get_current_operator)):
     """开始充电"""
+    watchdog.heartbeat()
     result = await ros2_bridge.call_chassis_service("start_charging")
     
     if result is None:
@@ -451,8 +471,9 @@ async def start_charging():
 
 
 @router.post("/chassis/stop_charging")
-async def stop_charging():
+async def stop_charging(current_user=Depends(get_current_operator)):
     """停止充电"""
+    watchdog.heartbeat()
     result = await ros2_bridge.call_chassis_service("stop_charging")
     
     if result is None:
@@ -464,8 +485,9 @@ async def stop_charging():
 # ==================== 功耗控制 ====================
 
 @router.post("/chassis/enter_low_power")
-async def enter_low_power():
+async def enter_low_power(current_user=Depends(get_current_operator)):
     """进入低功耗模式"""
+    watchdog.heartbeat()
     result = await ros2_bridge.call_chassis_service("enter_low_power")
     
     if result is None:
@@ -475,8 +497,9 @@ async def enter_low_power():
 
 
 @router.post("/chassis/exit_low_power")
-async def exit_low_power():
+async def exit_low_power(current_user=Depends(get_current_operator)):
     """退出低功耗模式"""
+    watchdog.heartbeat()
     result = await ros2_bridge.call_chassis_service("exit_low_power")
     
     if result is None:
@@ -488,8 +511,9 @@ async def exit_low_power():
 # ==================== 系统控制 ====================
 
 @router.post("/chassis/system_reset")
-async def system_reset():
+async def system_reset(current_user=Depends(get_current_operator)):
     """系统复位"""
+    watchdog.heartbeat()
     result = await ros2_bridge.call_chassis_service("system_reset")
     
     if result is None:
@@ -501,8 +525,9 @@ async def system_reset():
 # ==================== 任务控制 ====================
 
 @router.post("/chassis/mission/pause")
-async def pause_mission():
+async def pause_mission(current_user=Depends(get_current_operator)):
     """暂停任务"""
+    watchdog.heartbeat()
     result = await ros2_bridge.call_chassis_service("pause_mission")
     
     if result is None:
@@ -512,8 +537,9 @@ async def pause_mission():
 
 
 @router.post("/chassis/mission/resume")
-async def resume_mission():
+async def resume_mission(current_user=Depends(get_current_operator)):
     """恢复任务"""
+    watchdog.heartbeat()
     result = await ros2_bridge.call_chassis_service("resume_mission")
     
     if result is None:
@@ -523,8 +549,9 @@ async def resume_mission():
 
 
 @router.post("/chassis/mission/cancel")
-async def cancel_mission():
+async def cancel_mission(current_user=Depends(get_current_operator)):
     """取消任务"""
+    watchdog.heartbeat()
     result = await ros2_bridge.call_chassis_service("cancel_mission")
     
     if result is None:
@@ -536,8 +563,9 @@ async def cancel_mission():
 # ==================== 导航控制 ====================
 
 @router.post("/chassis/navigate/coordinate")
-async def navigate_to_coordinate(target: NavigationTarget):
+async def navigate_to_coordinate(target: NavigationTarget, current_user=Depends(get_current_operator)):
     """导航到坐标点"""
+    watchdog.heartbeat()
     result = await ros2_bridge.navigate_to_coordinate(
         x=target.x,
         y=target.y,
@@ -553,8 +581,9 @@ async def navigate_to_coordinate(target: NavigationTarget):
 
 
 @router.post("/chassis/navigate/site")
-async def navigate_to_site(target: SiteTarget):
+async def navigate_to_site(target: SiteTarget, current_user=Depends(get_current_operator)):
     """导航到站点（兼容旧接口）"""
+    watchdog.heartbeat()
     result = await ros2_bridge.navigate_to_site(
         site_id=target.site_id,
         is_localization=target.is_localization
@@ -568,8 +597,9 @@ async def navigate_to_site(target: SiteTarget):
 
 
 @router.post("/chassis/navigate/site_simple")
-async def navigate_to_site_simple(req: SiteNavigationRequest):
+async def navigate_to_site_simple(req: SiteNavigationRequest, current_user=Depends(get_current_operator)):
     """导航到站点（不带任务ID）"""
+    watchdog.heartbeat()
     result = await ros2_bridge.navigate_to_site_simple(
         site_id=req.site_id
     )
@@ -581,8 +611,9 @@ async def navigate_to_site_simple(req: SiteNavigationRequest):
 
 
 @router.post("/chassis/navigate/site_with_task")
-async def navigate_to_site_with_task(req: SiteNavigationWithTaskRequest):
+async def navigate_to_site_with_task(req: SiteNavigationWithTaskRequest, current_user=Depends(get_current_operator)):
     """导航到站点（带任务ID）"""
+    watchdog.heartbeat()
     result = await ros2_bridge.navigate_to_site_with_task(
         site_id=req.site_id,
         task_id=req.task_id
@@ -595,7 +626,9 @@ async def navigate_to_site_with_task(req: SiteNavigationWithTaskRequest):
 
 
 @router.post("/chassis/force_localize")
-async def force_localize(req: ForceLocalizeRequest):
+async def force_localize(req: ForceLocalizeRequest, current_user=Depends(get_current_operator)):
+    """强制定位"""
+    watchdog.heartbeat()
     """强制定位"""
     result = await ros2_bridge.force_localize(
         x=req.x, y=req.y, yaw=req.yaw
@@ -610,8 +643,9 @@ async def force_localize(req: ForceLocalizeRequest):
 # ==================== 参数设置 ====================
 
 @router.post("/chassis/set_speed_level")
-async def set_speed_level(req: SetSpeedLevelRequest):
+async def set_speed_level(req: SetSpeedLevelRequest, current_user=Depends(get_current_operator)):
     """设置速度级别"""
+    watchdog.heartbeat()
     import asyncio
     try:
         result = await asyncio.wait_for(
@@ -634,8 +668,9 @@ async def set_speed_level(req: SetSpeedLevelRequest):
 
 
 @router.post("/chassis/set_obstacle_strategy")
-async def set_obstacle_strategy(req: SetObstacleStrategyRequest):
+async def set_obstacle_strategy(req: SetObstacleStrategyRequest, current_user=Depends(get_current_operator)):
     """设置避障策略"""
+    watchdog.heartbeat()
     result = await ros2_bridge.set_chassis_obstacle_strategy(req.strategy)
     
     if result is None:
@@ -651,8 +686,9 @@ async def set_obstacle_strategy(req: SetObstacleStrategyRequest):
 
 
 @router.post("/chassis/set_current_site")
-async def set_current_site(req: SetCurrentSiteRequest):
+async def set_current_site(req: SetCurrentSiteRequest, current_user=Depends(get_current_operator)):
     """设置当前站点"""
+    watchdog.heartbeat()
     result = await ros2_bridge.set_chassis_current_site(req.site_id)
     
     if result is None:
@@ -662,8 +698,9 @@ async def set_current_site(req: SetCurrentSiteRequest):
 
 
 @router.post("/chassis/set_volume")
-async def set_volume(req: SetVolumeRequest):
+async def set_volume(req: SetVolumeRequest, current_user=Depends(get_current_operator)):
     """设置音量"""
+    watchdog.heartbeat()
     import asyncio
     try:
         result = await asyncio.wait_for(
@@ -686,8 +723,9 @@ async def set_volume(req: SetVolumeRequest):
 
 
 @router.post("/chassis/set_map")
-async def set_map(req: SetMapRequest):
+async def set_map(req: SetMapRequest, current_user=Depends(get_current_operator)):
     """设置当前地图"""
+    watchdog.heartbeat()
     result = await ros2_bridge.set_chassis_map(req.map_name)
     
     if result is None:

@@ -4,10 +4,14 @@
 提供 rosbag 录制的控制接口
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from typing import List
 import logging
+
+from app.schemas.response import (
+    ApiResponse, success_response, error_response, ErrorCodes
+)
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +105,11 @@ async def start_recording(request: StartRecordingRequest):
         return StartRecordingResponse(**result)
     except Exception as e:
         logger.error(f"开始录制失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return StartRecordingResponse(
+            success=False,
+            message=f"开始录制失败: {str(e)}",
+            bag_path=""
+        )
 
 
 @router.post("/stop", response_model=StopRecordingResponse)
@@ -128,7 +136,12 @@ async def stop_recording():
         return StopRecordingResponse(**result)
     except Exception as e:
         logger.error(f"停止录制失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return StopRecordingResponse(
+            success=False,
+            message=f"停止录制失败: {str(e)}",
+            duration_sec=0.0,
+            bag_path=""
+        )
 
 
 @router.get("/status", response_model=RecordingStatusResponse)
@@ -152,7 +165,13 @@ async def get_recording_status():
         return RecordingStatusResponse(**result)
     except Exception as e:
         logger.error(f"获取录制状态失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return RecordingStatusResponse(
+            is_recording=False,
+            action_name="",
+            duration_sec=0.0,
+            bag_path="",
+            topics=[]
+        )
 
 
 @router.post("/discard", response_model=StopRecordingResponse)
@@ -191,7 +210,12 @@ async def discard_recording():
         return StopRecordingResponse(**result)
     except Exception as e:
         logger.error(f"丢弃录制失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return StopRecordingResponse(
+            success=False,
+            message=f"丢弃录制失败: {str(e)}",
+            duration_sec=0.0,
+            bag_path=""
+        )
 
 
 @router.get("/topics")

@@ -4,7 +4,7 @@
 提供预设的 CRUD 操作和快捷执行接口
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
@@ -15,6 +15,9 @@ from app.preset import (
 )
 from app.ros2_bridge.bridge import ros2_bridge
 from app.safety.watchdog import watchdog
+from app.schemas.response import (
+    ApiResponse, success_response, error_response, ErrorCodes
+)
 
 router = APIRouter()
 

@@ -1,5 +1,5 @@
 """升降电机控制 API"""
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import Optional
 import asyncio
@@ -7,6 +7,9 @@ import asyncio
 from app.dependencies import get_current_admin
 from app.ros2_bridge.bridge import ros2_bridge
 from app.safety.watchdog import watchdog
+from app.schemas.response import (
+    ApiResponse, success_response, error_response, ErrorCodes
+)
 
 router = APIRouter()
 

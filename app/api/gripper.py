@@ -1,11 +1,14 @@
 """夹爪控制 API"""
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import Optional
 
-from app.dependencies import get_current_admin, get_current_operator
+from app.dependencies import get_current_operator
 from app.ros2_bridge.bridge import ros2_bridge
 from app.safety.watchdog import watchdog
+from app.schemas.response import (
+    ApiResponse, success_response, error_response, ErrorCodes
+)
 
 router = APIRouter()
 
@@ -112,14 +115,17 @@ async def get_gripper_state(current_user=Depends(get_current_operator)):
     )
 
 
-@router.get("/gripper/{side}/state", response_model=GripperState)
+@router.get("/gripper/{side}/state", response_model=ApiResponse)
 async def get_single_gripper_state(
     side: str,
     current_user=Depends(get_current_operator)
 ):
     """获取单个夹爪状态"""
     if side not in ["left", "right"]:
-        raise HTTPException(status_code=400, detail="side 必须是 'left' 或 'right'")
+        return error_response(
+            code=ErrorCodes.INVALID_PARAMETER,
+            message="side 必须是 'left' 或 'right'"
+        )
     
     watchdog.heartbeat()
 
@@ -139,14 +145,17 @@ async def get_single_gripper_state(
         return _mock_right_state
 
 
-@router.post("/gripper/{side}/enable", response_model=GripperControlResponse)
+@router.post("/gripper/{side}/enable", response_model=ApiResponse)
 async def enable_gripper(
     side: str,
     current_user=Depends(get_current_operator)
 ):
     """使能夹爪（激活的别名）"""
     if side not in ["left", "right"]:
-        raise HTTPException(status_code=400, detail="side 必须是 'left' 或 'right'")
+        return error_response(
+            code=ErrorCodes.INVALID_PARAMETER,
+            message="side 必须是 'left' 或 'right'"
+        )
     
     side_name = "左" if side == "left" else "右"
     
@@ -180,14 +189,17 @@ async def enable_gripper(
     )
 
 
-@router.post("/gripper/activate", response_model=GripperControlResponse)
+@router.post("/gripper/activate", response_model=ApiResponse)
 async def activate_gripper(
     request: ActivateGripperRequest,
     current_user=Depends(get_current_operator)
 ):
     """激活夹爪"""
     if request.side not in ["left", "right"]:
-        raise HTTPException(status_code=400, detail="side 必须是 'left' 或 'right'")
+        return error_response(
+            code=ErrorCodes.INVALID_PARAMETER,
+            message="side 必须是 'left' 或 'right'"
+        )
     
     side_name = "左" if request.side == "left" else "右"
     
@@ -221,22 +233,34 @@ async def activate_gripper(
     )
 
 
-@router.post("/gripper/move", response_model=GripperControlResponse)
+@router.post("/gripper/move", response_model=ApiResponse)
 async def move_gripper(
     request: MoveGripperRequest,
     current_user=Depends(get_current_operator)
 ):
     """移动夹爪"""
     if request.side not in ["left", "right"]:
-        raise HTTPException(status_code=400, detail="side 必须是 'left' 或 'right'")
+        return error_response(
+            code=ErrorCodes.INVALID_PARAMETER,
+            message="side 必须是 'left' 或 'right'"
+        )
     
     # 验证参数范围
     if not (0 <= request.position <= 255):
-        raise HTTPException(status_code=400, detail="position 必须在 0-255 范围内")
+        return error_response(
+            code=ErrorCodes.INVALID_PARAMETER,
+            message="position 必须在 0-255 范围内"
+        )
     if not (0 <= request.speed <= 255):
-        raise HTTPException(status_code=400, detail="speed 必须在 0-255 范围内")
+        return error_response(
+            code=ErrorCodes.INVALID_PARAMETER,
+            message="speed 必须在 0-255 范围内"
+        )
     if not (0 <= request.force <= 255):
-        raise HTTPException(status_code=400, detail="force 必须在 0-255 范围内")
+        return error_response(
+            code=ErrorCodes.INVALID_PARAMETER,
+            message="force 必须在 0-255 范围内"
+        )
     
     side_name = "左" if request.side == "left" else "右"
     
@@ -283,7 +307,7 @@ async def move_gripper(
     )
 
 
-@router.post("/gripper/{side}/open", response_model=GripperControlResponse)
+@router.post("/gripper/{side}/open", response_model=ApiResponse)
 async def open_gripper(
     side: str,
     current_user=Depends(get_current_operator)
@@ -295,7 +319,7 @@ async def open_gripper(
     )
 
 
-@router.post("/gripper/{side}/close", response_model=GripperControlResponse)
+@router.post("/gripper/{side}/close", response_model=ApiResponse)
 async def close_gripper(
     side: str,
     current_user=Depends(get_current_operator)
@@ -307,7 +331,7 @@ async def close_gripper(
     )
 
 
-@router.post("/gripper/{side}/half", response_model=GripperControlResponse)
+@router.post("/gripper/{side}/half", response_model=ApiResponse)
 async def half_open_gripper(
     side: str,
     current_user=Depends(get_current_operator)
@@ -319,7 +343,7 @@ async def half_open_gripper(
     )
 
 
-@router.post("/gripper/{side}/soft", response_model=GripperControlResponse)
+@router.post("/gripper/{side}/soft", response_model=ApiResponse)
 async def soft_grip(
     side: str,
     current_user=Depends(get_current_operator)

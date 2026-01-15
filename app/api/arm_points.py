@@ -16,12 +16,15 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from threading import Lock
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.dependencies import get_current_admin
 from app.ros2_bridge.bridge import ros2_bridge
 from app.safety.watchdog import watchdog
+from app.schemas.response import (
+    ApiResponse, success_response, error_response, ErrorCodes
+)
 
 router = APIRouter(prefix="/arm/points", tags=["arm_points"])
 
