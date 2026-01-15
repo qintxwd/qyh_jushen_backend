@@ -16,7 +16,7 @@ router = APIRouter()
 
 class LiftControlRequest(BaseModel):
     """升降电机控制请求"""
-    command: int  # 1=使能, 2=去使能, 3=设置速度, 4=去位置, 5=上升, 6=下降, 7=复位
+    command: int  # 1=使能, 2=去使能, 3=设置速度, 4=去位置, 5=上升, 6=下降, 7=复位, 8=停止, 9=电磁铁
     value: float = 0.0  # 速度或位置值
     hold: bool = False  # 用于手动上升/下降
 
@@ -25,6 +25,11 @@ class LiftControlResponse(BaseModel):
     """升降电机控制响应"""
     success: bool
     message: str
+
+
+class ElectromagnetRequest(BaseModel):
+    """电磁铁控制请求"""
+    enable: bool
 
 
 class LiftState(BaseModel):
@@ -79,7 +84,8 @@ async def control_lift(
         5: "手动上升",
         6: "手动下降",
         7: "复位报警",
-        8: "停止运动"
+        8: "停止运动",
+        9: "电磁铁"
     }
     
     cmd_name = command_names.get(request.command, f"未知命令({request.command})")
@@ -157,11 +163,50 @@ async def control_lift(
     elif request.command == 8:  # 停止运动
         _mock_state.position_reached = True
         return LiftControlResponse(success=True, message="运动已停止")
+
+    elif request.command == 9:  # 电磁铁开关
+        return LiftControlResponse(
+            success=True,
+            message="电磁铁已{}".format("开启" if request.value >= 0.5 else "关闭")
+        )
     
 
     return LiftControlResponse(
         success=False,
         message=f"未知命令: {request.command}"
+    )
+
+
+@router.post("/lift/electromagnet", response_model=LiftControlResponse)
+async def control_electromagnet(
+    request: ElectromagnetRequest,
+    current_user=Depends(get_current_admin)
+):
+    """电磁铁开关控制"""
+    watchdog.heartbeat()
+
+    if ros2_bridge.is_connected():
+        try:
+            result = await ros2_bridge.call_lift_control(
+                command=9,
+                value=1.0 if request.enable else 0.0,
+                hold=False
+            )
+            if result:
+                return LiftControlResponse(
+                    success=result.get("success", False),
+                    message=result.get("message", "电磁铁控制完成")
+                )
+        except Exception as e:
+            return LiftControlResponse(
+                success=False,
+                message=f"电磁铁控制失败: {str(e)}"
+            )
+
+    # Mock 模式
+    return LiftControlResponse(
+        success=True,
+        message="电磁铁已{} (Mock)".format("开启" if request.enable else "关闭")
     )
 
 
