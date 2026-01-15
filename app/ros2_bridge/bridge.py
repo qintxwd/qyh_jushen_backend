@@ -313,6 +313,7 @@ class ROS2Bridge:
                     "current_speed": msg.current_speed,
                     "position_reached": msg.position_reached,
                     "alarm": msg.alarm,
+                    "electromagnet_on": msg.electromagnet_on,
                     "shutdown_requested": msg.shutdown_requested
                 }
                 

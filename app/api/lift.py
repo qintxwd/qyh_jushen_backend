@@ -40,6 +40,7 @@ class LiftState(BaseModel):
     current_speed: float = 20.0
     position_reached: bool = True
     alarm: bool = False
+    electromagnet_on: bool = False
 
 
 
@@ -64,6 +65,7 @@ async def get_lift_state(current_user=Depends(get_current_admin)):
                 current_speed=state.get("current_speed", 20.0),
                 position_reached=state.get("position_reached", True),
                 alarm=state.get("alarm", False),
+                electromagnet_on=state.get("electromagnet_on", False),
 )
     
     # 返回模拟状态（Mock 模式）
