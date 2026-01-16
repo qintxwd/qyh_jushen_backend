@@ -3,7 +3,7 @@ JAKA 双臂机械臂控制 API
 提供机械臂状态查询和控制功能
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from enum import IntEnum

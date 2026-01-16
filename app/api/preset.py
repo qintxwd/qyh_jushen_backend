@@ -4,7 +4,7 @@
 提供预设的 CRUD 操作和快捷执行接口
 """
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 

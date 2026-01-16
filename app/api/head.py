@@ -3,7 +3,7 @@
 控制 Pan (左右) 和 Tilt (上下) 两个舵机
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional
 

@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from threading import Lock
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.dependencies import get_current_admin

@@ -4,7 +4,7 @@
 提供腰部角度点位的 CRUD 操作
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from pathlib import Path
