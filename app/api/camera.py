@@ -8,6 +8,7 @@ import asyncio
 from app.schemas.response import (
     ApiResponse, success_response, error_response, ErrorCodes
 )
+from app.ros2_bridge.bridge import ros2_bridge
 
 router = APIRouter(prefix="/camera", tags=["camera"])
 
@@ -218,48 +219,34 @@ async def get_camera_topic_status():
     """
     检查相机状态
     
-    使用 web_video_server 的 /streams 接口获取所有可用话题
-    这比 snapshot 更可靠且更快
+    通过 ROS2 topic 是否有数据来检测（与视频流解耦）
     """
-    status = {"cameras": {}}
-    
-    try:
-        # web_video_server 的 /streams?action=topics 返回所有有图像数据的话题
-        url = f"http://{WEB_VIDEO_SERVER_HOST}:{WEB_VIDEO_SERVER_PORT}/streams?action=topics"
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(url)
-            
-            if response.status_code == 200:
-                # 返回的是 JSON 格式的话题列表
-                try:
-                    available_topics = response.json()
-                except Exception:
-                    # 如果不是 JSON，尝试解析文本
-                    available_topics = response.text.strip().split('\n')
-                
-                for camera_id, topic in CAMERA_TOPICS.items():
-                    # 检查话题是否在可用列表中
-                    is_available = any(topic in t for t in available_topics)
-                    status["cameras"][camera_id] = {
-                        "available": is_available,
-                        "topic": topic,
-                        "method": "web_video_server_streams"
-                    }
-            else:
-                # web_video_server 返回错误，标记所有相机为不可用
-                for camera_id, topic in CAMERA_TOPICS.items():
-                    status["cameras"][camera_id] = {
-                        "available": False,
-                        "topic": topic,
-                        "error": f"web_video_server returned {response.status_code}"
-                    }
-    except Exception as e:
-        # 连接失败，标记所有相机为不可用
+    status = {"cameras": {}, "source": "ros_topic"}
+
+    if not ros2_bridge.is_connected():
         for camera_id, topic in CAMERA_TOPICS.items():
             status["cameras"][camera_id] = {
                 "available": False,
                 "topic": topic,
-                "error": str(e)
+                "error": "ros2_bridge_not_connected"
             }
-    
+        return status
+
+    for camera_id, topic in CAMERA_TOPICS.items():
+        info = ros2_bridge.get_camera_status(camera_id)
+        if info is None:
+            status["cameras"][camera_id] = {
+                "available": False,
+                "topic": topic,
+                "error": "camera_id_not_registered"
+            }
+            continue
+
+        status["cameras"][camera_id] = {
+            "available": info.get("available", False),
+            "topic": topic,
+            "last_seen_sec": info.get("last_seen_sec"),
+            "timeout_sec": info.get("timeout_sec")
+        }
+
     return status

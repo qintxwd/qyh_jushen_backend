@@ -150,6 +150,20 @@ class ROS2Bridge:
         self.left_gripper_move_client = None
         self.right_gripper_activate_client = None
         self.right_gripper_move_client = None
+
+        # ==================== 相机相关 ====================
+        # 相机话题与状态（基于 ROS2 topic 是否有数据）
+        self.camera_topics = {
+            "head": "/head_camera/color/image_raw",
+            "left_hand": "/left_camera/color/image_raw",
+            "right_hand": "/right_camera/color/image_raw"
+        }
+        self.camera_last_msg_time = {
+            "head": 0.0,
+            "left_hand": 0.0,
+            "right_hand": 0.0
+        }
+        self.camera_timeout_seconds = 3.0
         
         # 是否为 Mock 模式
         self.mock_mode = settings.MOCK_MODE
@@ -299,6 +313,45 @@ class ROS2Bridge:
             print("✅ joint_states 订阅器创建成功")
         except Exception as e:
             print(f"⚠️  joint_states 订阅器创建失败: {e}")
+
+        # 相机图像话题订阅（用于检测是否有数据）
+        try:
+            from sensor_msgs.msg import Image
+            import time
+
+            for camera_id, topic in self.camera_topics.items():
+                def _make_callback(cid):
+                    def _cb(msg: Image):
+                        self.camera_last_msg_time[cid] = time.time()
+                    return _cb
+
+                self.node.create_subscription(
+                    Image,
+                    topic,
+                    _make_callback(camera_id),
+                    1
+                )
+                print(f"✅ camera 订阅器创建成功: {camera_id} -> {topic}")
+        except Exception as e:
+            print(f"⚠️  camera 订阅器创建失败: {e}")
+
+    def get_camera_status(self, camera_id: str) -> Optional[Dict[str, Any]]:
+        """获取相机话题状态（基于最近一次消息时间）"""
+        if camera_id not in self.camera_last_msg_time:
+            return None
+        try:
+            import time
+            last_time = self.camera_last_msg_time.get(camera_id, 0.0) or 0.0
+            now = time.time()
+            last_seen_sec = now - last_time if last_time > 0.0 else None
+            available = last_seen_sec is not None and last_seen_sec <= self.camera_timeout_seconds
+            return {
+                "available": available,
+                "last_seen_sec": last_seen_sec,
+                "timeout_sec": self.camera_timeout_seconds
+            }
+        except Exception:
+            return None
 
         # 升降机状态订阅
         try:
