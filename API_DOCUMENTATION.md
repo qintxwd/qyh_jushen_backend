@@ -1290,12 +1290,139 @@ Authorization: Bearer <current_token>
 - 任务: `/api/v1/tasks/*`
 - 动作: `/api/v1/actions/*`
 
-### 4.5 录制/相机/预设/VR
+### 4.5 录制/相机/预设/VR/LED
 
 - 录制: `/api/v1/recording/*`
 - 相机: `/api/v1/camera/*`
 - 预设: `/api/v1/presets/*`
 - VR: `/api/v1/vr/*`
+- LED灯带: `/api/v1/led/*`
+
+### 4.6 LED灯带控制 API
+
+LED灯带与夹爪共用RS-485总线，通过gripper_control_node控制。
+
+#### 4.6.1 获取LED状态
+
+```http
+GET /api/v1/led/state
+Authorization: Bearer <token>
+```
+
+**响应:**
+```json
+{
+  "success": true,
+  "code": 0,
+  "data": {
+    "is_blinking": false,
+    "current_color": {"r": 0, "g": 255, "b": 0, "w": 0},
+    "blink_colors": null,
+    "blink_interval_ms": null
+  }
+}
+```
+
+#### 4.6.2 设置LED纯色
+
+```http
+POST /api/v1/led/color
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "r": 255,
+  "g": 0,
+  "b": 0,
+  "w": 0
+}
+```
+
+| 参数 | 类型 | 范围 | 说明 |
+|------|------|------|------|
+| r | int | 0-255 | 红色 |
+| g | int | 0-255 | 绿色 |
+| b | int | 0-255 | 蓝色 |
+| w | int | 0-255 | 白色(W通道，产生更纯净白光) |
+
+#### 4.6.3 设置预设颜色
+
+```http
+POST /api/v1/led/preset/{preset_name}
+Authorization: Bearer <token>
+```
+
+**可用预设:**
+| 预设名 | 颜色 | RGBW值 |
+|--------|------|--------|
+| red | 红色 | (255,0,0,0) |
+| green | 绿色 | (0,255,0,0) |
+| blue | 蓝色 | (0,0,255,0) |
+| white | 纯白(W通道) | (0,0,0,255) |
+| white_rgb | RGB白色 | (255,255,255,0) |
+| yellow | 黄色 | (255,255,0,0) |
+| cyan | 青色 | (0,255,255,0) |
+| magenta | 品红 | (255,0,255,0) |
+| orange | 橙色 | (255,128,0,0) |
+| purple | 紫色 | (128,0,255,0) |
+| warm_white | 暖白 | (50,30,0,200) |
+| off | 关闭 | (0,0,0,0) |
+
+#### 4.6.4 设置自定义闪烁
+
+```http
+POST /api/v1/led/blink
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "colors": [
+    {"r": 255, "g": 0, "b": 0, "w": 0},
+    {"r": 0, "g": 255, "b": 0, "w": 0}
+  ],
+  "interval_ms": 500
+}
+```
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| colors | array | 颜色序列(至少1个) |
+| interval_ms | int | 切换间隔(50-10000ms) |
+
+#### 4.6.5 设置预设闪烁模式
+
+```http
+POST /api/v1/led/blink/preset/{mode_name}
+Authorization: Bearer <token>
+```
+
+**可用模式:**
+| 模式 | 说明 | 颜色 | 间隔 |
+|------|------|------|------|
+| warning | 黄色警告 | 黄/黑 | 200ms |
+| error | 红色错误 | 红/黑 | 300ms |
+| success | 绿色成功 | 绿/黑 | 500ms |
+| processing | 处理中 | 蓝/青 | 400ms |
+| rainbow | 彩虹 | 7色循环 | 300ms |
+| police | 警灯 | 红/蓝 | 150ms |
+
+#### 4.6.6 停止闪烁
+
+```http
+POST /api/v1/led/stop
+Authorization: Bearer <token>
+```
+
+停止闪烁并恢复为节点配置的默认颜色。
+
+#### 4.6.7 获取所有预设
+
+```http
+GET /api/v1/led/presets
+Authorization: Bearer <token>
+```
+
+返回所有可用的预设颜色和闪烁模式。
 
 ---
 

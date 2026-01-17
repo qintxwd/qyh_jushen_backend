@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from app.config import settings
 from app.database import engine, Base
-from app.api import auth, control, robot, tasks, emergency, websocket, terminal, ros_gui, lift, waist, robot_model, head, arm, task_orchestration, preset, arm_points, chassis, gripper, vr_teleoperation, camera, recording, head_points, lift_points, waist_points, shutdown, actions
+from app.api import auth, control, robot, tasks, emergency, websocket, terminal, ros_gui, lift, waist, robot_model, head, arm, task_orchestration, preset, arm_points, chassis, gripper, vr_teleoperation, camera, recording, head_points, lift_points, waist_points, shutdown, actions, led
 from app.ros2_bridge.bridge import ros2_bridge
 from app.safety.watchdog import watchdog
 from app.preset import preset_manager
@@ -97,6 +97,7 @@ app.include_router(waist.router, prefix="/api/v1", tags=["腰部电机控制"])
 app.include_router(waist_points.router, prefix="/api/v1", tags=["腰部点位"])
 app.include_router(head.router, prefix="/api/v1", tags=["头部控制"])
 app.include_router(head_points.router, prefix="/api/v1", tags=["头部点位"])
+app.include_router(led.router, prefix="/api/v1", tags=["LED灯带控制"])
 
 # 传感器 & 视觉
 app.include_router(camera.router, prefix="/api/v1", tags=["相机视频流"])

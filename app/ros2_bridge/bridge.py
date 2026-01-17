@@ -151,6 +151,10 @@ class ROS2Bridge:
         self.right_gripper_activate_client = None
         self.right_gripper_move_client = None
 
+        # ==================== LED 灯带相关 ====================
+        self.led_color_pub = None
+        self.led_blink_pub = None
+
         # ==================== 相机相关 ====================
         # 相机话题与状态（基于 ROS2 topic 是否有数据）
         self.camera_topics = {
@@ -1112,6 +1116,23 @@ class ROS2Bridge:
         # 腰部服务客户端
         self._setup_waist_clients()
     
+    def _setup_led_publishers(self):
+        """设置LED灯带发布器"""
+        try:
+            from std_msgs.msg import ColorRGBA, String
+            
+            # LED 纯色发布器
+            self.led_color_pub = self.node.create_publisher(
+                ColorRGBA, '/robot_led/set_color', 10
+            )
+            # LED 闪烁发布器
+            self.led_blink_pub = self.node.create_publisher(
+                String, '/robot_led/blink', 10
+            )
+            print("✅ LED发布器创建成功: /robot_led/set_color, /robot_led/blink")
+        except Exception as e:
+            print(f"⚠️  LED发布器创建失败: {e}")
+    
     def _setup_waist_clients(self):
         """设置腰部服务客户端"""
         try:
@@ -1148,6 +1169,9 @@ class ROS2Bridge:
             print("✅ 夹爪服务客户端创建成功")
         except Exception as e:
             print(f"⚠️  夹爪服务客户端创建失败: {e}")
+        
+        # LED 发布器（与夹爪共用 485 总线，通过 gripper_control_node 控制）
+        self._setup_led_publishers()
 
     def _setup_arm_clients(self):
         """设置机械臂服务客户端"""
@@ -3872,6 +3896,76 @@ class ROS2Bridge:
     def send_command(self, cmd: Dict[str, Any]):
         """发送命令到 ROS2（异步安全）"""
         self.command_queue.put(cmd)
+    
+    # ==================== LED 灯带控制 ====================
+    
+    def set_led_color(self, r: int, g: int, b: int, w: int = 0) -> bool:
+        """
+        设置LED纯色
+        
+        Args:
+            r: 红色 (0-255)
+            g: 绿色 (0-255)
+            b: 蓝色 (0-255)
+            w: 白色 (0-255)
+        
+        Returns:
+            是否发送成功
+        """
+        if self.mock_mode:
+            print(f"[Mock] LED color: R={r}, G={g}, B={b}, W={w}")
+            return True
+        
+        if not self.led_color_pub:
+            print("⚠️  LED发布器未初始化")
+            return False
+        
+        try:
+            from std_msgs.msg import ColorRGBA
+            msg = ColorRGBA()
+            # ColorRGBA 使用 0.0-1.0 范围，r/g/b 对应 RGB，a 对应 W
+            msg.r = r / 255.0
+            msg.g = g / 255.0
+            msg.b = b / 255.0
+            msg.a = w / 255.0  # 使用 alpha 通道传递 W 值
+            self.led_color_pub.publish(msg)
+            print(f"✅ LED颜色已设置: R={r}, G={g}, B={b}, W={w}")
+            return True
+        except Exception as e:
+            print(f"❌ LED颜色设置失败: {e}")
+            return False
+    
+    def set_led_blink(self, command: str) -> bool:
+        """
+        设置LED闪烁模式
+        
+        Args:
+            command: 闪烁命令字符串
+                     格式: "interval_ms:r,g,b,w;r,g,b,w;..."
+                     例如: "500:255,0,0,0;0,255,0,0" 表示500ms间隔红绿交替
+                     发送 "stop" 停止闪烁
+        
+        Returns:
+            是否发送成功
+        """
+        if self.mock_mode:
+            print(f"[Mock] LED blink: {command}")
+            return True
+        
+        if not self.led_blink_pub:
+            print("⚠️  LED闪烁发布器未初始化")
+            return False
+        
+        try:
+            from std_msgs.msg import String
+            msg = String()
+            msg.data = command
+            self.led_blink_pub.publish(msg)
+            print(f"✅ LED闪烁命令已发送: {command[:50]}...")
+            return True
+        except Exception as e:
+            print(f"❌ LED闪烁命令发送失败: {e}")
+            return False
     
 
     async def call_shutdown(self) -> Optional[Dict[str, Any]]:
