@@ -162,6 +162,23 @@ async def health():
     }
 
 
+@app.get("/api/v1/health")
+async def health_v1():
+    """健康检查 API v1"""
+    from datetime import datetime
+    return {
+        "success": True,
+        "code": 0,
+        "message": "服务正常",
+        "data": {
+            "status": "healthy",
+            "ros2_connected": ros2_bridge.is_connected(),
+            "database": "ok"
+        },
+        "timestamp": datetime.utcnow().isoformat() + "Z"
+    }
+
+
 @app.get("/api/v1")
 async def api_info():
     """API 版本信息"""

@@ -163,14 +163,14 @@ async def get_camera_status():
     }
     
     # 检查 web_video_server 是否在运行
-    async with httpx.AsyncClient(timeout=2.0) as client:
-        try:
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
             response = await client.get(
                 f"http://{WEB_VIDEO_SERVER_HOST}:{WEB_VIDEO_SERVER_PORT}/"
             )
             status["web_video_server_available"] = response.status_code == 200
-        except httpx.RequestError:
-            status["web_video_server_available"] = False
+    except (httpx.RequestError, httpx.TimeoutException, Exception):
+        status["web_video_server_available"] = False
     
     # 检查各相机话题状态（通过尝试获取快照）
     if status["web_video_server_available"]:
@@ -183,7 +183,7 @@ async def get_camera_status():
                         "available": response.status_code == 200,
                         "topic": topic
                     }
-            except httpx.RequestError:
+            except (httpx.RequestError, httpx.TimeoutException, Exception):
                 status["cameras"][camera_id] = {
                     "available": False,
                     "topic": topic
