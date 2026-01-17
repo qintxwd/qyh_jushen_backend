@@ -221,39 +221,57 @@ async def get_camera_topic_status():
     直接检查 ROS2 话题是否在发布数据，而不依赖 web_video_server
     返回各相机话题的发布状态
     """
-    import subprocess
-    
     status = {"cameras": {}}
     
-    for camera_id, topic in CAMERA_TOPICS.items():
+    async def check_single_topic(camera_id: str, topic: str):
+        """异步检查单个话题状态"""
         try:
             # 使用 ros2 topic info 检查话题是否存在且有发布者
-            result = subprocess.run(
-                ["ros2", "topic", "info", topic, "--verbose"],
-                capture_output=True,
-                text=True,
-                timeout=1.0
+            process = await asyncio.create_subprocess_exec(
+                "ros2", "topic", "info", topic,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
             )
             
-            # 检查是否有发布者
-            has_publisher = "Publisher count:" in result.stdout and "Publisher count: 0" not in result.stdout
-            
-            status["cameras"][camera_id] = {
-                "available": has_publisher,
-                "topic": topic,
-                "method": "ros2_topic_info"
-            }
-        except subprocess.TimeoutExpired:
-            status["cameras"][camera_id] = {
-                "available": False,
-                "topic": topic,
-                "error": "timeout"
-            }
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(), timeout=1.5
+                )
+                output = stdout.decode()
+                
+                # 检查是否有发布者
+                has_publisher = (
+                    "Publisher count:" in output
+                    and "Publisher count: 0" not in output
+                )
+                
+                return camera_id, {
+                    "available": has_publisher,
+                    "topic": topic,
+                    "method": "ros2_topic_info"
+                }
+            except asyncio.TimeoutError:
+                process.kill()
+                return camera_id, {
+                    "available": False,
+                    "topic": topic,
+                    "error": "timeout"
+                }
         except Exception as e:
-            status["cameras"][camera_id] = {
+            return camera_id, {
                 "available": False,
                 "topic": topic,
                 "error": str(e)
             }
+    
+    # 并发检查所有话题，提高响应速度
+    tasks = [
+        check_single_topic(cam_id, topic)
+        for cam_id, topic in CAMERA_TOPICS.items()
+    ]
+    results = await asyncio.gather(*tasks)
+    
+    for camera_id, camera_status in results:
+        status["cameras"][camera_id] = camera_status
     
     return status
