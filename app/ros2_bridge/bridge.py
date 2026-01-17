@@ -339,24 +339,6 @@ class ROS2Bridge:
         except Exception as e:
             print(f"⚠️  camera 订阅器创建失败: {e}")
 
-    def get_camera_status(self, camera_id: str) -> Optional[Dict[str, Any]]:
-        """获取相机话题状态（基于最近一次消息时间）"""
-        if camera_id not in self.camera_last_msg_time:
-            return None
-        try:
-            import time
-            last_time = self.camera_last_msg_time.get(camera_id, 0.0) or 0.0
-            now = time.time()
-            last_seen_sec = now - last_time if last_time > 0.0 else None
-            available = last_seen_sec is not None and last_seen_sec <= self.camera_timeout_seconds
-            return {
-                "available": available,
-                "last_seen_sec": last_seen_sec,
-                "timeout_sec": self.camera_timeout_seconds
-            }
-        except Exception:
-            return None
-
         # 升降机状态订阅
         try:
             from qyh_lift_msgs.msg import LiftState
@@ -561,6 +543,25 @@ class ROS2Bridge:
         # ==================== VR遥操作状态订阅 ====================
         self._setup_vr_subscribers()
     
+
+    def get_camera_status(self, camera_id: str) -> Optional[Dict[str, Any]]:
+        """获取相机话题状态（基于最近一次消息时间）"""
+        if camera_id not in self.camera_last_msg_time:
+            return None
+        try:
+            import time
+            last_time = self.camera_last_msg_time.get(camera_id, 0.0) or 0.0
+            now = time.time()
+            last_seen_sec = now - last_time if last_time > 0.0 else None
+            available = last_seen_sec is not None and last_seen_sec <= self.camera_timeout_seconds
+            return {
+                "available": available,
+                "last_seen_sec": last_seen_sec,
+                "timeout_sec": self.camera_timeout_seconds
+            }
+        except Exception:
+            return None
+
     def _setup_vr_subscribers(self):
         """设置VR遥操作相关订阅器 - 订阅 vr_bridge_node 发布的 topics"""
         from std_msgs.msg import Bool
