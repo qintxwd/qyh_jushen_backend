@@ -216,62 +216,50 @@ async def get_available_topics():
 @router.get("/topic_status")
 async def get_camera_topic_status():
     """
-    基于 ROS2 topic 检查相机状态（更准确）
+    检查相机状态
     
-    直接检查 ROS2 话题是否在发布数据，而不依赖 web_video_server
-    返回各相机话题的发布状态
+    使用 web_video_server 的 /streams 接口获取所有可用话题
+    这比 snapshot 更可靠且更快
     """
     status = {"cameras": {}}
     
-    async def check_single_topic(camera_id: str, topic: str):
-        """异步检查单个话题状态"""
-        try:
-            # 使用 ros2 topic info 检查话题是否存在且有发布者
-            process = await asyncio.create_subprocess_exec(
-                "ros2", "topic", "info", topic,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
+    try:
+        # web_video_server 的 /streams?action=topics 返回所有有图像数据的话题
+        url = f"http://{WEB_VIDEO_SERVER_HOST}:{WEB_VIDEO_SERVER_PORT}/streams?action=topics"
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(url)
             
-            try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(), timeout=1.5
-                )
-                output = stdout.decode()
+            if response.status_code == 200:
+                # 返回的是 JSON 格式的话题列表
+                try:
+                    available_topics = response.json()
+                except Exception:
+                    # 如果不是 JSON，尝试解析文本
+                    available_topics = response.text.strip().split('\n')
                 
-                # 检查是否有发布者
-                has_publisher = (
-                    "Publisher count:" in output
-                    and "Publisher count: 0" not in output
-                )
-                
-                return camera_id, {
-                    "available": has_publisher,
-                    "topic": topic,
-                    "method": "ros2_topic_info"
-                }
-            except asyncio.TimeoutError:
-                process.kill()
-                return camera_id, {
-                    "available": False,
-                    "topic": topic,
-                    "error": "timeout"
-                }
-        except Exception as e:
-            return camera_id, {
+                for camera_id, topic in CAMERA_TOPICS.items():
+                    # 检查话题是否在可用列表中
+                    is_available = any(topic in t for t in available_topics)
+                    status["cameras"][camera_id] = {
+                        "available": is_available,
+                        "topic": topic,
+                        "method": "web_video_server_streams"
+                    }
+            else:
+                # web_video_server 返回错误，标记所有相机为不可用
+                for camera_id, topic in CAMERA_TOPICS.items():
+                    status["cameras"][camera_id] = {
+                        "available": False,
+                        "topic": topic,
+                        "error": f"web_video_server returned {response.status_code}"
+                    }
+    except Exception as e:
+        # 连接失败，标记所有相机为不可用
+        for camera_id, topic in CAMERA_TOPICS.items():
+            status["cameras"][camera_id] = {
                 "available": False,
                 "topic": topic,
                 "error": str(e)
             }
-    
-    # 并发检查所有话题，提高响应速度
-    tasks = [
-        check_single_topic(cam_id, topic)
-        for cam_id, topic in CAMERA_TOPICS.items()
-    ]
-    results = await asyncio.gather(*tasks)
-    
-    for camera_id, camera_status in results:
-        status["cameras"][camera_id] = camera_status
     
     return status
