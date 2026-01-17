@@ -211,3 +211,49 @@ async def get_available_topics():
             for cam_id, topic in CAMERA_TOPICS.items()
         ]
     }
+
+
+@router.get("/topic_status")
+async def get_camera_topic_status():
+    """
+    基于 ROS2 topic 检查相机状态（更准确）
+    
+    直接检查 ROS2 话题是否在发布数据，而不依赖 web_video_server
+    返回各相机话题的发布状态
+    """
+    import subprocess
+    
+    status = {"cameras": {}}
+    
+    for camera_id, topic in CAMERA_TOPICS.items():
+        try:
+            # 使用 ros2 topic info 检查话题是否存在且有发布者
+            result = subprocess.run(
+                ["ros2", "topic", "info", topic, "--verbose"],
+                capture_output=True,
+                text=True,
+                timeout=1.0
+            )
+            
+            # 检查是否有发布者
+            has_publisher = "Publisher count:" in result.stdout and "Publisher count: 0" not in result.stdout
+            
+            status["cameras"][camera_id] = {
+                "available": has_publisher,
+                "topic": topic,
+                "method": "ros2_topic_info"
+            }
+        except subprocess.TimeoutExpired:
+            status["cameras"][camera_id] = {
+                "available": False,
+                "topic": topic,
+                "error": "timeout"
+            }
+        except Exception as e:
+            status["cameras"][camera_id] = {
+                "available": False,
+                "topic": topic,
+                "error": str(e)
+            }
+    
+    return status
