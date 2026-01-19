@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from app.config import settings
 from app.database import engine, Base
-from app.api import auth, control, robot, tasks, emergency, websocket, terminal, ros_gui, lift, waist, robot_model, head, arm, task_orchestration, preset, arm_points, chassis, gripper, vr_teleoperation, camera, recording, head_points, lift_points, waist_points, shutdown, actions, led
+from app.api import auth, control, robot, tasks, emergency, websocket, terminal, ros_gui, lift, waist, robot_model, head, arm, task_orchestration, preset, arm_points, chassis, gripper, vr_teleoperation, camera, recording, head_points, lift_points, waist_points, shutdown, actions, led, status, chassis_manual
 from app.ros2_bridge.bridge import ros2_bridge
 from app.safety.watchdog import watchdog
 from app.preset import preset_manager
@@ -89,6 +89,7 @@ app.include_router(gripper.router, prefix="/api/v1", tags=["夹爪控制"])
 
 # 底盘
 app.include_router(chassis.router, prefix="/api/v1", tags=["底盘控制"])
+app.include_router(chassis_manual.router, prefix="/api/v1", tags=["底盘手动控制"])
 
 # 其他执行器
 app.include_router(lift.router, prefix="/api/v1", tags=["升降电机控制"])
@@ -101,6 +102,9 @@ app.include_router(led.router, prefix="/api/v1", tags=["LED灯带控制"])
 
 # 传感器 & 视觉
 app.include_router(camera.router, prefix="/api/v1", tags=["相机视频流"])
+
+# 统一状态查询
+app.include_router(status.router, prefix="/api/v1", tags=["统一状态查询"])
 
 # 预设 & 模型
 app.include_router(preset.router, prefix="/api/v1", tags=["预设管理"])
