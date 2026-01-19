@@ -301,7 +301,7 @@ async def audit_log(
     user: Optional[User] = None,
     request: Optional[Request] = None,
 ) -> AuditLog:
-    """便捷函数：记录审计日志"""
+    """便捷函数：记录审计日志（异步版本）"""
     return await AuditService.log(
         db=db,
         action=action,
@@ -311,3 +311,56 @@ async def audit_log(
         user=user,
         request=request,
     )
+
+
+def audit_log_sync(
+    db,  # 同步 Session
+    action: str,
+    resource: Optional[str] = None,
+    resource_id: Optional[str] = None,
+    details: Optional[dict[str, Any]] = None,
+    user: Optional[User] = None,
+    request: Optional[Request] = None,
+) -> AuditLog:
+    """
+    便捷函数：记录审计日志（同步版本）
+    
+    用于同步数据库会话环境
+    """
+    # 提取用户信息
+    user_id = user.id if user else None
+    username = user.username if user else None
+    
+    # 提取请求信息
+    ip_address = None
+    user_agent = None
+    if request:
+        forwarded = request.headers.get("X-Forwarded-For")
+        if forwarded:
+            ip_address = forwarded.split(",")[0].strip()
+        else:
+            ip_address = request.client.host if request.client else None
+        user_agent = request.headers.get("User-Agent", "")[:255]
+    
+    # 创建日志记录
+    log_entry = AuditLog(
+        user_id=user_id,
+        username=username,
+        action=action,
+        resource=resource,
+        resource_id=resource_id,
+        details=details,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        created_at=datetime.utcnow(),
+    )
+    
+    db.add(log_entry)
+    db.commit()
+    db.refresh(log_entry)
+    
+    logger.info(
+        f"Audit: {action} on {resource}/{resource_id} by {username or 'anonymous'}"
+    )
+    
+    return log_entry

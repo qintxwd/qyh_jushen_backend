@@ -3,9 +3,11 @@ QYH Jushen Control Plane - 控制权管理 API
 
 实现机器人控制权的获取、释放、续约等功能
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
+from sqlalchemy.orm import Session
 
 from app.dependencies import get_current_operator, get_current_admin
+from app.database import get_db
 from app.models.user import User
 from app.core.control_lock import control_lock
 from app.schemas.response import ApiResponse, success_response, error_response, ErrorCodes
@@ -15,6 +17,12 @@ from app.schemas.control import (
     ControlStatus,
     ForceReleaseRequest,
 )
+from app.services.audit_service import audit_log_sync
+from app.services.control_session_service import (
+    create_control_session,
+    end_control_session,
+    ControlSessionService,
+)
 
 router = APIRouter()
 
@@ -22,7 +30,9 @@ router = APIRouter()
 @router.post("/acquire", response_model=ApiResponse)
 async def acquire_control(
     request: AcquireControlRequest,
+    http_request: Request,
     current_user: User = Depends(get_current_operator),
+    db: Session = Depends(get_db),
 ):
     """
     获取机器人控制权
@@ -38,6 +48,24 @@ async def acquire_control(
     
     if success:
         holder = control_lock.get_holder()
+        
+        # 持久化：创建控制权会话记录
+        create_control_session(
+            db=db,
+            user_id=current_user.id,
+            username=current_user.username,
+            session_type=request.session_type,
+        )
+        
+        # 记录审计日志
+        audit_log_sync(
+            db=db,
+            action="control_acquire",
+            resource="control",
+            details={"session_type": request.session_type, "duration": request.duration},
+            user=current_user,
+            request=http_request,
+        )
         return success_response(
             data={"holder": holder},
             message="控制权获取成功"
@@ -53,7 +81,9 @@ async def acquire_control(
 
 @router.post("/release", response_model=ApiResponse)
 async def release_control(
+    http_request: Request,
     current_user: User = Depends(get_current_operator),
+    db: Session = Depends(get_db),
 ):
     """
     释放控制权
@@ -61,6 +91,18 @@ async def release_control(
     success = control_lock.release(current_user.id)
     
     if success:
+        # 持久化：结束控制权会话
+        end_control_session(db, current_user.id, "released")
+        
+        # 记录审计日志
+        audit_log_sync(
+            db=db,
+            action="control_release",
+            resource="control",
+            details={"reason": "user_release"},
+            user=current_user,
+            request=http_request,
+        )
         return success_response(message="控制权已释放")
     else:
         return error_response(
@@ -121,7 +163,9 @@ async def get_control_status():
 @router.post("/force-release", response_model=ApiResponse)
 async def force_release_control(
     request: ForceReleaseRequest,
+    http_request: Request,
     current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
 ):
     """
     强制释放控制权（仅管理员）
@@ -129,6 +173,22 @@ async def force_release_control(
     old_holder = control_lock.force_release(request.reason)
     
     if old_holder:
+        # 持久化：结束被强制释放用户的会话
+        end_control_session(db, old_holder["user_id"], f"forced:{request.reason}")
+        
+        # 记录审计日志
+        audit_log_sync(
+            db=db,
+            action="control_force_release",
+            resource="control",
+            details={
+                "reason": request.reason,
+                "previous_holder": old_holder["username"],
+                "previous_user_id": old_holder["user_id"],
+            },
+            user=current_user,
+            request=http_request,
+        )
         return success_response(
             data={"previous_holder": old_holder},
             message=f"已强制释放 {old_holder['username']} 的控制权"
@@ -137,3 +197,68 @@ async def force_release_control(
         return success_response(
             message="当前没有控制权持有者"
         )
+
+
+@router.get("/history", response_model=ApiResponse)
+async def get_control_history(
+    user_id: int = None,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: User = Depends(get_current_operator),
+    db: Session = Depends(get_db),
+):
+    """
+    获取控制权会话历史
+    
+    管理员可查看所有用户的历史，普通用户只能查看自己的
+    """
+    # 普通用户只能查看自己的历史
+    if current_user.role != "admin" and user_id is not None and user_id != current_user.id:
+        return error_response(
+            code=ErrorCodes.PERMISSION_DENIED,
+            message="无权查看其他用户的控制权历史"
+        )
+    
+    # 非管理员默认只查自己的
+    if current_user.role != "admin":
+        user_id = current_user.id
+    
+    sessions = ControlSessionService.get_history(db, user_id, limit, offset)
+    
+    return success_response(
+        data={
+            "sessions": [
+                {
+                    "id": s.id,
+                    "user_id": s.user_id,
+                    "username": s.username,
+                    "session_type": s.session_type,
+                    "started_at": s.started_at.isoformat() if s.started_at else None,
+                    "ended_at": s.ended_at.isoformat() if s.ended_at else None,
+                    "end_reason": s.end_reason,
+                    "duration_seconds": s.duration_seconds,
+                }
+                for s in sessions
+            ],
+            "limit": limit,
+            "offset": offset,
+        },
+        message="获取控制权历史成功"
+    )
+
+
+@router.get("/statistics", response_model=ApiResponse)
+async def get_control_statistics(
+    days: int = 7,
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    获取控制权统计信息（仅管理员）
+    """
+    stats = ControlSessionService.get_statistics(db, days)
+    
+    return success_response(
+        data=stats,
+        message="获取统计成功"
+    )

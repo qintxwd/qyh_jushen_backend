@@ -11,9 +11,13 @@
 
 ## ✅ 实现完成总结
 
-Control Plane 核心功能已全部实现，共 **70 个 API 端点**，覆盖 **11 个模块**。
+Control Plane 核心功能已全部实现，共 **79 个 API 端点**，覆盖 **11 个模块**。
 
-**ROS2 集成状态**: ✅ 已实现统一 ROS2 服务客户端 (`app/services/ros2_client.py`)，支持自动检测 ROS2 环境，不可用时 fallback 到 mock 模式。
+**主要功能**：
+- ✅ ROS2 服务集成（自动检测，支持 mock fallback）
+- ✅ 健康检查（Data Plane / Media Plane / ROS2 连接检测）
+- ✅ 审计日志（登录/控制权/模式切换等关键操作记录）
+- ✅ 控制权持久化（数据库会话记录，支持历史查询和统计）
 
 ---
 
@@ -58,10 +62,10 @@ Control Plane 核心功能已全部实现，共 **70 个 API 端点**，覆盖 *
 
 | 模块 | 文件 | 端点数 | 状态 | 说明 |
 |------|------|--------|------|------|
-| 认证 | `auth.py` | 4 | ✅ 完成 | login/logout/me/refresh |
-| 系统配置 | `system.py` | 3 | ✅ 完成 | config/health/info |
-| 控制权 | `control.py` | 5 | ✅ 完成 | acquire/release/renew/status/force-release |
-| 模式管理 | `mode.py` | 3 | ✅ 完成 | current/switch/available |
+| 认证 | `auth.py` | 4 | ✅ 完成 | login/logout/me/refresh + 审计日志 |
+| 系统配置 | `system.py` | 3 | ✅ 完成 | config/health/info（健康检查已实现） |
+| 控制权 | `control.py` | 7 | ✅ 完成 | acquire/release/renew/status/force-release/history/statistics |
+| 模式管理 | `mode.py` | 3 | ✅ 完成 | current/switch/available + 审计日志 |
 | 任务管理 | `tasks.py` | 7 | ✅ 完成 | CRUD + start/pause/resume/cancel |
 | 预设管理 | `presets.py` | 12 | ✅ 完成 | 统一 CRUD + apply/capture + 兼容接口 |
 | 录制管理 | `recording.py` | 8 | ✅ 完成 | start/stop/discard/status/files/topics |
@@ -69,7 +73,7 @@ Control Plane 核心功能已全部实现，共 **70 个 API 端点**，覆盖 *
 | 机器人信息 | `robot.py` | 6 | ✅ 完成 | info/overview/urdf/shutdown/reboot |
 | 审计日志 | `audit.py` | 7 | ✅ 完成 | 查询/统计/清理 |
 | 健康检查 | `health.py` | 1 | ✅ 完成 | 根路径健康检查 |
-| **总计** | **11 模块** | **70** | ✅ | |
+| **总计** | **11 模块** | **79** | ✅ | |
 
 ---
 
@@ -113,31 +117,29 @@ Control Plane 核心功能已全部实现，共 **70 个 API 端点**，覆盖 *
 | 腰部角度采集 | `/waist/status` | 🟡 待实现 |
 | 头部位置采集 | `/head/status` | 🟡 待实现 |
 
-### 3. 健康检查完善
+### 3. 健康检查 ✅ 已完成
 
-### 3. 健康检查完善
+`app/services/health_checker.py` 已实现：
+- ✅ Data Plane (ws://host:8765) TCP 连接检查
+- ✅ Media Plane (http://host:8888) HTTP 健康检查
+- ✅ ROS2 连接状态检查（通过 ros2_client）
+- ✅ 结果缓存（5秒 TTL）
+- ✅ 并行检查所有服务
 
-`system.py` 中的健康检查目前返回 Mock 数据，需要实现：
-- Data Plane (ws://host:8765) 连接检查
-- Media Plane (ws://host:8888) 连接检查
-- ROS2 节点状态检查
+### 4. 控制权会话持久化 ✅ 已完成
 
-### 4. 控制权会话持久化
+`app/services/control_session_service.py` 已实现：
+- ✅ 获取控制权时写入 `control_sessions` 表
+- ✅ 释放时更新 `ended_at` 和 `end_reason`
+- ✅ `/api/v1/control/history` - 查询历史控制会话
+- ✅ `/api/v1/control/statistics` - 控制权统计信息（仅管理员）
 
-当前 `control_lock.py` 是内存实现：
-- [ ] 获取控制权时写入 `control_sessions` 表
-- [ ] 释放时更新 `ended_at` 和 `end_reason`
-- [ ] 支持查询历史控制会话
+### 5. 审计日志集成 ✅ 已完成
 
-### 5. 审计日志集成
-
-已实现 `AuditService.log()` 便捷函数，需要在各 API 中调用：
-```python
-from app.services.audit_service import audit_log
-
-# 在关键操作后调用
-await audit_log(db, "control_acquire", "control", user=current_user, request=request)
-```
+`app/services/audit_service.py` 已集成到关键 API：
+- ✅ `auth.py` - 用户登录 (`user_login`)
+- ✅ `control.py` - 控制权获取/释放/强制释放 (`control_acquire`, `control_release`, `control_force_release`)
+- ✅ `mode.py` - 模式切换 (`mode_switch`)
 
 ---
 
@@ -190,4 +192,4 @@ await audit_log(db, "control_acquire", "control", user=current_user, request=req
 
 ---
 
-*最后更新：2025-01-19 - ROS2 服务集成完成*
+*最后更新：2025-01-19 - 健康检查、审计日志、控制权持久化完成*

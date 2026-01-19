@@ -3,14 +3,17 @@ QYH Jushen Control Plane - 工作模式管理 API
 
 管理机器人的工作模式切换
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
+from sqlalchemy.orm import Session
 
 from app.dependencies import get_current_operator
+from app.database import get_db
 from app.models.user import User
 from app.core.mode_manager import mode_manager, RobotMode
 from app.core.control_lock import control_lock
 from app.schemas.response import ApiResponse, success_response, error_response, ErrorCodes
 from app.schemas.mode import ModeSwitchRequest, ModeStatus
+from app.services.audit_service import audit_log_sync
 
 router = APIRouter()
 
@@ -31,7 +34,9 @@ async def get_current_mode():
 @router.post("/switch", response_model=ApiResponse)
 async def switch_mode(
     request: ModeSwitchRequest,
+    http_request: Request,
     current_user: User = Depends(get_current_operator),
+    db: Session = Depends(get_db),
 ):
     """
     切换工作模式
@@ -73,9 +78,23 @@ async def switch_mode(
             )
     
     # 执行模式切换
+    old_mode = mode_manager.current_mode.value
     success, message = mode_manager.switch_to(target_mode, force=request.force)
     
     if success:
+        # 记录审计日志
+        audit_log_sync(
+            db=db,
+            action="mode_switch",
+            resource="mode",
+            details={
+                "from_mode": old_mode,
+                "to_mode": target_mode.value,
+                "forced": request.force,
+            },
+            user=current_user,
+            request=http_request,
+        )
         status = mode_manager.get_status()
         return success_response(
             data=ModeStatus(**status).model_dump(),

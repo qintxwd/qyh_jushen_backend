@@ -9,6 +9,7 @@ from fastapi import APIRouter
 
 from app.config import settings
 from app.core.mode_manager import mode_manager
+from app.services.health_checker import get_health_checker, ServiceStatus
 from app.schemas.response import ApiResponse, success_response
 from app.schemas.system import (
     SystemConfig,
@@ -66,53 +67,55 @@ async def get_system_health():
     """
     获取系统健康状态
     
-    检查各个子服务的健康状态
+    检查各个子服务的健康状态：
+    - control_plane: 自身（总是 healthy）
+    - data_plane: WebSocket 数据服务 (ws://host:8765)
+    - media_plane: WebRTC 媒体服务 (http://host:8888)
+    - ros2: ROS2 连接状态
     """
+    health_checker = get_health_checker()
+    
+    # 并行检查所有服务
+    check_results = await health_checker.check_all()
+    
     services = []
-    overall_status = "healthy"
     
-    # TODO: 实际检查各服务状态
-    # 这里先返回模拟数据
-    
-    # FastAPI 服务（自身）
+    # FastAPI 服务（自身）- 总是 healthy
     services.append(ServiceHealth(
         name="control_plane",
         status="healthy",
         latency_ms=0.1,
+        message="Control Plane 运行正常",
     ))
     
-    # WebSocket 服务
-    # TODO: 通过 HTTP 检查 WebSocket 服务健康状态
-    services.append(ServiceHealth(
-        name="data_plane",
-        status="unknown",
-        message="未实现健康检查",
-    ))
-    
-    # Media 服务
-    services.append(ServiceHealth(
-        name="media_plane",
-        status="unknown",
-        message="未实现健康检查",
-    ))
-    
-    # ROS2 连接
-    # TODO: 实际检查 ROS2 连接状态
-    ros2_connected = False
-    services.append(ServiceHealth(
-        name="ros2",
-        status="unknown",
-        message="未连接",
-    ))
+    # 添加各服务检查结果
+    for name in ["data_plane", "media_plane", "ros2"]:
+        result = check_results.get(name)
+        if result:
+            services.append(ServiceHealth(
+                name=result.name,
+                status=result.status.value,
+                latency_ms=result.latency_ms,
+                message=result.message,
+            ))
     
     # 判断整体状态
+    overall_status = "healthy"
     unhealthy_count = sum(1 for s in services if s.status == "unhealthy")
     unknown_count = sum(1 for s in services if s.status == "unknown")
+    degraded_count = sum(1 for s in services if s.status == "degraded")
     
     if unhealthy_count > 0:
         overall_status = "unhealthy"
-    elif unknown_count > 0:
+    elif unknown_count > 0 or degraded_count > 0:
         overall_status = "degraded"
+    
+    # ROS2 连接状态
+    ros2_result = check_results.get("ros2")
+    ros2_connected = (
+        ros2_result is not None and 
+        ros2_result.status == ServiceStatus.HEALTHY
+    )
     
     health = SystemHealth(
         status=overall_status,

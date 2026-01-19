@@ -5,7 +5,7 @@ QYH Jushen Control Plane - 认证 API
 """
 from datetime import datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,7 @@ from app.config import settings
 from app.dependencies import get_current_user
 from app.schemas.response import ApiResponse, success_response, error_response, ErrorCodes
 from app.schemas.auth import LoginRequest, LoginResponse, UserInfo
+from app.services.audit_service import audit_log_sync
 
 router = APIRouter()
 
@@ -28,6 +29,7 @@ router = APIRouter()
 @router.post("/login", response_model=ApiResponse)
 async def login(
     request: LoginRequest,
+    http_request: Request,
     db: Session = Depends(get_db),
 ):
     """
@@ -62,6 +64,17 @@ async def login(
     # 更新最后登录时间
     user.last_login = datetime.utcnow()
     db.commit()
+    
+    # 记录审计日志
+    audit_log_sync(
+        db=db,
+        action="user_login",
+        resource="auth",
+        resource_id=str(user.id),
+        details={"username": user.username, "role": user.role},
+        user=user,
+        request=http_request,
+    )
     
     return success_response(
         data=LoginResponse(
