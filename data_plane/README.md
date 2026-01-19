@@ -187,10 +187,59 @@ Client                          Server
 
 **实现规则**:
 
-1. 客户端必须每 **<200ms** 发送 `HEARTBEAT`
-2. 超时后自动发布 **紧急停止** 到 ROS2
-3. 断开超时客户端连接
-4. 记录安全事件日志
+1. 客户端必须每 **<200ms** 发送 `HEARTBEAT` 消息
+2. 每个 WebSocket 会话独立跟踪心跳时间戳
+3. 单个会话超时会被移除，所有会话都超时才触发紧急停止
+4. 紧急停止动作：
+   - 发布零速度到 `/cmd_vel` 话题
+   - 调用用户自定义回调（如断开所有客户端连接）
+   - 设置 `emergency_triggered_` 标志防止重复触发
+5. 收到新心跳后重置紧急停止状态
+6. 记录安全事件日志
+
+**代码实现**:
+```cpp
+// include/data_plane/watchdog.hpp
+class Watchdog {
+    void feed(const std::string& session_id);  // 喂狗
+    void unregister(const std::string& session_id);  // 注销会话
+    void set_emergency_stop_callback(EmergencyStopCallback callback);
+};
+```
+
+**配置**:
+```yaml
+watchdog:
+  timeout_ms: 200              # ⚠️ 超时触发紧急停止
+  check_interval_ms: 50        # 检查间隔
+```
+
+### 紧急停止 (Emergency Stop)
+
+**多种触发方式**:
+
+1. **Watchdog 自动触发**：心跳超时 200ms
+2. **WebSocket 消息**：客户端发送 `EMERGENCY_STOP` 消息（最低延迟）
+3. **ROS2 话题**：订阅 `/emergency_stop` 话题
+4. **HTTP API**：Control Plane 的后备接口（调试用）
+
+**紧急停止流程**:
+```
+触发源 ──> 检测 ──> 发布零速度 ──> 通知所有客户端 ──> 记录日志
+            │           │                 │
+            └───────────┴─────────────────┴──> 设置 emergency_triggered_
+```
+
+**Protobuf 消息**:
+```protobuf
+// 紧急停止通知（服务端 -> 客户端）
+message EmergencyStopNotification {
+    Header header = 1;
+    bool active = 2;           // true=急停激活, false=急停解除
+    string source = 3;         // 触发来源: "watchdog", "user", "hardware"
+    string reason = 4;
+}
+```
 
 ### JWT 认证
 

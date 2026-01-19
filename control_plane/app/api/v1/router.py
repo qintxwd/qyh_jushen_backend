@@ -3,7 +3,7 @@ QYH Jushen Control Plane - API v1 路由聚合
 """
 from fastapi import APIRouter
 
-from app.api.v1 import auth, system, control, mode, tasks, presets, recording, actions, robot, audit
+from app.api.v1 import auth, system, control, mode, tasks, presets, recording, actions, robot, audit, emergency
 
 api_router = APIRouter()
 
@@ -36,4 +36,7 @@ api_router.include_router(robot.router, prefix="/robot", tags=["机器人"])
 
 # 审计日志
 api_router.include_router(audit.router, prefix="/audit", tags=["审计日志"])
+
+# 紧急停止
+api_router.include_router(emergency.router, prefix="/emergency", tags=["紧急停止"])
 

@@ -160,6 +160,9 @@ class ROS2ServiceClient:
         # 结构: { "left_arm": [indice1, ...], "head": [...], "hash": hash(tuple(names)) }
         self._joint_indices_cache = {}
         
+        # 紧急停止发布器
+        self._emergency_stop_publisher = None
+        
         self._initialized = True
     
     async def initialize(self) -> bool:
@@ -191,6 +194,9 @@ class ROS2ServiceClient:
 
             # 创建订阅（状态）
             await self._create_subscriptions()
+            
+            # 创建发布器
+            await self._create_publishers()
             
             logger.info("ROS2 client initialized successfully")
             return True
@@ -399,6 +405,26 @@ class ROS2ServiceClient:
 
         except ImportError as e:
             logger.warning(f"ROS2 topic types not available: {e}")
+
+    async def _create_publishers(self):
+        """创建发布器"""
+        if self._node is None:
+            return
+        
+        try:
+            from geometry_msgs.msg import Twist
+            
+            # 创建 cmd_vel 发布器（用于紧急停止）
+            self._emergency_stop_publisher = self._node.create_publisher(
+                Twist,
+                '/cmd_vel',
+                10
+            )
+            
+            logger.info("ROS2 publishers created: /cmd_vel")
+            
+        except ImportError as e:
+            logger.warning(f"ROS2 message types for publishers not available: {e}")
 
     async def _wait_for_future(self, future, timeout=5.0):
         """等待 ROS2 Future 完成 (非阻塞)"""
@@ -1165,6 +1191,46 @@ class ROS2ServiceClient:
         
         # TODO: 实现重启功能（需要 qyh_shutdown 节点支持）
         return ServiceResponse(False, "重启功能暂未实现")
+    
+    # ==================== 紧急停止 ====================
+    
+    async def publish_emergency_stop(self) -> None:
+        """
+        发布紧急停止命令
+        
+        通过发布零速度到 /cmd_vel 来停止机器人运动
+        这是一个后备方案，正常情况下应该通过 Data Plane WebSocket 发送
+        """
+        if self._node is None or self._emergency_stop_publisher is None:
+            raise RuntimeError("ROS2 client not initialized")
+        
+        try:
+            from geometry_msgs.msg import Twist
+            
+            # 发布零速度
+            msg = Twist()
+            msg.linear.x = 0.0
+            msg.linear.y = 0.0
+            msg.linear.z = 0.0
+            msg.angular.x = 0.0
+            msg.angular.y = 0.0
+            msg.angular.z = 0.0
+            
+            self._emergency_stop_publisher.publish(msg)
+            logger.warning("Emergency stop command published to /cmd_vel")
+            
+        except Exception as e:
+            logger.error(f"Failed to publish emergency stop: {e}")
+            raise
+    
+    async def release_emergency_stop(self) -> None:
+        """
+        解除紧急停止状态
+        
+        注意：此方法当前仅记录日志，实际的急停解除需要硬件层面确认
+        """
+        logger.info("Emergency stop release requested")
+        # TODO: 如果有专门的急停解除服务，在这里调用
     
     # ==================== 机械臂服务 ====================
     

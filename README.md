@@ -136,9 +136,13 @@ sudo systemctl start qyh-control-plane qyh-data-plane qyh-media-plane
 ## 重要约束
 
 1. **Watchdog 超时**: 客户端必须每 200ms 发送心跳，否则触发紧急停止
-2. **控制锁**: 同一时间只有一个客户端可以控制机器人
-3. **模式状态机**: 模式切换需遵循状态机规则
-4. **视频不走 HTTP**: 视频必须通过 WebRTC 传输
+2. **紧急停止**: 支持多种触发方式
+   - Watchdog 自动触发（心跳超时）
+   - WebSocket 消息 `MSG_EMERGENCY_STOP`（最低延迟）
+   - HTTP API `POST /api/v1/emergency/stop`（后备方案）
+3. **控制锁**: 同一时间只有一个客户端可以控制机器人
+4. **模式状态机**: 模式切换需遵循状态机规则
+5. **视频不走 HTTP**: 视频必须通过 WebRTC 传输
 
 ## 配置文件
 

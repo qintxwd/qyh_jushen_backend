@@ -189,7 +189,22 @@ Control Plane 核心功能已全部实现，共 **79 个 API 端点**，覆盖 *
 - [重构开发计划.md](../重构开发计划.md) - 详细开发计划
 - [重构补充.md](../重构补充.md) - 工程细节补充
 - [README.md](../README.md) - 项目说明
+- [REFACTOR_REVIEW.md](../REFACTOR_REVIEW.md) - 重构对比分析报告
 
 ---
 
-*最后更新：2025-01-19 - 健康检查、审计日志、控制权持久化完成*
+## 🔒 P0 安全任务（已完成）
+
+✅ **Watchdog 看门狗机制**
+- Data Plane C++ 已完整实现（200ms 超时检测）
+- 每个 WebSocket 会话独立跟踪心跳
+- 超时触发紧急停止（发布零速度到 /cmd_vel）
+
+✅ **紧急停止接口**
+- Data Plane WebSocket: `MSG_EMERGENCY_STOP` 消息类型（低延迟）
+- Control Plane HTTP: `POST /api/v1/emergency/stop` （后备方案）
+- ROS2 集成：发布到 /cmd_vel + 强制释放控制权 + 审计日志
+
+---
+
+*最后更新：2025-01-19 - P0 安全任务完成，健康检查、审计日志、控制权持久化完成*
