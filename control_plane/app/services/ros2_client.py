@@ -228,10 +228,10 @@ class ROS2ServiceClient:
             
             # 任务服务
             self._service_clients['execute_task'] = self._node.create_client(
-                ExecuteTask, '/task_engine/execute_task'
+                ExecuteTask, '/task_engine/execute'
             )
             self._service_clients['cancel_task'] = self._node.create_client(
-                CancelTask, '/task_engine/cancel_task'
+                CancelTask, '/task_engine/cancel'
             )
             self._service_clients['pause_task'] = self._node.create_client(
                 PauseTask, '/task_engine/pause_task'
@@ -242,30 +242,30 @@ class ROS2ServiceClient:
             
             # 关机服务
             self._service_clients['shutdown'] = self._node.create_client(
-                ShutdownTrigger, '/qyh_shutdown_node/control'
+                ShutdownTrigger, '/qyh_shutdown'
             )
             
             # 机械臂服务
             self._service_clients['arm_move_j'] = self._node.create_client(
-                MoveJ, '/jaka_control/move_j'
+                MoveJ, '/jaka/move_j'
             )
             
             # 升降服务
             self._service_clients['lift_control'] = self._node.create_client(
-                LiftControl, '/lift_control/control'
+                LiftControl, '/lift/control'
             )
             
             # 腰部服务
             self._service_clients['waist_control'] = self._node.create_client(
-                WaistControl, '/waist_control/control'
+                WaistControl, '/waist/control'
             )
             
             # 夹爪服务
             self._service_clients['gripper_left'] = self._node.create_client(
-                MoveGripper, '/gripper_left/move'
+                MoveGripper, '/left/move_gripper'
             )
             self._service_clients['gripper_right'] = self._node.create_client(
-                MoveGripper, '/gripper_right/move'
+                MoveGripper, '/right/move_gripper'
             )
             
             # 头部服务
