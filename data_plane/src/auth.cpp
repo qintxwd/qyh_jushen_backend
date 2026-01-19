@@ -24,7 +24,7 @@ JWTValidator::JWTValidator(const std::string& secret, const std::string& algorit
 {
 }
 
-std::optional<UserInfo> JWTValidator::validate(const std::string& token) {
+std::optional<SessionUserInfo> JWTValidator::validate(const std::string& token) {
     // JWT 格式: header.payload.signature
     auto first_dot = token.find('.');
     auto second_dot = token.find('.', first_dot + 1);
@@ -154,13 +154,13 @@ bool JWTValidator::verify_signature(const std::string& header_payload,
     return computed == signature;
 }
 
-std::optional<UserInfo> JWTValidator::parse_payload(const std::string& payload_json) {
-    UserInfo info;
+std::optional<SessionUserInfo> JWTValidator::parse_payload(const std::string& payload_json) {
+    SessionUserInfo info;
     
     // 简单正则提取（实际项目建议使用 JSON 库）
     std::regex user_id_regex(R"("user_id"\s*:\s*(\d+))");
-    std::regex username_regex(R"("username"\s*:\s*"([^"]+)")");
-    std::regex role_regex(R"("role"\s*:\s*"([^"]+)")");
+    std::regex username_regex(R"xxx("username"\s*:\s*"([^"]+)")xxx");
+    std::regex role_regex(R"xxx("role"\s*:\s*"([^"]+)")xxx");
     
     std::smatch match;
     
@@ -180,7 +180,7 @@ std::optional<UserInfo> JWTValidator::parse_payload(const std::string& payload_j
     std::regex perm_regex(R"("permissions"\s*:\s*\[([^\]]*)\])");
     if (std::regex_search(payload_json, match, perm_regex)) {
         std::string perms = match[1].str();
-        std::regex single_perm(R"("([^"]+)")");
+        std::regex single_perm(R"xxx("([^"]+)")xxx");
         auto perms_begin = std::sregex_iterator(perms.begin(), perms.end(), single_perm);
         auto perms_end = std::sregex_iterator();
         

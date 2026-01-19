@@ -44,7 +44,7 @@ enum class SessionState {
 /**
  * @brief 用户信息（从 JWT 解析）
  */
-struct UserInfo {
+struct SessionUserInfo {
     int64_t user_id = 0;
     std::string username;
     std::string role;
@@ -106,7 +106,7 @@ public:
     /**
      * @brief 获取用户信息
      */
-    const UserInfo& user_info() const { return user_info_; }
+    const SessionUserInfo& user_info() const { return user_info_; }
     
     /**
      * @brief 检查是否有用户信息
@@ -116,7 +116,7 @@ public:
     /**
      * @brief 设置用户信息（认证成功后）
      */
-    void set_user_info(const UserInfo& info) { user_info_ = info; }
+    void set_user_info(const SessionUserInfo& info) { user_info_ = info; }
     
     /**
      * @brief 设置客户端类型
@@ -232,7 +232,7 @@ private:
     
     std::string session_id_;
     SessionState state_ = SessionState::CONNECTING;
-    UserInfo user_info_;
+    SessionUserInfo user_info_;
     
     std::string client_type_;       // "web", "vr", "mobile"
     std::string client_version_;    // 客户端版本

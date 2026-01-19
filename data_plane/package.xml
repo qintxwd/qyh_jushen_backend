@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+    <name>qyh_data_plane</name>
+    <version>1.0.0</version>
+    <description>Data plane for QYH Jushen robot system</description>
+    <maintainer email="dev@example.com">QYH Team</maintainer>
+    <license>Proprietary</license>
+
+    <buildtool_depend>ament_cmake</buildtool_depend>
+
+    <depend>rclcpp</depend>
+    <depend>std_msgs</depend>
+    <depend>sensor_msgs</depend>
+    <depend>geometry_msgs</depend>
+    <depend>tf2_msgs</depend>
+    <depend>trajectory_msgs</depend>
+    <depend>nav_msgs</depend>
+    <depend>qyh_lift_msgs</depend>
+    <depend>qyh_waist_msgs</depend>
+    <depend>qyh_gripper_msgs</depend>
+    <depend>qyh_standard_robot_msgs</depend>
+    <depend>qyh_jaka_control_msgs</depend>
+
+    <export>
+        <build_type>ament_cmake</build_type>
+    </export>
+</package>

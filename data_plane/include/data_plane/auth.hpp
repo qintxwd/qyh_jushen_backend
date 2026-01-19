@@ -29,7 +29,7 @@ public:
      * @param token JWT Token 字符串
      * @return 用户信息，验证失败返回 std::nullopt
      */
-    std::optional<UserInfo> validate(const std::string& token);
+    std::optional<SessionUserInfo> validate(const std::string& token);
     
     /**
      * @brief 验证 Token 是否过期
@@ -53,7 +53,7 @@ private:
     /**
      * @brief 解析 JSON payload
      */
-    std::optional<UserInfo> parse_payload(const std::string& payload_json);
+    std::optional<SessionUserInfo> parse_payload(const std::string& payload_json);
     
 private:
     std::string secret_;

@@ -17,6 +17,7 @@
 #include <chrono>
 #include <functional>
 #include <memory>
+#include <optional>
 
 namespace qyh::dataplane {
 

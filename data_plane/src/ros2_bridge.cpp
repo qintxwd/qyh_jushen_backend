@@ -58,10 +58,10 @@ bool ROS2Bridge::init() {
         );
         
         // 里程计
-        odom_sub_ = node_->create_subscription<nav_msgs::msg::Odometry>(
-            "/odom", state_qos,
-            std::bind(&ROS2Bridge::odom_callback, this, std::placeholders::_1)
-        );
+        //         odom_sub_ = node_->create_subscription<nav_msgs::msg::Odometry>(
+        //             "/odom", state_qos,
+        //             std::bind(&ROS2Bridge::odom_callback, this, std::placeholders::_1)
+        //         );
         
         // 左臂状态
         left_arm_sub_ = node_->create_subscription<sensor_msgs::msg::JointState>(
@@ -107,7 +107,7 @@ bool ROS2Bridge::init() {
         
         // 机器人综合状态 (包含电池、急停等)
         robot_status_sub_ = node_->create_subscription<qyh_standard_robot_msgs::msg::StandardRobotStatus>(
-            "/standard_robot_node/standard_robot_status", state_qos,
+            "/standard_robot_status", state_qos,
             std::bind(&ROS2Bridge::standard_robot_status_callback, this, std::placeholders::_1)
         );
 
@@ -652,7 +652,7 @@ void ROS2Bridge::standard_robot_status_callback(const qyh_standard_robot_msgs::m
         ws_msg.SerializeToArray(data.data(), static_cast<int>(data.size()));
         
         if (server_) {
-            server_->broadcast_all(data);
+            server_->broadcast(data);
         }
     }
     

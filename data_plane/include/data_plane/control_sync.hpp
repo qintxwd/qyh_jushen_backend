@@ -63,7 +63,7 @@ public:
     /**
      * @brief 构造函数
      */
-    explicit ControlSyncService(const Config& config = Config{});
+    explicit ControlSyncService(const Config& config);
     
     ~ControlSyncService();
     

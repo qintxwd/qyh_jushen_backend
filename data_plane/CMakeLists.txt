@@ -18,7 +18,7 @@ endif()
 # ==================== 依赖查找 ====================
 
 # Boost
-find_package(Boost 1.74 REQUIRED COMPONENTS system thread)
+find_package(Boost REQUIRED COMPONENTS system thread)
 
 # Protobuf
 find_package(Protobuf REQUIRED)
@@ -44,6 +44,8 @@ if(ament_cmake_FOUND)
     find_package(sensor_msgs REQUIRED)
     find_package(geometry_msgs REQUIRED)
     find_package(tf2_msgs REQUIRED)
+    find_package(trajectory_msgs REQUIRED)
+    find_package(nav_msgs REQUIRED)
     
     # Custom Messages
     find_package(qyh_lift_msgs REQUIRED)
@@ -67,8 +69,7 @@ set(PROTO_FILES
 )
 
 # 生成 Protobuf 文件
-set(PROTO_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/proto)
-file(MAKE_DIRECTORY ${PROTO_GENERATED_DIR})
+set(PROTO_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
 protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS ${PROTO_FILES})
 
@@ -101,7 +102,7 @@ target_include_directories(data_plane_server PRIVATE
     ${PROTO_GENERATED_DIR}
 )
 
-target_link_libraries(data_plane_server PRIVATE
+target_link_libraries(data_plane_server
     proto_lib
     Boost::system
     Boost::thread
@@ -117,7 +118,14 @@ ament_target_dependencies(data_plane_server
     std_msgs
     sensor_msgs
     geometry_msgs
+    trajectory_msgs
+    nav_msgs
     tf2_msgs
+    qyh_lift_msgs
+    qyh_waist_msgs
+    qyh_gripper_msgs
+    qyh_standard_robot_msgs
+    qyh_jaka_control_msgs
 )
 
 # ==================== 安装 ====================
