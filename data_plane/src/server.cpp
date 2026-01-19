@@ -8,6 +8,7 @@
 #include "data_plane/config.hpp"
 #include "data_plane/message_handler.hpp"
 #include "data_plane/control_sync.hpp"
+#include "data_plane/logger.hpp"
 
 #include <iostream>
 
@@ -39,34 +40,34 @@ void Server::start() {
     // 打开 acceptor
     acceptor_.open(endpoint.protocol(), ec);
     if (ec) {
-        std::cerr << "Failed to open acceptor: " << ec.message() << std::endl;
+        LOG_ERROR("Failed to open acceptor: " << ec.message());
         return;
     }
     
     // 设置 SO_REUSEADDR
     acceptor_.set_option(net::socket_base::reuse_address(true), ec);
     if (ec) {
-        std::cerr << "Failed to set SO_REUSEADDR: " << ec.message() << std::endl;
+        LOG_ERROR("Failed to set SO_REUSEADDR: " << ec.message());
         return;
     }
     
     // 绑定地址
     acceptor_.bind(endpoint, ec);
     if (ec) {
-        std::cerr << "Failed to bind: " << ec.message() << std::endl;
+        LOG_ERROR("Failed to bind: " << ec.message());
         return;
     }
     
     // 开始监听
     acceptor_.listen(net::socket_base::max_listen_connections, ec);
     if (ec) {
-        std::cerr << "Failed to listen: " << ec.message() << std::endl;
+        LOG_ERROR("Failed to listen: " << ec.message());
         return;
     }
     
     running_ = true;
-    std::cout << "WebSocket server listening on " 
-              << config_.server.host << ":" << config_.server.port << std::endl;
+    LOG_INFO("WebSocket server listening on " 
+              << config_.server.host << ":" << config_.server.port);
     
     do_accept();
 }
@@ -99,12 +100,12 @@ void Server::do_accept() {
 void Server::on_accept(beast::error_code ec, tcp::socket socket) {
     if (ec) {
         if (running_) {
-            std::cerr << "Accept error: " << ec.message() << std::endl;
+            LOG_ERROR("Accept error: " << ec.message());
         }
     } else {
         // 检查连接数限制
         if (session_count() >= config_.server.max_connections) {
-            std::cerr << "Max connections reached, rejecting" << std::endl;
+            LOG_WARN("Max connections reached, rejecting");
             socket.close();
         } else {
             // 创建新会话
@@ -113,8 +114,8 @@ void Server::on_accept(beast::error_code ec, tcp::socket socket) {
                 session->set_control_sync(control_sync_);
             }
             session->start();
-            std::cout << "New connection from " 
-                      << socket.remote_endpoint().address().to_string() << std::endl;
+            LOG_INFO("New connection from " 
+                      << socket.remote_endpoint().address().to_string());
         }
     }
     
@@ -125,22 +126,41 @@ void Server::on_accept(beast::error_code ec, tcp::socket socket) {
 }
 
 void Server::broadcast(const std::vector<uint8_t>& data) {
-    std::lock_guard<std::mutex> lock(sessions_mutex_);
-    for (auto& [id, session] : sessions_) {
-        if (session->state() == SessionState::AUTHENTICATED ||
-            session->state() == SessionState::ACTIVE) {
-            session->send(data);
+    // Copy-on-Write: 拷贝 session 列表，减小锁粒度
+    std::vector<std::shared_ptr<Session>> sessions_copy;
+    {
+        std::lock_guard<std::mutex> lock(sessions_mutex_);
+        sessions_copy.reserve(sessions_.size());
+        for (auto& [id, session] : sessions_) {
+            if (session->state() == SessionState::AUTHENTICATED ||
+                session->state() == SessionState::ACTIVE) {
+                sessions_copy.push_back(session);
+            }
         }
+    }
+    
+    // 解锁后发送，避免阻塞其他操作
+    for (auto& session : sessions_copy) {
+        session->send(data);
     }
 }
 
 void Server::broadcast_to_subscribers(const std::string& topic,
                                        const std::vector<uint8_t>& data) {
-    std::lock_guard<std::mutex> lock(sessions_mutex_);
-    for (auto& [id, session] : sessions_) {
-        if (session->is_subscribed(topic)) {
-            session->send(data);
+    // Copy-on-Write: 拷贝订阅该 topic 的 session 列表
+    std::vector<std::shared_ptr<Session>> subscribers;
+    {
+        std::lock_guard<std::mutex> lock(sessions_mutex_);
+        for (auto& [id, session] : sessions_) {
+            if (session->is_subscribed(topic)) {
+                subscribers.push_back(session);
+            }
         }
+    }
+    
+    // 解锁后发送
+    for (auto& session : subscribers) {
+        session->send(data);
     }
 }
 

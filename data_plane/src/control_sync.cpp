@@ -4,6 +4,7 @@
  */
 
 #include "data_plane/control_sync.hpp"
+#include "data_plane/logger.hpp"
 
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
@@ -14,7 +15,6 @@
 #include <nlohmann/json.hpp>
 
 #include <iostream>
-#include <regex>
 
 // 简单的 HTTP 客户端（实际项目中可使用 cpr 或 Boost.Beast）
 // 这里提供一个模拟实现，生产环境需要替换为真正的 HTTP 客户端
@@ -100,8 +100,8 @@ void ControlSyncService::start() {
     running_ = true;
     sync_thread_ = std::thread(&ControlSyncService::sync_loop, this);
     
-    std::cout << "[ControlSync] Started with interval " 
-              << config_.sync_interval_ms << "ms" << std::endl;
+    LOG_INFO("[ControlSync] Started with interval " 
+              << config_.sync_interval_ms << "ms");
 }
 
 void ControlSyncService::stop() {
@@ -114,7 +114,7 @@ void ControlSyncService::stop() {
         sync_thread_.join();
     }
     
-    std::cout << "[ControlSync] Stopped" << std::endl;
+    LOG_INFO("[ControlSync] Stopped");
 }
 
 void ControlSyncService::sync_now() {
@@ -180,8 +180,8 @@ void ControlSyncService::associate_session(const std::string& session_id,
     std::lock_guard<std::mutex> lock(session_mutex_);
     session_user_map_[session_id] = user_id;
     
-    std::cout << "[ControlSync] Associated session " << session_id 
-              << " to user " << user_id << std::endl;
+    LOG_INFO("[ControlSync] Associated session " << session_id 
+              << " to user " << user_id);
 }
 
 void ControlSyncService::disassociate_session(const std::string& session_id) {
@@ -204,7 +204,7 @@ bool ControlSyncService::fetch_control_status() {
     const std::string default_path = "/api/v1/control/status";
     auto parsed = parse_http_url(config_.control_plane_url, default_path);
     if (!parsed.valid) {
-        std::cerr << "[ControlSync] Invalid control_plane_url: " << config_.control_plane_url << std::endl;
+        LOG_ERROR("[ControlSync] Invalid control_plane_url: " << config_.control_plane_url);
         return false;
     }
 
@@ -235,18 +235,18 @@ bool ControlSyncService::fetch_control_status() {
         stream.socket().shutdown(tcp::socket::shutdown_both, ec);
 
         if (res.result() != http::status::ok) {
-            std::cerr << "[ControlSync] HTTP error: " << res.result_int() << std::endl;
+            LOG_ERROR("[ControlSync] HTTP error: " << res.result_int());
             return false;
         }
 
         auto json = nlohmann::json::parse(res.body(), nullptr, false);
         if (json.is_discarded()) {
-            std::cerr << "[ControlSync] Invalid JSON response" << std::endl;
+            LOG_ERROR("[ControlSync] Invalid JSON response");
             return false;
         }
 
         if (!json.value("success", false)) {
-            std::cerr << "[ControlSync] Response error: " << json.value("message", "unknown") << std::endl;
+            LOG_ERROR("[ControlSync] Response error: " << json.value("message", "unknown"));
             return false;
         }
 
@@ -271,7 +271,7 @@ bool ControlSyncService::fetch_control_status() {
         return true;
 
     } catch (const std::exception& e) {
-        std::cerr << "[ControlSync] Exception: " << e.what() << std::endl;
+        LOG_ERROR("[ControlSync] Exception: " << e.what());
         return false;
     }
 }
@@ -288,13 +288,12 @@ void ControlSyncService::notify_change(const ControlInfo& old_info,
         try {
             cb(old_info, new_info);
         } catch (const std::exception& e) {
-            std::cerr << "[ControlSync] Callback error: " << e.what() << std::endl;
+            LOG_ERROR("[ControlSync] Callback error: " << e.what());
         }
     }
     
-    std::cout << "[ControlSync] Control changed: "
-              << (new_info.is_held ? new_info.holder_username : "none")
-              << std::endl;
+    LOG_INFO("[ControlSync] Control changed: "
+              << (new_info.is_held ? new_info.holder_username : "none"));
 }
 
 } // namespace qyh::dataplane

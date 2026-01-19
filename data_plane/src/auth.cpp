@@ -4,17 +4,16 @@
  */
 
 #include "data_plane/auth.hpp"
+#include "data_plane/logger.hpp"
 
 #include <openssl/hmac.h>
 #include <openssl/evp.h>
+#include <nlohmann/json.hpp>
 
 #include <cstring>
 #include <sstream>
 #include <vector>
 #include <chrono>
-
-// 简单的 JSON 解析（实际项目建议使用 nlohmann/json）
-#include <regex>
 
 namespace qyh::dataplane {
 
@@ -61,20 +60,22 @@ bool JWTValidator::is_expired(const std::string& token) {
     std::string payload_b64 = token.substr(first_dot + 1, second_dot - first_dot - 1);
     std::string payload_json = base64url_decode(payload_b64);
     
-    // 简单提取 exp 字段
-    std::regex exp_regex(R"("exp"\s*:\s*(\d+))");
-    std::smatch match;
-    
-    if (std::regex_search(payload_json, match, exp_regex)) {
-        int64_t exp = std::stoll(match[1].str());
-        auto now = std::chrono::system_clock::now();
-        auto now_sec = std::chrono::duration_cast<std::chrono::seconds>(
-            now.time_since_epoch()).count();
-        
-        return now_sec > exp;
+    // 使用 JSON 库解析 exp 字段
+    try {
+        auto json = nlohmann::json::parse(payload_json);
+        if (json.contains("exp") && json["exp"].is_number()) {
+            int64_t exp = json["exp"].get<int64_t>();
+            auto now = std::chrono::system_clock::now();
+            auto now_sec = std::chrono::duration_cast<std::chrono::seconds>(
+                now.time_since_epoch()).count();
+            
+            return now_sec > exp;
+        }
+    } catch (const nlohmann::json::exception& e) {
+        LOG_ERROR("Failed to parse JWT payload: " << e.what());
     }
     
-    return true;  // 没有 exp 字段，视为过期
+    return true;  // 解析失败或没有 exp 字段，视为过期
 }
 
 std::string JWTValidator::base64url_decode(const std::string& input) {

@@ -7,6 +7,7 @@
 #include "data_plane/server.hpp"
 #include "data_plane/message_handler.hpp"
 #include "data_plane/control_sync.hpp"
+#include "data_plane/logger.hpp"
 
 #include <random>
 #include <sstream>
@@ -26,13 +27,17 @@ Session::Session(tcp::socket&& socket,
     // 设置 WebSocket 选项
     ws_.binary(true);  // 使用二进制模式
     
-    // 设置超时
+    // 设置超时（关键：防止资源泄漏）
+    // 这个配置确保网络波动导致的僵死连接会被自动断开
     beast::websocket::stream_base::timeout opt{
         std::chrono::seconds(30),   // 握手超时
-        std::chrono::seconds(300),  // 空闲超时
-        true                        // 启用 ping
+        std::chrono::seconds(300),  // 空闲超时（5分钟）
+        true                        // 启用 ping/pong 心跳
     };
     ws_.set_option(opt);
+    
+    // 注：如果客户端 5 分钟无活动，Boost.Beast 会自动发送 ping
+    // 如果客户端不响应 pong，连接会被关闭，防止 socket 泄漏
 }
 
 Session::~Session() {
