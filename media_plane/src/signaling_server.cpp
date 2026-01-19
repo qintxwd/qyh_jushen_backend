@@ -7,6 +7,7 @@
 #include "media_plane/config.hpp"
 #include "media_plane/webrtc_peer.hpp"
 #include "media_plane/pipeline_manager.hpp"
+#include "media_plane/auth.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -72,6 +73,16 @@ void SignalingSession::send(const std::string& message) {
     });
 }
 
+void SignalingSession::send_error(const std::string& error, const std::string& details) {
+    json msg;
+    msg["type"] = "error";
+    msg["error"] = error;
+    if (!details.empty()) {
+        msg["details"] = details;
+    }
+    send(msg.dump());
+}
+
 void SignalingSession::do_accept() {
     ws_.async_accept(
         beast::bind_front_handler(&SignalingSession::on_accept, shared_from_this())
@@ -90,6 +101,8 @@ void SignalingSession::on_accept(beast::error_code ec) {
     json welcome;
     welcome["type"] = "welcome";
     welcome["peer_id"] = peer_id_;
+    welcome["require_auth"] = server_.require_auth();
+    welcome["available_sources"] = server_.get_available_sources();
     send(welcome.dump());
     
     do_read();
@@ -152,51 +165,118 @@ void SignalingSession::on_write(beast::error_code ec, std::size_t /*bytes*/) {
 void SignalingSession::handle_message(const std::string& message) {
     try {
         auto msg = json::parse(message);
-        std::string type = msg["type"];
+        std::string type = msg.value("type", "");
+        
+        if (type.empty()) {
+            send_error("invalid_message", "Missing 'type' field");
+            return;
+        }
+        
+        // 认证消息
+        if (type == "auth") {
+            std::string token = msg.value("token", "");
+            if (token.empty()) {
+                send_error("auth_failed", "Missing token");
+                return;
+            }
+            
+            std::string user_id, username;
+            if (server_.verify_token(token, user_id, username)) {
+                authenticated_ = true;
+                user_id_ = user_id;
+                username_ = username;
+                
+                json response;
+                response["type"] = "auth_success";
+                response["user_id"] = user_id_;
+                response["username"] = username_;
+                send(response.dump());
+                
+                std::cout << "Session " << peer_id_ << " authenticated as " << username_ << std::endl;
+            } else {
+                send_error("auth_failed", "Invalid or expired token");
+            }
+            return;
+        }
+        
+        // 检查认证状态（对于需要认证的操作）
+        if (server_.require_auth() && !authenticated_) {
+            if (type == "request_stream" || type == "stop_stream" || 
+                type == "switch_source" || type == "get_sources") {
+                send_error("unauthorized", "Authentication required");
+                return;
+            }
+        }
         
         if (type == "request_stream") {
             // 请求视频流
             std::string video_source = msg.value("source", "head_camera");
             
-            if (server_.pipeline_manager()) {
-                webrtc_peer_ = server_.pipeline_manager()->create_peer(peer_id_, video_source);
-                if (webrtc_peer_) {
-                    // 设置 SDP 回调
-                    webrtc_peer_->set_sdp_callback(
-                        [this](const std::string& sdp, const std::string& sdp_type) {
-                            server_.send_sdp(peer_id_, sdp, sdp_type);
-                        });
-                    
-                    // 设置 ICE 回调
-                    webrtc_peer_->set_ice_callback(
-                        [this](const std::string& candidate, 
-                               const std::string& sdp_mid, 
-                               int sdp_mline_index) {
-                            server_.send_ice_candidate(peer_id_, candidate, 
-                                                       sdp_mid, sdp_mline_index);
-                        });
-                    
-                    // 创建 Offer
-                    webrtc_peer_->create_offer();
-                }
+            if (!server_.pipeline_manager()) {
+                send_error("internal_error", "Pipeline manager not available");
+                return;
             }
+            
+            webrtc_peer_ = server_.pipeline_manager()->create_peer(peer_id_, video_source);
+            if (!webrtc_peer_) {
+                send_error("stream_error", "Failed to create WebRTC peer");
+                return;
+            }
+            
+            // 设置 SDP 回调
+            webrtc_peer_->set_sdp_callback(
+                [this](const std::string& sdp, const std::string& sdp_type) {
+                    server_.send_sdp(peer_id_, sdp, sdp_type);
+                });
+            
+            // 设置 ICE 回调
+            webrtc_peer_->set_ice_callback(
+                [this](const std::string& candidate, 
+                       const std::string& sdp_mid, 
+                       int sdp_mline_index) {
+                    server_.send_ice_candidate(peer_id_, candidate, 
+                                               sdp_mid, sdp_mline_index);
+                });
+            
+            // 创建 Offer
+            if (!webrtc_peer_->create_offer()) {
+                send_error("stream_error", "Failed to create WebRTC offer");
+                webrtc_peer_.reset();
+                return;
+            }
+            
+            std::cout << "Stream requested by peer " << peer_id_ 
+                      << " for source: " << video_source << std::endl;
             
         } else if (type == "answer") {
             // 收到 SDP Answer
-            std::string sdp = msg["sdp"];
-            if (webrtc_peer_) {
-                webrtc_peer_->set_remote_description(sdp, "answer");
+            if (!webrtc_peer_) {
+                send_error("stream_error", "No active stream");
+                return;
+            }
+            
+            std::string sdp = msg.value("sdp", "");
+            if (sdp.empty()) {
+                send_error("invalid_message", "Missing SDP");
+                return;
+            }
+            
+            if (!webrtc_peer_->set_remote_description(sdp, "answer")) {
+                send_error("stream_error", "Failed to set remote description");
             }
             
         } else if (type == "ice_candidate") {
             // 收到 ICE Candidate
-            std::string candidate = msg["candidate"];
-            std::string sdp_mid = msg["sdp_mid"];
-            int sdp_mline_index = msg["sdp_mline_index"];
-            
-            if (webrtc_peer_) {
-                webrtc_peer_->add_ice_candidate(candidate, sdp_mid, sdp_mline_index);
+            if (!webrtc_peer_) {
+                // ICE 可能在流停止后到达，忽略即可
+                return;
             }
+            
+            std::string candidate = msg.value("candidate", "");
+            std::string sdp_mid = msg.value("sdp_mid", "");
+            int sdp_mline_index = msg.value("sdp_mline_index", 0);
+            
+            webrtc_peer_->add_ice_candidate(candidate, sdp_mid, sdp_mline_index);
             
         } else if (type == "stop_stream") {
             // 停止流
@@ -204,10 +284,94 @@ void SignalingSession::handle_message(const std::string& message) {
                 server_.pipeline_manager()->remove_peer(peer_id_);
             }
             webrtc_peer_.reset();
+            
+            json response;
+            response["type"] = "stream_stopped";
+            send(response.dump());
+            
+            std::cout << "Stream stopped for peer " << peer_id_ << std::endl;
+            
+        } else if (type == "switch_source") {
+            // 切换视频源
+            std::string new_source = msg.value("source", "");
+            if (new_source.empty()) {
+                send_error("invalid_message", "Missing source");
+                return;
+            }
+            
+            if (!server_.pipeline_manager()) {
+                send_error("internal_error", "Pipeline manager not available");
+                return;
+            }
+            
+            // 检查源是否可用
+            if (!server_.pipeline_manager()->is_source_available(new_source)) {
+                send_error("invalid_source", "Source not available: " + new_source);
+                return;
+            }
+            
+            // 目前实现：停止当前流并通知客户端重新请求
+            // 未来可以实现无缝切换
+            if (webrtc_peer_) {
+                server_.pipeline_manager()->remove_peer(peer_id_);
+                webrtc_peer_.reset();
+            }
+            
+            json response;
+            response["type"] = "source_switched";
+            response["source"] = new_source;
+            response["reconnect_required"] = true;
+            response["message"] = "Please request stream again with new source";
+            send(response.dump());
+            
+            std::cout << "Source switch requested for peer " << peer_id_ 
+                      << " to: " << new_source << std::endl;
+            
+        } else if (type == "get_sources") {
+            // 获取可用视频源列表
+            json response;
+            response["type"] = "sources";
+            response["sources"] = server_.get_available_sources();
+            send(response.dump());
+            
+        } else if (type == "ping") {
+            // Ping/Pong 保活
+            json response;
+            response["type"] = "pong";
+            response["timestamp"] = msg.value("timestamp", 0);
+            send(response.dump());
+            
+        } else if (type == "get_stats") {
+            // 获取统计信息（需要认证）
+            if (server_.require_auth() && !authenticated_) {
+                send_error("unauthorized", "Authentication required for stats");
+                return;
+            }
+            
+            json response;
+            response["type"] = "stats";
+            response["connections"] = server_.connection_count();
+            response["available_sources"] = server_.get_available_sources();
+            
+            if (server_.pipeline_manager()) {
+                auto stats = server_.pipeline_manager()->get_stats();
+                response["active_peers"] = stats.active_peers;
+                response["total_peers_created"] = stats.total_peers_created;
+                response["error_count"] = stats.error_count;
+            }
+            
+            send(response.dump());
+            
+        } else {
+            send_error("unknown_message", "Unknown message type: " + type);
         }
         
     } catch (const json::exception& e) {
         std::cerr << "JSON parse error: " << e.what() << std::endl;
+        send_error("invalid_json", e.what());
+    } catch (const std::exception& e) {
+        std::cerr << "Error handling message: " << e.what() << std::endl;
+        send_error("internal_error", e.what());
     }
 }
 
@@ -218,6 +382,12 @@ SignalingServer::SignalingServer(net::io_context& io_context, const Config& conf
     , acceptor_(io_context)
     , config_(config)
 {
+    // 创建 JWT 验证器
+    std::string jwt_secret = config_.server.jwt_secret;
+    if (!jwt_secret.empty()) {
+        jwt_verifier_ = std::make_unique<JwtVerifier>(jwt_secret);
+        require_auth_ = config_.server.require_auth;
+    }
 }
 
 SignalingServer::~SignalingServer() {
@@ -256,7 +426,11 @@ void SignalingServer::start() {
     
     running_ = true;
     std::cout << "Signaling server listening on " 
-              << config_.server.host << ":" << config_.server.signaling_port << std::endl;
+              << config_.server.host << ":" << config_.server.signaling_port;
+    if (require_auth_) {
+        std::cout << " (authentication required)";
+    }
+    std::cout << std::endl;
     
     do_accept();
 }
@@ -276,6 +450,47 @@ void SignalingServer::stop() {
         session->close();
     }
     sessions_.clear();
+}
+
+bool SignalingServer::verify_token(const std::string& token, 
+                                    std::string& user_id, 
+                                    std::string& username) {
+    if (!jwt_verifier_) {
+        // 没有配置 JWT 验证器，直接通过
+        user_id = "anonymous";
+        username = "Anonymous";
+        return true;
+    }
+    
+    UserInfo user_info;
+    if (jwt_verifier_->verify(token, user_info)) {
+        user_id = user_info.user_id;
+        username = user_info.username;
+        return true;
+    }
+    
+    return false;
+}
+
+size_t SignalingServer::connection_count() const {
+    std::lock_guard<std::mutex> lock(sessions_mutex_);
+    return sessions_.size();
+}
+
+std::vector<std::string> SignalingServer::get_available_sources() const {
+    // 返回配置中的视频源列表
+    std::vector<std::string> sources;
+    for (const auto& source : config_.video.sources) {
+        sources.push_back(source.name);
+    }
+    
+    // 如果没有配置源，返回默认值
+    if (sources.empty()) {
+        sources.push_back("head_camera");
+        sources.push_back("test_pattern");
+    }
+    
+    return sources;
 }
 
 void SignalingServer::do_accept() {

@@ -15,9 +15,9 @@ namespace qyh::mediaplane {
  * @brief 视频源配置
  */
 struct VideoSourceConfig {
-    std::string name;
-    std::string device;
-    std::string type;
+    std::string name;           // 源名称（如 "head_camera"）
+    std::string device;         // 设备路径（如 "/dev/video0"）
+    std::string type;           // 源类型（v4l2/nvargus/test）
     bool enabled = true;
 };
 
@@ -59,6 +59,10 @@ struct ServerConfig {
     std::string host = "0.0.0.0";
     uint16_t signaling_port = 8888;
     size_t max_connections = 10;
+    
+    // JWT 认证配置
+    std::string jwt_secret;     // JWT 密钥（与 Control Plane 共享）
+    bool require_auth = false;  // 是否要求认证（开发模式可关闭）
 };
 
 /**
@@ -68,6 +72,14 @@ struct LoggingConfig {
     std::string level = "INFO";
     std::string file;
     bool journald = true;
+};
+
+/**
+ * @brief 视频配置（包含多个视频源）
+ */
+struct VideoConfig {
+    std::vector<VideoSourceConfig> sources;
+    std::string default_source = "head_camera";
 };
 
 /**
@@ -89,7 +101,8 @@ public:
     
     // 配置项
     ServerConfig server;
-    std::vector<VideoSourceConfig> video_sources;
+    VideoConfig video;
+    std::vector<VideoSourceConfig> video_sources;  // 兼容旧代码
     EncodingConfig encoding;
     WebRTCConfig webrtc;
     JetsonConfig jetson;

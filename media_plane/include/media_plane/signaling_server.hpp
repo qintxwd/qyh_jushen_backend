@@ -16,6 +16,7 @@
 #include <mutex>
 #include <functional>
 #include <string>
+#include <queue>
 
 namespace qyh::mediaplane {
 
@@ -28,6 +29,8 @@ using tcp = net::ip::tcp;
 class Config;
 class WebRTCPeer;
 class PipelineManager;
+class JwtVerifier;
+struct UserInfo;
 
 /**
  * @brief 信令会话
@@ -42,10 +45,13 @@ public:
     void start();
     void close();
     void send(const std::string& message);
+    void send_error(const std::string& error, const std::string& details = "");
     
     const std::string& peer_id() const { return peer_id_; }
     void set_webrtc_peer(std::shared_ptr<WebRTCPeer> peer) { webrtc_peer_ = peer; }
     std::shared_ptr<WebRTCPeer> webrtc_peer() const { return webrtc_peer_; }
+    
+    bool is_authenticated() const { return authenticated_; }
     
 private:
     void do_accept();
@@ -68,6 +74,10 @@ private:
     std::queue<std::string> write_queue_;
     std::mutex write_mutex_;
     bool writing_ = false;
+    
+    bool authenticated_ = false;
+    std::string user_id_;
+    std::string username_;
 };
 
 /**
@@ -92,6 +102,17 @@ public:
     void set_pipeline_manager(PipelineManager* manager) { pipeline_manager_ = manager; }
     
     /**
+     * @brief 验证 JWT Token
+     */
+    bool verify_token(const std::string& token, std::string& user_id, std::string& username);
+    
+    /**
+     * @brief 是否需要认证
+     */
+    bool require_auth() const { return require_auth_; }
+    void set_require_auth(bool require) { require_auth_ = require; }
+    
+    /**
      * @brief 发送 SDP 到指定 peer
      */
     void send_sdp(const std::string& peer_id, 
@@ -111,6 +132,16 @@ public:
     
     PipelineManager* pipeline_manager() { return pipeline_manager_; }
     
+    /**
+     * @brief 获取当前连接数
+     */
+    size_t connection_count() const;
+    
+    /**
+     * @brief 获取可用视频源
+     */
+    std::vector<std::string> get_available_sources() const;
+    
 private:
     void do_accept();
     void on_accept(beast::error_code ec, tcp::socket socket);
@@ -121,10 +152,12 @@ private:
     const Config& config_;
     
     std::unordered_map<std::string, std::shared_ptr<SignalingSession>> sessions_;
-    std::mutex sessions_mutex_;
+    mutable std::mutex sessions_mutex_;
     
     PipelineManager* pipeline_manager_ = nullptr;
+    std::unique_ptr<JwtVerifier> jwt_verifier_;
     
+    bool require_auth_ = false;  // 默认不需要认证（开发模式）
     std::atomic<bool> running_{false};
 };
 

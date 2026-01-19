@@ -43,6 +43,7 @@ set(SOURCES
     src/webrtc_peer.cpp
     src/pipeline_manager.cpp
     src/config.cpp
+    src/auth.cpp
 )
 
 add_executable(media_plane_server ${SOURCES})

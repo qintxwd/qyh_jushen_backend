@@ -16,6 +16,7 @@ bool Config::load_from_file(const std::string& path) {
     try {
         std::ifstream file(path);
         if (!file.is_open()) {
+            std::cerr << "Failed to open config file: " << path << std::endl;
             return false;
         }
         
@@ -27,31 +28,45 @@ bool Config::load_from_file(const std::string& path) {
             if (s["host"]) server.host = s["host"].as<std::string>();
             if (s["signaling_port"]) server.signaling_port = s["signaling_port"].as<uint16_t>();
             if (s["max_connections"]) server.max_connections = s["max_connections"].as<size_t>();
+            if (s["jwt_secret"]) server.jwt_secret = s["jwt_secret"].as<std::string>();
+            if (s["require_auth"]) server.require_auth = s["require_auth"].as<bool>();
         }
         
         // Video Sources 配置
-        if (config["video"] && config["video"]["sources"]) {
-            video_sources.clear();
-            for (const auto& src : config["video"]["sources"]) {
-                VideoSourceConfig vs;
-                vs.name = src["name"].as<std::string>();
-                vs.device = src["device"].as<std::string>();
-                vs.type = src["type"].as<std::string>();
-                vs.enabled = src["enabled"].as<bool>(true);
-                video_sources.push_back(vs);
+        if (config["video"]) {
+            auto v = config["video"];
+            
+            // 默认源
+            if (v["default_source"]) {
+                video.default_source = v["default_source"].as<std::string>();
             }
-        }
-        
-        // Encoding 配置
-        if (config["video"] && config["video"]["encoding"]) {
-            auto e = config["video"]["encoding"];
-            if (e["codec"]) encoding.codec = e["codec"].as<std::string>();
-            if (e["hardware_encoder"]) encoding.hardware_encoder = e["hardware_encoder"].as<bool>();
-            if (e["width"]) encoding.width = e["width"].as<int>();
-            if (e["height"]) encoding.height = e["height"].as<int>();
-            if (e["framerate"]) encoding.framerate = e["framerate"].as<int>();
-            if (e["bitrate"]) encoding.bitrate = e["bitrate"].as<int>();
-            if (e["keyframe_interval"]) encoding.keyframe_interval = e["keyframe_interval"].as<int>();
+            
+            // 视频源列表
+            if (v["sources"]) {
+                video.sources.clear();
+                video_sources.clear();
+                for (const auto& src : v["sources"]) {
+                    VideoSourceConfig vs;
+                    vs.name = src["name"].as<std::string>();
+                    vs.device = src["device"].as<std::string>("");
+                    vs.type = src["type"].as<std::string>("v4l2");
+                    vs.enabled = src["enabled"].as<bool>(true);
+                    video.sources.push_back(vs);
+                    video_sources.push_back(vs);  // 兼容旧代码
+                }
+            }
+            
+            // Encoding 配置
+            if (v["encoding"]) {
+                auto e = v["encoding"];
+                if (e["codec"]) encoding.codec = e["codec"].as<std::string>();
+                if (e["hardware_encoder"]) encoding.hardware_encoder = e["hardware_encoder"].as<bool>();
+                if (e["width"]) encoding.width = e["width"].as<int>();
+                if (e["height"]) encoding.height = e["height"].as<int>();
+                if (e["framerate"]) encoding.framerate = e["framerate"].as<int>();
+                if (e["bitrate"]) encoding.bitrate = e["bitrate"].as<int>();
+                if (e["keyframe_interval"]) encoding.keyframe_interval = e["keyframe_interval"].as<int>();
+            }
         }
         
         // WebRTC 配置
@@ -90,6 +105,11 @@ bool Config::load_from_file(const std::string& path) {
             if (l["journald"]) logging.journald = l["journald"].as<bool>();
         }
         
+        std::cout << "Loaded config from: " << path << std::endl;
+        std::cout << "  - Signaling port: " << server.signaling_port << std::endl;
+        std::cout << "  - Video sources: " << video.sources.size() << std::endl;
+        std::cout << "  - Auth required: " << (server.require_auth ? "yes" : "no") << std::endl;
+        
         return true;
         
     } catch (const YAML::Exception& e) {
@@ -122,6 +142,15 @@ void Config::load_from_env() {
     
     if (const char* val = std::getenv("USE_NVENC")) {
         jetson.use_nvenc = (std::string(val) == "true" || std::string(val) == "1");
+    }
+    
+    // JWT 密钥从环境变量获取（安全性更高）
+    if (const char* val = std::getenv("JWT_SECRET")) {
+        server.jwt_secret = val;
+    }
+    
+    if (const char* val = std::getenv("REQUIRE_AUTH")) {
+        server.require_auth = (std::string(val) == "true" || std::string(val) == "1");
     }
 }
 

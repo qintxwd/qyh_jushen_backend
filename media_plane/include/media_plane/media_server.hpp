@@ -8,6 +8,11 @@
 #include <memory>
 #include <atomic>
 #include <string>
+#include <thread>
+
+namespace boost::asio {
+    class io_context;
+}
 
 namespace qyh::mediaplane {
 
@@ -55,9 +60,11 @@ public:
 private:
     const Config& config_;
     
-    std::unique_ptr<SignalingServer> signaling_server_;
+    std::unique_ptr<boost::asio::io_context> io_context_;
+    std::shared_ptr<SignalingServer> signaling_server_;
     std::unique_ptr<PipelineManager> pipeline_manager_;
     
+    std::thread io_thread_;
     std::atomic<bool> running_{false};
 };
 

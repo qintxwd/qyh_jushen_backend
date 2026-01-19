@@ -9,20 +9,35 @@
 #include "media_plane/signaling_server.hpp"
 
 #include <iostream>
+#include <algorithm>
 
 namespace qyh::mediaplane {
 
 PipelineManager::PipelineManager(const Config& config)
     : config_(config)
 {
-    // 复制视频源配置
-    for (const auto& src : config.video_sources) {
+    // 复制视频源配置（优先使用 video.sources）
+    const auto& sources = config.video.sources.empty() ? 
+                          config.video_sources : config.video.sources;
+    
+    for (const auto& src : sources) {
         VideoSource vs;
         vs.name = src.name;
         vs.device = src.device;
         vs.type = src.type;
         vs.enabled = src.enabled;
         video_sources_.push_back(vs);
+    }
+    
+    // 确保有测试源可用
+    bool has_test = std::any_of(video_sources_.begin(), video_sources_.end(),
+                                 [](const VideoSource& vs) { return vs.type == "test"; });
+    if (!has_test) {
+        VideoSource test_src;
+        test_src.name = "test_pattern";
+        test_src.type = "test";
+        test_src.enabled = true;
+        video_sources_.push_back(test_src);
     }
 }
 
@@ -46,7 +61,8 @@ bool PipelineManager::init() {
     // 创建 GMainLoop
     main_loop_ = g_main_loop_new(nullptr, FALSE);
     
-    std::cout << "Pipeline manager initialized" << std::endl;
+    std::cout << "Pipeline manager initialized with " 
+              << video_sources_.size() << " video sources" << std::endl;
     return true;
 }
 
@@ -61,12 +77,15 @@ bool PipelineManager::start_sources() {
             continue;
         }
         
-        std::cout << "Started video source: " << source.name << std::endl;
+        std::cout << "Prepared video source: " << source.name 
+                  << " (type: " << source.type << ")" << std::endl;
     }
     
     // 启动 GStreamer 线程
     gst_thread_ = std::thread([this]() {
+        std::cout << "GStreamer main loop started" << std::endl;
         g_main_loop_run(main_loop_);
+        std::cout << "GStreamer main loop stopped" << std::endl;
     });
     
     return true;
@@ -103,16 +122,18 @@ bool PipelineManager::create_source_pipeline(VideoSource& source) {
     
     if (source.type == "v4l2") {
         src = gst_element_factory_make("v4l2src", source.name.c_str());
-        if (src) {
+        if (src && !source.device.empty()) {
             g_object_set(src, "device", source.device.c_str(), nullptr);
         }
-    } else if (source.type == "nvarguscamerasrc") {
+    } else if (source.type == "nvarguscamerasrc" || source.type == "nvargus") {
         // Jetson CSI 摄像头
         src = gst_element_factory_make("nvarguscamerasrc", source.name.c_str());
-    } else if (source.type == "videotestsrc") {
+    } else if (source.type == "videotestsrc" || source.type == "test") {
         // 测试源
         src = gst_element_factory_make("videotestsrc", source.name.c_str());
-        g_object_set(src, "is-live", TRUE, nullptr);
+        if (src) {
+            g_object_set(src, "is-live", TRUE, nullptr);
+        }
     }
     
     if (!src) {
@@ -133,6 +154,35 @@ bool PipelineManager::create_source_pipeline(VideoSource& source) {
     source.tee = tee;
     
     return true;
+}
+
+GstElement* PipelineManager::create_video_source_element(const VideoSource* source) {
+    GstElement* video_src = nullptr;
+    
+    if (!source) {
+        // 无视频源配置，使用测试源
+        video_src = gst_element_factory_make("videotestsrc", nullptr);
+        if (video_src) {
+            g_object_set(video_src, "is-live", TRUE, "pattern", 0, nullptr);
+        }
+        return video_src;
+    }
+    
+    if (source->type == "v4l2") {
+        video_src = gst_element_factory_make("v4l2src", nullptr);
+        if (video_src && !source->device.empty()) {
+            g_object_set(video_src, "device", source->device.c_str(), nullptr);
+        }
+    } else if (source->type == "nvarguscamerasrc" || source->type == "nvargus") {
+        video_src = gst_element_factory_make("nvarguscamerasrc", nullptr);
+    } else if (source->type == "videotestsrc" || source->type == "test") {
+        video_src = gst_element_factory_make("videotestsrc", nullptr);
+        if (video_src) {
+            g_object_set(video_src, "is-live", TRUE, "pattern", 0, nullptr);
+        }
+    }
+    
+    return video_src;
 }
 
 GstElement* PipelineManager::create_encoder() {
@@ -205,23 +255,48 @@ std::shared_ptr<WebRTCPeer> PipelineManager::create_peer(
     auto peer = std::make_shared<WebRTCPeer>(peer_id, config_);
     if (!peer->init()) {
         std::cerr << "Failed to init WebRTC peer" << std::endl;
+        report_error(peer_id, "Failed to initialize WebRTC peer");
         return nullptr;
     }
     
-    // TODO: 连接视频源到 peer
-    // 这需要更复杂的管道管理，使用 tee 分流
+    // 创建视频源元素
+    GstElement* video_src = create_video_source_element(source);
+    
+    if (!video_src) {
+        std::cerr << "Failed to create video source element" << std::endl;
+        report_error(peer_id, "Failed to create video source");
+        return nullptr;
+    }
+    
+    std::string source_name = source ? source->name : "test_pattern";
+    
+    // 添加视频源到 peer
+    if (!peer->add_video_source(source_name, video_src)) {
+        std::cerr << "Failed to add video source to peer" << std::endl;
+        gst_object_unref(video_src);
+        report_error(peer_id, "Failed to add video source to peer");
+        return nullptr;
+    }
     
     // 存储 peer
     {
         std::lock_guard<std::mutex> lock(peers_mutex_);
         peers_[peer_id] = peer;
+        peer_sources_[peer_id] = source_name;
+    }
+    
+    // 更新统计
+    {
+        std::lock_guard<std::mutex> lock(stats_mutex_);
+        stats_.active_peers++;
+        stats_.total_peers_created++;
     }
     
     // 启动 peer
     peer->start();
     
     std::cout << "Created WebRTC peer: " << peer_id 
-              << " with source: " << (source ? source->name : "none") << std::endl;
+              << " with source: " << source_name << std::endl;
     
     return peer;
 }
@@ -233,8 +308,52 @@ void PipelineManager::remove_peer(const std::string& peer_id) {
     if (it != peers_.end()) {
         it->second->stop();
         peers_.erase(it);
+        peer_sources_.erase(peer_id);
+        
+        // 更新统计
+        {
+            std::lock_guard<std::mutex> lock(stats_mutex_);
+            if (stats_.active_peers > 0) {
+                stats_.active_peers--;
+            }
+        }
+        
         std::cout << "Removed WebRTC peer: " << peer_id << std::endl;
     }
+}
+
+bool PipelineManager::switch_peer_source(const std::string& peer_id, 
+                                          const std::string& new_source) {
+    // 检查新源是否可用
+    if (!is_source_available(new_source)) {
+        report_error(peer_id, "Source not available: " + new_source);
+        return false;
+    }
+    
+    std::lock_guard<std::mutex> lock(peers_mutex_);
+    
+    auto it = peers_.find(peer_id);
+    if (it == peers_.end()) {
+        return false;
+    }
+    
+    auto current_source = peer_sources_[peer_id];
+    if (current_source == new_source) {
+        // 已经是这个源了
+        return true;
+    }
+    
+    // 目前实现：停止旧 peer，需要客户端重新请求
+    // TODO: 实现无缝切换（需要动态重新连接管道）
+    it->second->stop();
+    peers_.erase(it);
+    peer_sources_.erase(peer_id);
+    
+    std::cout << "Peer " << peer_id << " source switch requested from " 
+              << current_source << " to " << new_source 
+              << " (requires reconnection)" << std::endl;
+    
+    return false;  // 返回 false 表示需要重新连接
 }
 
 std::vector<std::string> PipelineManager::get_available_sources() const {
@@ -245,6 +364,36 @@ std::vector<std::string> PipelineManager::get_available_sources() const {
         }
     }
     return sources;
+}
+
+bool PipelineManager::is_source_available(const std::string& source_name) const {
+    return std::any_of(video_sources_.begin(), video_sources_.end(),
+                       [&source_name](const VideoSource& vs) {
+                           return vs.name == source_name && vs.enabled;
+                       });
+}
+
+size_t PipelineManager::peer_count() const {
+    std::lock_guard<std::mutex> lock(peers_mutex_);
+    return peers_.size();
+}
+
+PipelineStats PipelineManager::get_stats() const {
+    std::lock_guard<std::mutex> lock(stats_mutex_);
+    return stats_;
+}
+
+void PipelineManager::report_error(const std::string& peer_id, const std::string& error) {
+    {
+        std::lock_guard<std::mutex> lock(stats_mutex_);
+        stats_.error_count++;
+    }
+    
+    if (error_callback_) {
+        error_callback_(peer_id, error);
+    }
+    
+    std::cerr << "Pipeline error for peer " << peer_id << ": " << error << std::endl;
 }
 
 gboolean PipelineManager::bus_callback(GstBus* /*bus*/, GstMessage* msg, gpointer data) {

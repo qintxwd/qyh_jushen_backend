@@ -5,8 +5,17 @@ server:
   signaling_port: 8888
   host: "0.0.0.0"
   max_connections: 10
+  
+  # JWT 认证配置
+  # jwt_secret 建议通过环境变量 JWT_SECRET 设置
+  jwt_secret: ""
+  # 是否要求认证（开发模式可关闭）
+  require_auth: false
 
 video:
+  # 默认视频源
+  default_source: "head_camera"
+  
   # 视频源
   sources:
     - name: "head_camera"
@@ -17,6 +26,10 @@ video:
       device: "/dev/video1"
       type: "v4l2"
       enabled: false
+    - name: "test_pattern"
+      device: ""
+      type: "test"
+      enabled: true
 
   # 编码参数
   encoding:
