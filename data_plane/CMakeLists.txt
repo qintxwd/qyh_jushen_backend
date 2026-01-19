@@ -44,10 +44,16 @@ if(ament_cmake_FOUND)
     find_package(sensor_msgs REQUIRED)
     find_package(geometry_msgs REQUIRED)
     find_package(tf2_msgs REQUIRED)
-    set(WITH_ROS2 ON)
+    
+    # Custom Messages
+    find_package(qyh_lift_msgs REQUIRED)
+    find_package(qyh_waist_msgs REQUIRED)
+    find_package(qyh_gripper_msgs REQUIRED)
+    find_package(qyh_standard_robot_msgs REQUIRED)
+    find_package(qyh_jaka_control_msgs REQUIRED) # Add JAKA support
+    
 else()
-    message(STATUS "Building without ROS2 support")
-    set(WITH_ROS2 OFF)
+    message(FATAL_ERROR "ROS2 dependencies not found. Please source your ROS2 workspace.")
 endif()
 
 # ==================== Protobuf 生成 ====================
@@ -84,14 +90,9 @@ set(SOURCES
     src/rate_limiter.cpp
     src/control_sync.cpp
     src/connection_manager.cpp
+    src/ros2_bridge.cpp
+    src/watchdog.cpp
 )
-
-if(WITH_ROS2)
-    list(APPEND SOURCES
-        src/ros2_bridge.cpp
-        src/watchdog.cpp
-    )
-endif()
 
 add_executable(data_plane_server ${SOURCES})
 
@@ -110,16 +111,14 @@ target_link_libraries(data_plane_server PRIVATE
     nlohmann_json::nlohmann_json
 )
 
-if(WITH_ROS2)
-    target_compile_definitions(data_plane_server PRIVATE WITH_ROS2)
-    ament_target_dependencies(data_plane_server
-        rclcpp
-        std_msgs
-        sensor_msgs
-        geometry_msgs
-        tf2_msgs
-    )
-endif()
+target_compile_definitions(data_plane_server PRIVATE)
+ament_target_dependencies(data_plane_server
+    rclcpp
+    std_msgs
+    sensor_msgs
+    geometry_msgs
+    tf2_msgs
+)
 
 # ==================== 安装 ====================
 

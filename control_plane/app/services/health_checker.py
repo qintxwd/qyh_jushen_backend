@@ -64,13 +64,17 @@ class HealthChecker:
         # 从 WebSocket URL 提取 HTTP URL
         ws_url = settings.WEBSOCKET_SERVER_URL
         # ws://127.0.0.1:8765 -> http://127.0.0.1:8765
-        http_url = ws_url.replace("ws://", "http://").replace("wss://", "https://")
+        http_url = ws_url.replace("ws://", "http://").replace(
+            "wss://",
+            "https://",
+        )
         health_url = f"{http_url}/health"
         
         start_time = time.time()
         
         try:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3)) as session:
+            timeout = aiohttp.ClientTimeout(total=3)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 # 先尝试 HTTP 健康检查
                 try:
                     async with session.get(health_url) as resp:
@@ -155,7 +159,8 @@ class HealthChecker:
         start_time = time.time()
         
         try:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3)) as session:
+            timeout = aiohttp.ClientTimeout(total=3)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 try:
                     async with session.get(health_url) as resp:
                         latency_ms = (time.time() - start_time) * 1000
@@ -235,22 +240,21 @@ class HealthChecker:
             from app.services.ros2_client import get_ros2_client
             
             ros2_client = get_ros2_client()
-            
-            if ros2_client.is_mock_mode:
-                result = ServiceHealthResult(
-                    name=name,
-                    status=ServiceStatus.UNHEALTHY,
-                    message="ROS2 不可用（使用 Mock 模式）",
-                    details={"mock_mode": True}
-                )
-            else:
-                # ROS2 可用，进一步检查节点状态
-                # TODO: 可以调用一个简单的服务来验证节点活跃
+            if not ros2_client._initialized:
+                await ros2_client.initialize()
+
+            connected = await ros2_client.check_ros2_connection()
+            if connected:
                 result = ServiceHealthResult(
                     name=name,
                     status=ServiceStatus.HEALTHY,
                     message="ROS2 连接正常",
-                    details={"mock_mode": False}
+                )
+            else:
+                result = ServiceHealthResult(
+                    name=name,
+                    status=ServiceStatus.UNHEALTHY,
+                    message="ROS2 连接失败",
                 )
         except Exception as e:
             result = ServiceHealthResult(

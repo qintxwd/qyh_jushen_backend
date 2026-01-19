@@ -23,13 +23,11 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-#ifdef WITH_ROS2
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <tf2_msgs/msg/tf_message.hpp>
-#include <std_msgs/msg/string.hpp>
-#endif
+#include <std_msgs/msg/int32.hpp>
 
 namespace qyh::dataplane {
 
@@ -361,7 +359,6 @@ private:
 
 // ==================== ROS2 适配器 ====================
 
-#ifdef WITH_ROS2
 
 /**
  * @brief IMU/TF/LED ROS2 适配器
@@ -485,7 +482,5 @@ private:
     
     mutable std::mutex mutex_;
 };
-
-#endif // WITH_ROS2
 
 } // namespace qyh::dataplane

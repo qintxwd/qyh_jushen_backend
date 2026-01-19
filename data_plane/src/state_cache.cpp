@@ -131,18 +131,32 @@ std::optional<std::vector<uint8_t>> StateCache::get_waist_state() const {
     return waist_state_;
 }
 
-void StateCache::update_head_state(const std::vector<uint8_t>& data) {
+void StateCache::update_head_pan_state(const std::vector<uint8_t>& data) {
     std::lock_guard<std::mutex> lock(mutex_);
-    head_state_ = data;
+    head_pan_state_ = data;
     last_update_time_ = std::chrono::steady_clock::now();
 }
 
-std::optional<std::vector<uint8_t>> StateCache::get_head_state() const {
+std::optional<std::vector<uint8_t>> StateCache::get_head_pan_state() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (head_state_.empty()) {
+    if (head_pan_state_.empty()) {
         return std::nullopt;
     }
-    return head_state_;
+    return head_pan_state_;
+}
+
+void StateCache::update_head_tilt_state(const std::vector<uint8_t>& data) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    head_tilt_state_ = data;
+    last_update_time_ = std::chrono::steady_clock::now();
+}
+
+std::optional<std::vector<uint8_t>> StateCache::get_head_tilt_state() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (head_tilt_state_.empty()) {
+        return std::nullopt;
+    }
+    return head_tilt_state_;
 }
 
 // ==================== 夹爪状态 ====================
@@ -180,7 +194,8 @@ void StateCache::clear() {
     chassis_state_.clear();
     lift_state_.clear();
     waist_state_.clear();
-    head_state_.clear();
+    head_pan_state_.clear();
+    head_tilt_state_.clear();
     gripper_states_.clear();
 }
 

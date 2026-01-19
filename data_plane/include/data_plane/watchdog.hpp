@@ -7,8 +7,6 @@
 
 #pragma once
 
-#ifdef WITH_ROS2
-
 #include <atomic>
 #include <chrono>
 #include <mutex>
@@ -109,5 +107,3 @@ private:
 };
 
 } // namespace qyh::dataplane
-
-#endif // WITH_ROS2

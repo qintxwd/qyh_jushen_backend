@@ -14,7 +14,7 @@
 Control Plane 核心功能已全部实现，共 **79 个 API 端点**，覆盖 **11 个模块**。
 
 **主要功能**：
-- ✅ ROS2 服务集成（自动检测，支持 mock fallback）
+- ✅ ROS2 服务集成（自动检测）
 - ✅ 健康检查（Data Plane / Media Plane / ROS2 连接检测）
 - ✅ 审计日志（登录/控制权/模式切换等关键操作记录）
 - ✅ 控制权持久化（数据库会话记录，支持历史查询和统计）
@@ -102,7 +102,7 @@ Control Plane 核心功能已全部实现，共 **79 个 API 端点**，覆盖 *
 
 **特性**:
 - 自动检测 `rclpy` 是否可用
-- ROS2 不可用时自动 fallback 到 mock 模式
+- ROS2 不可用时给出明确错误提示
 - 使用 `asyncio.run_in_executor()` 处理阻塞的 ROS2 调用
 - 单例模式管理 ROS2 节点生命周期
 

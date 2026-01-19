@@ -28,10 +28,8 @@ class StateCache;
 class Config;
 class ControlSyncService;
 
-#ifdef WITH_ROS2
 class ROS2Bridge;
 class Watchdog;
-#endif
 
 /**
  * @brief 消息处理器
@@ -50,7 +48,6 @@ public:
                    JWTValidator& validator,
                    StateCache& state_cache);
     
-#ifdef WITH_ROS2
     /**
      * @brief 设置 ROS2 桥接
      */
@@ -60,8 +57,7 @@ public:
      * @brief 设置 Watchdog
      */
     void set_watchdog(Watchdog* watchdog) { watchdog_ = watchdog; }
-#endif
-    
+
     /**
      * @brief 处理入站消息
      * @param session 会话
@@ -141,10 +137,8 @@ private:
     StateCache& state_cache_;
     ControlSyncService* control_sync_ = nullptr;
     
-#ifdef WITH_ROS2
     ROS2Bridge* ros2_bridge_ = nullptr;
     Watchdog* watchdog_ = nullptr;
-#endif
 };
 
 } // namespace qyh::dataplane

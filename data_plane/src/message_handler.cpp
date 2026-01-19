@@ -13,10 +13,8 @@
 #include "data_plane/config.hpp"
 #include "data_plane/control_sync.hpp"
 
-#ifdef WITH_ROS2
 #include "data_plane/ros2_bridge.hpp"
 #include "data_plane/watchdog.hpp"
-#endif
 
 // Protobuf 生成的头文件
 #include "messages.pb.h"
@@ -209,11 +207,9 @@ void MessageHandler::handle_heartbeat(std::shared_ptr<Session> session,
                                        const WebSocketMessage& msg) {
     session->update_heartbeat();
     
-#ifdef WITH_ROS2
     if (watchdog_) {
         watchdog_->feed(session->session_id());
     }
-#endif
     
     // 回复心跳
     qyh::dataplane::WebSocketMessage response;
@@ -240,12 +236,10 @@ void MessageHandler::handle_vr_control(std::shared_ptr<Session> session,
         return;
     }
     
-#ifdef WITH_ROS2
     if (ros2_bridge_) {
         const auto& vr_intent = msg.vr_control();
         ros2_bridge_->publish_vr_intent(vr_intent);
     }
-#endif
 }
 
 void MessageHandler::handle_chassis_velocity(std::shared_ptr<Session> session,
@@ -260,12 +254,10 @@ void MessageHandler::handle_chassis_velocity(std::shared_ptr<Session> session,
         return;
     }
     
-#ifdef WITH_ROS2
     if (ros2_bridge_) {
         const auto& vel = msg.chassis_velocity();
         ros2_bridge_->publish_cmd_vel(vel.linear_x(), vel.linear_y(), vel.angular_z());
     }
-#endif
 }
 
 void MessageHandler::handle_joint_command(std::shared_ptr<Session> session,
@@ -280,12 +272,10 @@ void MessageHandler::handle_joint_command(std::shared_ptr<Session> session,
         return;
     }
     
-#ifdef WITH_ROS2
     if (ros2_bridge_) {
         const auto& cmd = msg.joint_command();
         ros2_bridge_->publish_joint_command(cmd);
     }
-#endif
 }
 
 void MessageHandler::handle_end_effector_command(std::shared_ptr<Session> session,
@@ -300,12 +290,10 @@ void MessageHandler::handle_end_effector_command(std::shared_ptr<Session> sessio
         return;
     }
     
-#ifdef WITH_ROS2
     if (ros2_bridge_) {
         const auto& cmd = msg.end_effector_cmd();
         ros2_bridge_->publish_end_effector_command(cmd);
     }
-#endif
 }
 
 void MessageHandler::handle_gripper_command(std::shared_ptr<Session> session,
@@ -320,12 +308,10 @@ void MessageHandler::handle_gripper_command(std::shared_ptr<Session> session,
         return;
     }
     
-#ifdef WITH_ROS2
     if (ros2_bridge_) {
         const auto& cmd = msg.gripper_command();
         ros2_bridge_->publish_gripper_command(cmd);
     }
-#endif
 }
 
 void MessageHandler::handle_navigation_goal(std::shared_ptr<Session> session,
@@ -340,12 +326,10 @@ void MessageHandler::handle_navigation_goal(std::shared_ptr<Session> session,
         return;
     }
     
-#ifdef WITH_ROS2
     if (ros2_bridge_) {
         const auto& goal = msg.navigation_goal();
         ros2_bridge_->publish_navigation_goal(goal);
     }
-#endif
 }
 
 void MessageHandler::send_error(std::shared_ptr<Session> session,

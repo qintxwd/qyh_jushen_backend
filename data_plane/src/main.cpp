@@ -10,11 +10,9 @@
 #include "data_plane/state_cache.hpp"
 #include "data_plane/control_sync.hpp"
 
-#ifdef WITH_ROS2
 #include "data_plane/ros2_bridge.hpp"
 #include "data_plane/watchdog.hpp"
 #include <rclcpp/rclcpp.hpp>
-#endif
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/signal_set.hpp>
@@ -46,14 +44,10 @@ int main(int argc, char* argv[]) {
     std::cout << "Config: " << config_path << std::endl;
     std::cout << "Listen: " << config.server.host << ":" << config.server.port << std::endl;
     
-#ifdef WITH_ROS2
     std::cout << "ROS2: Enabled" << std::endl;
     
     // 初始化 ROS2
     rclcpp::init(argc, argv);
-#else
-    std::cout << "ROS2: Disabled" << std::endl;
-#endif
     
     try {
         // 创建 IO 上下文
@@ -77,7 +71,6 @@ int main(int argc, char* argv[]) {
         }
         handler.set_control_sync(&control_sync);
         
-#ifdef WITH_ROS2
         // 创建 ROS2 桥接
         qyh::dataplane::ROS2Bridge ros2_bridge(config, state_cache);
         if (!ros2_bridge.init()) {
@@ -91,13 +84,11 @@ int main(int argc, char* argv[]) {
         // 连接组件
         handler.set_ros2_bridge(&ros2_bridge);
         handler.set_watchdog(&watchdog);
-#endif
         
         // 创建服务器
         auto server = std::make_shared<qyh::dataplane::Server>(io_context, config, handler);
         server->set_control_sync(&control_sync);
         
-#ifdef WITH_ROS2
         ros2_bridge.set_server(server.get());
         
         // 启动 ROS2 桥接
@@ -105,7 +96,6 @@ int main(int argc, char* argv[]) {
         
         // 启动 Watchdog
         watchdog.start();
-#endif
         
         // 启动服务器
         server->start();
@@ -115,10 +105,8 @@ int main(int argc, char* argv[]) {
         signals.async_wait([&](const boost::system::error_code&, int signal) {
             std::cout << "\nReceived signal " << signal << ", shutting down..." << std::endl;
             server->stop();
-#ifdef WITH_ROS2
             watchdog.stop();
             ros2_bridge.stop();
-#endif
             control_sync.stop();
             io_context.stop();
         });
@@ -149,9 +137,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
-#ifdef WITH_ROS2
     rclcpp::shutdown();
-#endif
     
     std::cout << "Data Plane shutdown complete" << std::endl;
     return 0;

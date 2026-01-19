@@ -5,8 +5,6 @@
  * 完整实现机器人状态订阅和控制命令发布
  */
 
-#ifdef WITH_ROS2
-
 #include "data_plane/ros2_bridge.hpp"
 #include "data_plane/config.hpp"
 #include "data_plane/state_cache.hpp"
@@ -78,51 +76,45 @@ bool ROS2Bridge::init() {
         );
         
         // 升降状态
-        lift_sub_ = node_->create_subscription<std_msgs::msg::Float64>(
+        lift_sub_ = node_->create_subscription<qyh_lift_msgs::msg::LiftState>(
             "/lift/state", state_qos,
             std::bind(&ROS2Bridge::lift_state_callback, this, std::placeholders::_1)
         );
         
         // 腰部状态
-        waist_sub_ = node_->create_subscription<std_msgs::msg::Float64>(
+        waist_sub_ = node_->create_subscription<qyh_waist_msgs::msg::WaistState>(
             "/waist/state", state_qos,
             std::bind(&ROS2Bridge::waist_state_callback, this, std::placeholders::_1)
         );
         
-        // 头部 Pan 状态
-        head_pan_sub_ = node_->create_subscription<std_msgs::msg::Float64>(
-            "/head/pan/state", state_qos,
-            std::bind(&ROS2Bridge::head_pan_state_callback, this, std::placeholders::_1)
-        );
-        
-        // 头部 Tilt 状态
-        head_tilt_sub_ = node_->create_subscription<std_msgs::msg::Float64>(
-            "/head/tilt/state", state_qos,
-            std::bind(&ROS2Bridge::head_tilt_state_callback, this, std::placeholders::_1)
+        // 头部关节状态
+        head_sub_ = node_->create_subscription<sensor_msgs::msg::JointState>(
+            "/head/joint_states", state_qos,
+            std::bind(&ROS2Bridge::head_state_callback, this, std::placeholders::_1)
         );
         
         // 左夹爪状态
-        left_gripper_sub_ = node_->create_subscription<std_msgs::msg::Float64>(
-            "/left_gripper/state", state_qos,
+        left_gripper_sub_ = node_->create_subscription<qyh_gripper_msgs::msg::GripperState>(
+            "/left/gripper_state", state_qos,
             std::bind(&ROS2Bridge::left_gripper_state_callback, this, std::placeholders::_1)
         );
         
         // 右夹爪状态
-        right_gripper_sub_ = node_->create_subscription<std_msgs::msg::Float64>(
-            "/right_gripper/state", state_qos,
+        right_gripper_sub_ = node_->create_subscription<qyh_gripper_msgs::msg::GripperState>(
+            "/right/gripper_state", state_qos,
             std::bind(&ROS2Bridge::right_gripper_state_callback, this, std::placeholders::_1)
         );
         
-        // 电池状态
-        battery_sub_ = node_->create_subscription<std_msgs::msg::Float64>(
-            "/battery/level", state_qos,
-            std::bind(&ROS2Bridge::battery_state_callback, this, std::placeholders::_1)
+        // 机器人综合状态 (包含电池、急停等)
+        robot_status_sub_ = node_->create_subscription<qyh_standard_robot_msgs::msg::StandardRobotStatus>(
+            "/standard_robot_status", state_qos,
+            std::bind(&ROS2Bridge::standard_robot_status_callback, this, std::placeholders::_1)
         );
-        
-        // 急停状态
-        emergency_stop_sub_ = node_->create_subscription<std_msgs::msg::Bool>(
-            "/emergency_stop", state_qos,
-            std::bind(&ROS2Bridge::emergency_stop_callback, this, std::placeholders::_1)
+
+        // JAKA Robot State (Arm High-level Status)
+        jaka_state_sub_ = node_->create_subscription<qyh_jaka_control_msgs::msg::RobotState>(
+            "/robot_state", state_qos,
+            std::bind(&ROS2Bridge::jaka_robot_state_callback, this, std::placeholders::_1)
         );
         
         // ==================== 创建发布者 ====================
@@ -465,6 +457,56 @@ void ROS2Bridge::odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg) {
     broadcast_state("chassis_state", qyh::dataplane::MSG_CHASSIS_STATE, data);
 }
 
+void ROS2Bridge::jaka_robot_state_callback(const qyh_jaka_control_msgs::msg::RobotState::SharedPtr msg) {
+    qyh::dataplane::ArmState state;
+    state.mutable_header()->mutable_stamp()->set_seconds(msg->header.stamp.sec);
+    state.mutable_header()->mutable_stamp()->set_nanos(msg->header.stamp.nanosec);
+    
+    // Status Flags
+    state.set_connected(msg->connected);
+    state.set_powered_on(msg->powered_on);
+    state.set_enabled(msg->enabled);
+    state.set_in_estop(msg->in_estop);
+    state.set_in_error(msg->in_error);
+    state.set_servo_mode(msg->servo_mode_enabled);
+    state.set_error_message(msg->error_message);
+    
+    // Left/Right In Position
+    state.set_left_in_position(msg->left_in_position);
+    state.set_right_in_position(msg->right_in_position);
+
+    // Positions
+    for (const auto& p : msg->left_joint_positions) state.add_left_positions(p);
+    for (const auto& p : msg->right_joint_positions) state.add_right_positions(p);
+    
+    // Cartesian Poses
+    auto* lp = state.mutable_left_end_effector();
+    lp->mutable_position()->set_x(msg->left_cartesian_pose.position.x);
+    lp->mutable_position()->set_y(msg->left_cartesian_pose.position.y);
+    lp->mutable_position()->set_z(msg->left_cartesian_pose.position.z);
+    lp->mutable_orientation()->set_x(msg->left_cartesian_pose.orientation.x);
+    lp->mutable_orientation()->set_y(msg->left_cartesian_pose.orientation.y);
+    lp->mutable_orientation()->set_z(msg->left_cartesian_pose.orientation.z);
+    lp->mutable_orientation()->set_w(msg->left_cartesian_pose.orientation.w);
+
+    auto* rp = state.mutable_right_end_effector();
+    rp->mutable_position()->set_x(msg->right_cartesian_pose.position.x);
+    rp->mutable_position()->set_y(msg->right_cartesian_pose.position.y);
+    rp->mutable_position()->set_z(msg->right_cartesian_pose.position.z);
+    rp->mutable_orientation()->set_x(msg->right_cartesian_pose.orientation.x);
+    rp->mutable_orientation()->set_y(msg->right_cartesian_pose.orientation.y);
+    rp->mutable_orientation()->set_z(msg->right_cartesian_pose.orientation.z);
+    rp->mutable_orientation()->set_w(msg->right_cartesian_pose.orientation.w);
+
+    // Update Cache
+    std::vector<uint8_t> data(state.ByteSizeLong());
+    state.SerializeToArray(data.data(), static_cast<int>(data.size()));
+    state_cache_.update_arm_state(data);
+    
+    // Broadcast if needed, or rely on aggregation
+    broadcast_state("arm_state", qyh::dataplane::MSG_ARM_STATE, data);
+}
+
 void ROS2Bridge::left_arm_state_callback(const sensor_msgs::msg::JointState::SharedPtr msg) {
     // 存储左臂关节状态
     auto proto_data = joint_state_to_proto(msg);
@@ -477,10 +519,13 @@ void ROS2Bridge::right_arm_state_callback(const sensor_msgs::msg::JointState::Sh
     state_cache_.update_right_arm_state(proto_data);
 }
 
-void ROS2Bridge::lift_state_callback(const std_msgs::msg::Float64::SharedPtr msg) {
+void ROS2Bridge::lift_state_callback(const qyh_lift_msgs::msg::LiftState::SharedPtr msg) {
     qyh::dataplane::ActuatorState state;
     state.set_actuator_id("lift");
-    state.set_position(msg->data);
+    state.set_position(msg->current_position);
+    state.set_velocity(msg->current_speed);
+    state.set_in_motion(!msg->position_reached);
+    state.set_in_position(msg->position_reached);
     
     std::vector<uint8_t> data(state.ByteSizeLong());
     state.SerializeToArray(data.data(), static_cast<int>(data.size()));
@@ -489,10 +534,14 @@ void ROS2Bridge::lift_state_callback(const std_msgs::msg::Float64::SharedPtr msg
     broadcast_state("actuator_state", qyh::dataplane::MSG_ACTUATOR_STATE, data);
 }
 
-void ROS2Bridge::waist_state_callback(const std_msgs::msg::Float64::SharedPtr msg) {
+void ROS2Bridge::waist_state_callback(const qyh_waist_msgs::msg::WaistState::SharedPtr msg) {
     qyh::dataplane::ActuatorState state;
     state.set_actuator_id("waist");
-    state.set_position(msg->data);
+    // 优先使用 angle
+    state.set_position(msg->current_angle);
+    state.set_velocity(msg->current_speed);
+    state.set_in_motion(!msg->position_reached);
+    state.set_in_position(msg->position_reached);
     
     std::vector<uint8_t> data(state.ByteSizeLong());
     state.SerializeToArray(data.data(), static_cast<int>(data.size()));
@@ -501,34 +550,56 @@ void ROS2Bridge::waist_state_callback(const std_msgs::msg::Float64::SharedPtr ms
     broadcast_state("actuator_state", qyh::dataplane::MSG_ACTUATOR_STATE, data);
 }
 
-void ROS2Bridge::head_pan_state_callback(const std_msgs::msg::Float64::SharedPtr msg) {
-    qyh::dataplane::ActuatorState state;
-    state.set_actuator_id("head_pan");
-    state.set_position(msg->data);
+void ROS2Bridge::head_state_callback(const sensor_msgs::msg::JointState::SharedPtr msg) {
+    // 从 JointState 提取 Pan/Tilt
+    // 假设关节名为 head_pan_joint, head_tilt_joint 或者包含 pan/tilt
     
-    std::vector<uint8_t> data(state.ByteSizeLong());
-    state.SerializeToArray(data.data(), static_cast<int>(data.size()));
+    double pan_pos = 0.0, tilt_pos = 0.0;
     
-    state_cache_.update_head_state(data);
-    broadcast_state("actuator_state", qyh::dataplane::MSG_ACTUATOR_STATE, data);
+    for (size_t i = 0; i < msg->name.size(); ++i) {
+        std::string name = msg->name[i];
+        if (name.find("pan") != std::string::npos || name.find("yaw") != std::string::npos) {
+            if (i < msg->position.size()) pan_pos = msg->position[i];
+        }
+        else if (name.find("tilt") != std::string::npos || name.find("pitch") != std::string::npos) {
+            if (i < msg->position.size()) tilt_pos = msg->position[i];
+        }
+    }
+
+    // 1. Pan State
+    {
+        qyh::dataplane::ActuatorState state;
+        state.set_actuator_id("head_pan");
+        state.set_position(pan_pos);
+        
+        std::vector<uint8_t> data(state.ByteSizeLong());
+        state.SerializeToArray(data.data(), static_cast<int>(data.size()));
+        
+        state_cache_.update_head_pan_state(data);
+        broadcast_state("actuator_state", qyh::dataplane::MSG_ACTUATOR_STATE, data);
+    }
+
+    // 2. Tilt State
+    {
+        qyh::dataplane::ActuatorState state;
+        state.set_actuator_id("head_tilt");
+        state.set_position(tilt_pos);
+        
+        std::vector<uint8_t> data(state.ByteSizeLong());
+        state.SerializeToArray(data.data(), static_cast<int>(data.size()));
+        
+        state_cache_.update_head_tilt_state(data);
+        broadcast_state("actuator_state", qyh::dataplane::MSG_ACTUATOR_STATE, data);
+    }
 }
 
-void ROS2Bridge::head_tilt_state_callback(const std_msgs::msg::Float64::SharedPtr msg) {
-    qyh::dataplane::ActuatorState state;
-    state.set_actuator_id("head_tilt");
-    state.set_position(msg->data);
-    
-    std::vector<uint8_t> data(state.ByteSizeLong());
-    state.SerializeToArray(data.data(), static_cast<int>(data.size()));
-    
-    state_cache_.update_head_state(data);
-    broadcast_state("actuator_state", qyh::dataplane::MSG_ACTUATOR_STATE, data);
-}
-
-void ROS2Bridge::left_gripper_state_callback(const std_msgs::msg::Float64::SharedPtr msg) {
+void ROS2Bridge::left_gripper_state_callback(const qyh_gripper_msgs::msg::GripperState::SharedPtr msg) {
     qyh::dataplane::GripperState state;
     state.set_gripper_id("left");
-    state.set_position(msg->data);
+    state.set_position(msg->current_position / 255.0); // 归一化
+    state.set_force(msg->current_force);
+    state.set_object_detected(msg->object_status == 2);
+    state.set_in_motion(msg->is_moving);
     
     std::vector<uint8_t> data(state.ByteSizeLong());
     state.SerializeToArray(data.data(), static_cast<int>(data.size()));
@@ -537,10 +608,13 @@ void ROS2Bridge::left_gripper_state_callback(const std_msgs::msg::Float64::Share
     broadcast_state("gripper_state", qyh::dataplane::MSG_GRIPPER_STATE, data);
 }
 
-void ROS2Bridge::right_gripper_state_callback(const std_msgs::msg::Float64::SharedPtr msg) {
+void ROS2Bridge::right_gripper_state_callback(const qyh_gripper_msgs::msg::GripperState::SharedPtr msg) {
     qyh::dataplane::GripperState state;
     state.set_gripper_id("right");
-    state.set_position(msg->data);
+    state.set_position(msg->current_position / 255.0);
+    state.set_force(msg->current_force);
+    state.set_object_detected(msg->object_status == 2);
+    state.set_in_motion(msg->is_moving);
     
     std::vector<uint8_t> data(state.ByteSizeLong());
     state.SerializeToArray(data.data(), static_cast<int>(data.size()));
@@ -549,31 +623,43 @@ void ROS2Bridge::right_gripper_state_callback(const std_msgs::msg::Float64::Shar
     broadcast_state("gripper_state", qyh::dataplane::MSG_GRIPPER_STATE, data);
 }
 
-void ROS2Bridge::battery_state_callback(const std_msgs::msg::Float64::SharedPtr msg) {
-    std::lock_guard<std::mutex> lock(state_mutex_);
-    battery_level_ = msg->data;
-}
-
-void ROS2Bridge::emergency_stop_callback(const std_msgs::msg::Bool::SharedPtr msg) {
+void ROS2Bridge::standard_robot_status_callback(const qyh_standard_robot_msgs::msg::StandardRobotStatus::SharedPtr msg) {
+    // 1. 更新电池
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
-        emergency_stop_active_ = msg->data;
+        battery_level_ = msg->battery_remaining_percentage;
+    }
+
+    // 2. 更新急停
+    bool current_estop = msg->is_emergency_stopped;
+    bool prev_estop = false;
+    {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        prev_estop = emergency_stop_active_;
+        emergency_stop_active_ = current_estop;
     }
     
-    // 广播急停通知
-    qyh::dataplane::WebSocketMessage ws_msg;
-    ws_msg.set_type(qyh::dataplane::MSG_EMERGENCY_STOP);
-    
-    auto* notification = ws_msg.mutable_emergency_stop();
-    notification->set_active(msg->data);
-    notification->set_source("hardware");
-    
-    std::vector<uint8_t> data(ws_msg.ByteSizeLong());
-    ws_msg.SerializeToArray(data.data(), static_cast<int>(data.size()));
-    
-    if (server_) {
-        server_->broadcast_all(data);
+    // 如果急停状态改变，广播通知
+    if (current_estop != prev_estop) {
+        qyh::dataplane::WebSocketMessage ws_msg;
+        ws_msg.set_type(qyh::dataplane::MSG_EMERGENCY_STOP);
+        
+        auto* notification = ws_msg.mutable_emergency_stop();
+        notification->set_active(current_estop);
+        notification->set_source("hardware");
+        
+        std::vector<uint8_t> data(ws_msg.ByteSizeLong());
+        ws_msg.SerializeToArray(data.data(), static_cast<int>(data.size()));
+        
+        if (server_) {
+            server_->broadcast_all(data);
+        }
     }
+    
+    // 3. 可能的底盘状态更新 (Pose/Twist)
+    // 如果我们想用这里的 Pose/Twist 覆盖 odom，可以在这里做
+    // 目前 ros2_bridge.cpp 依赖 odom_callback。如果 standard_robot_status 更准，可以考虑切换。
+    // 暂时保持 odom，它是标准的。
 }
 
 // ==================== 辅助函数 ====================
@@ -643,5 +729,3 @@ void ROS2Bridge::broadcast_state(const std::string& topic_name,
 }
 
 } // namespace qyh::dataplane
-
-#endif // WITH_ROS2

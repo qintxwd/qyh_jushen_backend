@@ -69,9 +69,11 @@ class ROS2Bridge:
     
     def is_connected(self) -> bool:
         """检查 ROS2 是否连接"""
-        client = self._get_client()
-        # 在非 ROS2 环境下返回 False
-        return not client.is_mock_mode
+        try:
+            client = self._get_client()
+        except RuntimeError:
+            return False
+        return client._node is not None
     
     def get_robot_state(self) -> Optional[dict]:
         """获取机器人状态"""
@@ -336,27 +338,26 @@ async def get_robot_overview(
     )
     
     # 尝试从 ROS2 获取实际状态
-    if ros2_bridge.is_connected():
-        state = ros2_bridge.get_robot_state()
-        if state:
-            if state.get("left_arm"):
-                overview.left_arm = state["left_arm"]
-            if state.get("right_arm"):
-                overview.right_arm = state["right_arm"]
-            if state.get("head"):
-                overview.head = state["head"]
-            if state.get("lift"):
-                overview.lift = state["lift"]
-            if state.get("waist"):
-                overview.waist = state["waist"]
-            if state.get("chassis"):
-                overview.chassis = BaseState(**state["chassis"])
-            if state.get("left_gripper"):
-                overview.left_gripper = GripperState(**state["left_gripper"])
-            if state.get("right_gripper"):
-                overview.right_gripper = GripperState(**state["right_gripper"])
-            if state.get("battery") is not None and overview.system:
-                overview.system["battery"] = float(state["battery"])
+    state = ros2_bridge.get_robot_state()
+    if state:
+        if state.get("left_arm"):
+            overview.left_arm = state["left_arm"]
+        if state.get("right_arm"):
+            overview.right_arm = state["right_arm"]
+        if state.get("head"):
+            overview.head = state["head"]
+        if state.get("lift"):
+            overview.lift = state["lift"]
+        if state.get("waist"):
+            overview.waist = state["waist"]
+        if state.get("chassis"):
+            overview.chassis = BaseState(**state["chassis"])
+        if state.get("left_gripper"):
+            overview.left_gripper = GripperState(**state["left_gripper"])
+        if state.get("right_gripper"):
+            overview.right_gripper = GripperState(**state["right_gripper"])
+        if state.get("battery") is not None and overview.system:
+            overview.system["battery"] = float(state["battery"])
     
     return success_response(
         data=overview.model_dump(),

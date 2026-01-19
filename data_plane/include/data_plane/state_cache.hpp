@@ -85,11 +85,17 @@ public:
     /** @brief 获取腰部状态 */
     std::optional<std::vector<uint8_t>> get_waist_state() const;
     
-    /** @brief 更新头部状态 */
-    void update_head_state(const std::vector<uint8_t>& data);
+    /** @brief 更新头部Pan状态 */
+    void update_head_pan_state(const std::vector<uint8_t>& data);
     
-    /** @brief 获取头部状态 */
-    std::optional<std::vector<uint8_t>> get_head_state() const;
+    /** @brief 获取头部Pan状态 */
+    std::optional<std::vector<uint8_t>> get_head_pan_state() const;
+
+    /** @brief 更新头部Tilt状态 */
+    void update_head_tilt_state(const std::vector<uint8_t>& data);
+    
+    /** @brief 获取头部Tilt状态 */
+    std::optional<std::vector<uint8_t>> get_head_tilt_state() const;
     
     // ==================== 夹爪状态 ====================
     
@@ -124,7 +130,8 @@ private:
     std::vector<uint8_t> chassis_state_;
     std::vector<uint8_t> lift_state_;
     std::vector<uint8_t> waist_state_;
-    std::vector<uint8_t> head_state_;
+    std::vector<uint8_t> head_pan_state_;
+    std::vector<uint8_t> head_tilt_state_;
     std::unordered_map<std::string, std::vector<uint8_t>> gripper_states_;
     
     std::chrono::steady_clock::time_point last_update_time_;

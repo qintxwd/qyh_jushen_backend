@@ -10,16 +10,13 @@ from fastapi import APIRouter, Depends, Query
 from app.dependencies import get_current_user, get_current_operator
 from app.models.user import User
 from app.services.preset_manager import preset_manager
-from app.services.ros2_client import get_ros2_client, RobotSide, LiftCommand, WaistCommand
+from app.services.ros2_client import get_ros2_client, RobotSide
 from app.schemas.preset import (
     PresetType,
     CreatePresetRequest,
     UpdatePresetRequest,
     CapturePresetRequest,
     ApplyPresetRequest,
-    PresetInfo,
-    PresetListResponse,
-    PresetTypeInfo,
 )
 from app.schemas.response import (
     ApiResponse, success_response, error_response, ErrorCodes
@@ -34,7 +31,14 @@ PRESET_TYPE_INFO = {
     PresetType.ARM_POSE: {
         "name": "机械臂点位",
         "description": "机械臂关节角度或末端位姿预设",
-        "data_fields": ["side", "pose_type", "left_joints", "right_joints", "velocity", "acceleration"],
+        "data_fields": [
+            "side",
+            "pose_type",
+            "left_joints",
+            "right_joints",
+            "velocity",
+            "acceleration",
+        ],
     },
     PresetType.HEAD_POSITION: {
         "name": "头部点位",
@@ -103,7 +107,11 @@ async def list_presets(
     if preset_type == PresetType.LOCATION:
         items = preset_manager.get_locations_from_map()
         # 合并用户自定义的导航点
-        user_items = preset_manager.list(preset_type, category, include_builtin)
+        user_items = preset_manager.list(
+            preset_type,
+            category,
+            include_builtin,
+        )
         items.extend(user_items)
     else:
         items = preset_manager.list(preset_type, category, include_builtin)
@@ -347,7 +355,6 @@ async def apply_preset(
                     "preset_id": preset_id,
                     "preset_name": preset.get("name"),
                     "applied": True,
-                    "ros2_mock": ros2_client.is_mock_mode,
                     "message": result.message
                 },
                 message=f"预设 '{preset.get('name')}' 应用成功"
@@ -375,50 +382,107 @@ async def capture_current_state(
     采集当前状态为新预设
     
     从 ROS2 读取机器人当前状态，创建新预设
-    
-    注意：当前状态采集需要 ROS2 Topic 订阅，
-    在 ROS2 环境不可用时会返回模拟数据。
     """
     ros2_client = get_ros2_client()
     captured_data = None
-    is_mock_data = ros2_client.is_mock_mode
+    
+    if not ros2_client._initialized:
+        await ros2_client.initialize()
+    
+    state = ros2_client.get_robot_state()
+    if not state:
+        return error_response(
+            code=ErrorCodes.OPERATION_FAILED,
+            message="未获取到 ROS2 状态，请检查话题订阅",
+        )
     
     try:
         # 尝试从 ROS2 获取当前状态
         if request.preset_type == PresetType.ARM_POSE:
-            # TODO: 需要订阅 /jaka/joint_states 或类似 topic
-            # 暂时使用模拟数据
+            side = request.side or "dual"
+            left_joints = state.get("left_arm", {}).get("joints", [])
+            right_joints = state.get("right_arm", {}).get("joints", [])
+
+            def _positions(joints):
+                return [j.get("position", 0.0) for j in joints]
+
+            left_positions = _positions(left_joints) if left_joints else []
+            right_positions = _positions(right_joints) if right_joints else []
+
+            if side in ("left", "dual") and not left_positions:
+                return error_response(
+                    code=ErrorCodes.OPERATION_FAILED,
+                    message="未获取到左臂关节状态",
+                )
+            if side in ("right", "dual") and not right_positions:
+                return error_response(
+                    code=ErrorCodes.OPERATION_FAILED,
+                    message="未获取到右臂关节状态",
+                )
+
             captured_data = {
-                "side": request.side or "dual",
+                "side": side,
                 "pose_type": "joint",
-                "left_joints": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                "right_joints": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                "left_joints": left_positions,
+                "right_joints": right_positions,
                 "velocity": 0.5,
                 "acceleration": 0.3,
             }
-            is_mock_data = True  # 强制标记为 mock，因为 topic 订阅未实现
             
         elif request.preset_type == PresetType.HEAD_POSITION:
-            # TODO: 需要订阅头部状态 topic
+            head_joints = state.get("head", {}).get("joints", [])
+            if not head_joints:
+                return error_response(
+                    code=ErrorCodes.OPERATION_FAILED,
+                    message="未获取到头部关节状态",
+                )
+
+            def _find_joint(joints, keywords):
+                for joint in joints:
+                    name = str(joint.get("name", "")).lower()
+                    if any(k in name for k in keywords):
+                        return joint.get("position", 0.0)
+                return None
+
+            pan = _find_joint(head_joints, ["pan", "yaw"])
+            tilt = _find_joint(head_joints, ["tilt", "pitch"])
+
+            if pan is None or tilt is None:
+                positions = [j.get("position", 0.0) for j in head_joints]
+                if pan is None and positions:
+                    pan = positions[0]
+                if tilt is None:
+                    tilt = positions[1] if len(positions) > 1 else 0.0
+
             captured_data = {
-                "pan": 0.0,
-                "tilt": 0.0,
+                "pan": pan or 0.0,
+                "tilt": tilt or 0.0,
             }
-            is_mock_data = True
             
         elif request.preset_type == PresetType.LIFT_HEIGHT:
-            # TODO: 需要订阅 /lift/status 或类似 topic
+            lift_state = state.get("lift", {})
+            if not lift_state:
+                return error_response(
+                    code=ErrorCodes.OPERATION_FAILED,
+                    message="未获取到升降状态",
+                )
             captured_data = {
-                "height": 0.0,
+                "height": float(lift_state.get("current_position", 0.0)),
             }
-            is_mock_data = True
             
         elif request.preset_type == PresetType.WAIST_ANGLE:
-            # TODO: 需要订阅 /waist/status 或类似 topic
+            waist_state = state.get("waist", {})
+            if not waist_state:
+                return error_response(
+                    code=ErrorCodes.OPERATION_FAILED,
+                    message="未获取到腰部状态",
+                )
+            angle = waist_state.get("current_angle")
+            if angle is None:
+                angle = waist_state.get("current_position", 0.0)
             captured_data = {
-                "angle": 0.0,
+                "angle": float(angle),
             }
-            is_mock_data = True
             
         else:
             return error_response(
@@ -435,14 +499,11 @@ async def capture_current_state(
             category="captured",
         )
         
-        message_suffix = "（使用模拟数据，ROS2 Topic 订阅待实现）" if is_mock_data else ""
-        
         return success_response(
             data={
                 **preset,
-                "is_mock_data": is_mock_data,
             },
-            message=f"已采集当前状态为预设 '{request.name}'{message_suffix}"
+            message=f"已采集当前状态为预设 '{request.name}'"
         )
         
     except ValueError as e:

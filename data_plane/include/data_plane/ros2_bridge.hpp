@@ -8,8 +8,6 @@
 
 #pragma once
 
-#ifdef WITH_ROS2
-
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <geometry_msgs/msg/twist.hpp>
@@ -19,6 +17,13 @@
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <trajectory_msgs/msg/joint_trajectory.hpp>
+
+// Custom Messages
+#include <qyh_lift_msgs/msg/lift_state.hpp>
+#include <qyh_waist_msgs/msg/waist_state.hpp>
+#include <qyh_gripper_msgs/msg/gripper_state.hpp>
+#include <qyh_standard_robot_msgs/msg/standard_robot_status.hpp>
+#include <qyh_jaka_control_msgs/msg/robot_state.hpp>
 
 #include <memory>
 #include <functional>
@@ -131,14 +136,13 @@ private:
     void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg);
     void left_arm_state_callback(const sensor_msgs::msg::JointState::SharedPtr msg);
     void right_arm_state_callback(const sensor_msgs::msg::JointState::SharedPtr msg);
-    void lift_state_callback(const std_msgs::msg::Float64::SharedPtr msg);
-    void waist_state_callback(const std_msgs::msg::Float64::SharedPtr msg);
-    void head_pan_state_callback(const std_msgs::msg::Float64::SharedPtr msg);
-    void head_tilt_state_callback(const std_msgs::msg::Float64::SharedPtr msg);
-    void left_gripper_state_callback(const std_msgs::msg::Float64::SharedPtr msg);
-    void right_gripper_state_callback(const std_msgs::msg::Float64::SharedPtr msg);
-    void battery_state_callback(const std_msgs::msg::Float64::SharedPtr msg);
-    void emergency_stop_callback(const std_msgs::msg::Bool::SharedPtr msg);
+    void lift_state_callback(const qyh_lift_msgs::msg::LiftState::SharedPtr msg);
+    void waist_state_callback(const qyh_waist_msgs::msg::WaistState::SharedPtr msg);
+    void head_state_callback(const sensor_msgs::msg::JointState::SharedPtr msg);
+    void left_gripper_state_callback(const qyh_gripper_msgs::msg::GripperState::SharedPtr msg);
+    void right_gripper_state_callback(const qyh_gripper_msgs::msg::GripperState::SharedPtr msg);
+    void standard_robot_status_callback(const qyh_standard_robot_msgs::msg::StandardRobotStatus::SharedPtr msg);
+    void jaka_robot_state_callback(const qyh_jaka_control_msgs::msg::RobotState::SharedPtr msg);
     
     // ==================== 数据转换函数 ====================
     
@@ -162,14 +166,13 @@ private:
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr left_arm_sub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr right_arm_sub_;
-    rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr lift_sub_;
-    rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr waist_sub_;
-    rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr head_pan_sub_;
-    rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr head_tilt_sub_;
-    rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr left_gripper_sub_;
-    rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr right_gripper_sub_;
-    rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr battery_sub_;
-    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr emergency_stop_sub_;
+    rclcpp::Subscription<qyh_lift_msgs::msg::LiftState>::SharedPtr lift_sub_;
+    rclcpp::Subscription<qyh_waist_msgs::msg::WaistState>::SharedPtr waist_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr head_sub_;
+    rclcpp::Subscription<qyh_gripper_msgs::msg::GripperState>::SharedPtr left_gripper_sub_;
+    rclcpp::Subscription<qyh_gripper_msgs::msg::GripperState>::SharedPtr right_gripper_sub_;
+    rclcpp::Subscription<qyh_standard_robot_msgs::msg::StandardRobotStatus>::SharedPtr robot_status_sub_;
+    rclcpp::Subscription<qyh_jaka_control_msgs::msg::RobotState>::SharedPtr jaka_state_sub_;
     
     // ==================== 发布者 ====================
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
@@ -197,5 +200,3 @@ private:
 };
 
 } // namespace qyh::dataplane
-
-#endif // WITH_ROS2

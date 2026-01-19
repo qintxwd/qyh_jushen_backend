@@ -2,7 +2,6 @@
 QYH Jushen Control Plane - ROS2 服务客户端
 
 提供与 ROS2 节点通信的统一接口。
-在非 ROS2 环境下自动降级为 Mock 模式。
 
 ⚠️ 重要：此客户端只用于低频管理操作（<5Hz），
    高频控制请使用 Data Plane 的 WebSocket 接口！
@@ -39,7 +38,7 @@ try:
     ROS2_AVAILABLE = True
     logger.info("ROS2 (rclpy) is available")
 except ImportError:
-    logger.warning("ROS2 (rclpy) not available, using mock mode")
+    logger.error("ROS2 (rclpy) not available")
 
 
 # ==================== 服务定义常量 ====================
@@ -104,8 +103,7 @@ class ROS2ServiceClient:
     """
     ROS2 服务客户端
     
-    在 ROS2 环境可用时使用真实服务调用，
-    否则使用 Mock 实现用于开发/测试。
+    使用真实 ROS2 服务调用与话题订阅。
     
     使用示例:
     ```python
@@ -135,9 +133,11 @@ class ROS2ServiceClient:
     def __init__(self):
         if self._initialized:
             return
+
+        if not ROS2_AVAILABLE:
+            raise RuntimeError("ROS2 (rclpy) not available")
         
         self._node = None
-        self._mock_mode = not ROS2_AVAILABLE
         self._service_clients = {}
 
         # 订阅状态缓存
@@ -153,10 +153,6 @@ class ROS2ServiceClient:
         self._latest_odom: Optional[Dict[str, Any]] = None
         self._state_lock = threading.Lock()
         
-        # Mock 状态
-        self._mock_recording_status = RecordingStatus()
-        self._mock_shutdown_in_progress = False
-        
         self._initialized = True
     
     async def initialize(self) -> bool:
@@ -164,11 +160,10 @@ class ROS2ServiceClient:
         初始化 ROS2 节点和服务客户端
         
         Returns:
-            bool: 是否成功初始化（Mock 模式下始终返回 True）
+            bool: 是否成功初始化
         """
-        if self._mock_mode:
-            logger.info("ROS2 client initialized in MOCK mode")
-            return True
+        if not ROS2_AVAILABLE:
+            raise RuntimeError("ROS2 (rclpy) not available")
         
         try:
             if not rclpy.ok():
@@ -187,12 +182,11 @@ class ROS2ServiceClient:
             
         except Exception as e:
             logger.error(f"Failed to initialize ROS2 client: {e}")
-            self._mock_mode = True
             return False
     
     async def _create_service_clients(self):
         """创建所有服务客户端"""
-        if self._mock_mode or self._node is None:
+        if self._node is None:
             return
         
         try:
@@ -292,7 +286,7 @@ class ROS2ServiceClient:
 
     async def _create_subscriptions(self):
         """创建状态订阅"""
-        if self._mock_mode or self._node is None:
+        if self._node is None:
             return
 
         try:
@@ -524,7 +518,7 @@ class ROS2ServiceClient:
 
     def get_robot_state(self) -> Optional[Dict[str, Any]]:
         """返回当前机器人状态（基于 ROS2 topic 缓存）"""
-        if self._mock_mode or self._node is None:
+        if self._node is None:
             return None
 
         try:
@@ -823,11 +817,6 @@ class ROS2ServiceClient:
         
         logger.info("ROS2 client shutdown")
     
-    @property
-    def is_mock_mode(self) -> bool:
-        """是否为 Mock 模式"""
-        return self._mock_mode
-    
     # ==================== 录制服务 ====================
     
     async def start_recording(
@@ -849,23 +838,8 @@ class ROS2ServiceClient:
         Returns:
             ServiceResponse: 包含 success, message, data(bag_path)
         """
-        if self._mock_mode:
-            self._mock_recording_status = RecordingStatus(
-                is_recording=True,
-                action_name=action_name,
-                duration_sec=0.0,
-                bag_path=(
-                    f"~/qyh-robot-system/model_actions/{action_name}/"
-                    "data/bags/episode_001"
-                ),
-                topics=topics,
-            )
-            logger.info(f"[MOCK] Started recording: {action_name}")
-            return ServiceResponse(
-                success=True,
-                message="录制已开始 (Mock)",
-                data={"bag_path": self._mock_recording_status.bag_path}
-            )
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
         
         try:
             from qyh_bag_recorder.srv import StartRecording
@@ -911,21 +885,8 @@ class ROS2ServiceClient:
         Returns:
             ServiceResponse: 包含 success, message, data(duration_sec, bag_path)
         """
-        if self._mock_mode:
-            if not self._mock_recording_status.is_recording:
-                return ServiceResponse(False, "当前没有在录制")
-            
-            result = ServiceResponse(
-                success=True,
-                message="录制已停止 (Mock)",
-                data={
-                    "duration_sec": 10.5,
-                    "bag_path": self._mock_recording_status.bag_path
-                }
-            )
-            self._mock_recording_status = RecordingStatus()
-            logger.info("[MOCK] Stopped recording")
-            return result
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
         
         try:
             from qyh_bag_recorder.srv import StopRecording
@@ -938,7 +899,12 @@ class ROS2ServiceClient:
             
             future = client.call_async(request)
             await asyncio.get_event_loop().run_in_executor(
-                None, lambda: rclpy.spin_until_future_complete(self._node, future, timeout_sec=10.0)
+                None,
+                lambda: rclpy.spin_until_future_complete(
+                    self._node,
+                    future,
+                    timeout_sec=10.0,
+                ),
             )
             
             if future.done():
@@ -965,8 +931,8 @@ class ROS2ServiceClient:
         Returns:
             RecordingStatus: 录制状态信息
         """
-        if self._mock_mode:
-            return self._mock_recording_status
+        if self._node is None:
+            return RecordingStatus()
         
         try:
             from qyh_bag_recorder.srv import GetRecordingStatus
@@ -1015,15 +981,8 @@ class ROS2ServiceClient:
         Returns:
             ServiceResponse: 包含 success, message, data(task_id)
         """
-        if self._mock_mode:
-            import uuid
-            task_id = str(uuid.uuid4())[:8]
-            logger.info(f"[MOCK] Execute task: {task_id}")
-            return ServiceResponse(
-                success=True,
-                message="任务已提交 (Mock)",
-                data={"task_id": task_id}
-            )
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
         
         try:
             from qyh_task_engine_msgs.srv import ExecuteTask
@@ -1057,9 +1016,8 @@ class ROS2ServiceClient:
     
     async def cancel_task(self, task_id: str) -> ServiceResponse:
         """取消任务"""
-        if self._mock_mode:
-            logger.info(f"[MOCK] Cancel task: {task_id}")
-            return ServiceResponse(True, "任务已取消 (Mock)")
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
         
         try:
             from qyh_task_engine_msgs.srv import CancelTask
@@ -1088,9 +1046,8 @@ class ROS2ServiceClient:
     
     async def pause_task(self, task_id: str) -> ServiceResponse:
         """暂停任务"""
-        if self._mock_mode:
-            logger.info(f"[MOCK] Pause task: {task_id}")
-            return ServiceResponse(True, "任务已暂停 (Mock)")
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
         
         try:
             from qyh_task_engine_msgs.srv import PauseTask
@@ -1119,9 +1076,8 @@ class ROS2ServiceClient:
     
     async def resume_task(self, task_id: str) -> ServiceResponse:
         """恢复任务"""
-        if self._mock_mode:
-            logger.info(f"[MOCK] Resume task: {task_id}")
-            return ServiceResponse(True, "任务已恢复 (Mock)")
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
         
         try:
             from qyh_task_engine_msgs.srv import ResumeTask
@@ -1156,10 +1112,8 @@ class ROS2ServiceClient:
         
         调用 qyh_shutdown_node 的 /control 服务触发关机流程
         """
-        if self._mock_mode:
-            self._mock_shutdown_in_progress = True
-            logger.info("[MOCK] System shutdown requested")
-            return ServiceResponse(True, "关机请求已发送 (Mock)")
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
         
         try:
             from std_srvs.srv import Trigger
@@ -1191,9 +1145,8 @@ class ROS2ServiceClient:
         
         注意：当前 qyh_shutdown 节点只支持关机，重启需要额外实现
         """
-        if self._mock_mode:
-            logger.info("[MOCK] System reboot requested")
-            return ServiceResponse(True, "重启请求已发送 (Mock)")
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
         
         # TODO: 实现重启功能（需要 qyh_shutdown 节点支持）
         return ServiceResponse(False, "重启功能暂未实现")
@@ -1221,9 +1174,8 @@ class ROS2ServiceClient:
         Returns:
             ServiceResponse: 执行结果
         """
-        if self._mock_mode:
-            logger.info(f"[MOCK] Arm MoveJ: robot_id={robot_id}, v={velocity}")
-            return ServiceResponse(True, "机械臂运动已执行 (Mock)")
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
         
         try:
             from qyh_jaka_control_msgs.srv import MoveJ
@@ -1273,9 +1225,8 @@ class ROS2ServiceClient:
         Returns:
             ServiceResponse: 执行结果
         """
-        if self._mock_mode:
-            logger.info(f"[MOCK] Lift go to position: {position}")
-            return ServiceResponse(True, "升降运动已执行 (Mock)")
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
         
         try:
             from qyh_lift_msgs.srv import LiftControl
@@ -1333,9 +1284,8 @@ class ROS2ServiceClient:
         Returns:
             ServiceResponse: 执行结果
         """
-        if self._mock_mode:
-            logger.info(f"[MOCK] Waist go to angle: {angle}")
-            return ServiceResponse(True, "腰部运动已执行 (Mock)")
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
         
         try:
             from qyh_waist_msgs.srv import WaistControl
@@ -1397,9 +1347,8 @@ class ROS2ServiceClient:
         Returns:
             ServiceResponse: 执行结果
         """
-        if self._mock_mode:
-            logger.info(f"[MOCK] Gripper {side} move to: {position}")
-            return ServiceResponse(True, "夹爪运动已执行 (Mock)")
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
         
         try:
             from qyh_gripper_msgs.srv import MoveGripper
@@ -1441,9 +1390,8 @@ class ROS2ServiceClient:
         Returns:
             ServiceResponse: 执行结果
         """
-        if self._mock_mode:
-            logger.info(f"[MOCK] Head torque enable: {enable}")
-            return ServiceResponse(True, f"头部扭矩{'使能' if enable else '失能'}成功 (Mock)")
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
         
         try:
             from std_srvs.srv import SetBool
@@ -1479,9 +1427,6 @@ class ROS2ServiceClient:
         Returns:
             bool: 是否连接正常
         """
-        if self._mock_mode:
-            return False
-        
         try:
             # 检查节点是否存在
             if self._node is None:
@@ -1505,9 +1450,8 @@ class ROS2ServiceClient:
         Returns:
             bool: 服务是否可用
         """
-        if self._mock_mode:
-            return True  # Mock 模式下所有服务都"可用"
-        
+        if self._node is None:
+            return False
         client = self._service_clients.get(service_name)
         if client is None:
             return False
@@ -1520,6 +1464,8 @@ class ROS2ServiceClient:
 # 获取全局客户端实例
 def get_ros2_client() -> ROS2ServiceClient:
     """获取 ROS2 服务客户端单例"""
+    if not ROS2_AVAILABLE:
+        raise RuntimeError("ROS2 (rclpy) not available")
     return ROS2ServiceClient()
 
 

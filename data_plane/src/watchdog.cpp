@@ -5,8 +5,6 @@
  * 根据重构.md要求实现 200ms 超时机制
  */
 
-#ifdef WITH_ROS2
-
 #include "data_plane/watchdog.hpp"
 #include "data_plane/config.hpp"
 #include "data_plane/ros2_bridge.hpp"
@@ -137,5 +135,3 @@ void Watchdog::trigger_emergency_stop() {
 }
 
 } // namespace qyh::dataplane
-
-#endif // WITH_ROS2
