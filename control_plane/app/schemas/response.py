@@ -50,6 +50,7 @@ class ErrorCodes:
     UNKNOWN_ERROR = 1000
     VALIDATION_ERROR = 1001
     NOT_FOUND = 1002
+    INTERNAL_ERROR = 1003
     
     # 认证错误 (2xxx)
     AUTH_INVALID_CREDENTIALS = 2001

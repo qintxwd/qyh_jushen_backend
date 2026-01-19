@@ -2,7 +2,7 @@
 QYH Jushen Control Plane - 认证 Schema
 """
 from typing import Optional, List
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field
 
 
 class LoginRequest(BaseModel):
@@ -42,13 +42,13 @@ class UserCreate(BaseModel):
     """创建用户请求"""
     username: str = Field(..., min_length=3, max_length=50)
     password: str = Field(..., min_length=6)
-    email: Optional[EmailStr] = None
+    email: Optional[str] = None
     role: str = Field(default="viewer", pattern="^(admin|operator|viewer)$")
 
 
 class UserUpdate(BaseModel):
     """更新用户请求"""
-    email: Optional[EmailStr] = None
+    email: Optional[str] = None
     role: Optional[str] = Field(None, pattern="^(admin|operator|viewer)$")
     is_active: Optional[bool] = None
 

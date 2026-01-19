@@ -45,6 +45,58 @@ from app.schemas.task import (
     TaskInfo,
     TaskDetail,
 )
+from app.schemas.preset import (
+    PresetType,
+    ArmPoseData,
+    HeadPositionData,
+    LiftHeightData,
+    WaistAngleData,
+    LocationData,
+    GripperPositionData,
+    FullPoseData,
+    CreatePresetRequest,
+    UpdatePresetRequest,
+    CapturePresetRequest,
+    ApplyPresetRequest,
+    PresetInfo,
+    PresetListResponse,
+    PresetTypeInfo,
+)
+from app.schemas.recording import (
+    StartRecordingRequest,
+    RecordingStatus,
+    RecordingResult,
+    RecordingFile,
+    DefaultTopicsConfig,
+)
+from app.schemas.action import (
+    ActionSummary,
+    ActionDetail,
+    CreateActionRequest,
+    UpdateActionRequest,
+    MarkTrainedRequest,
+    EpisodeInfo,
+    InferenceConfig,
+)
+from app.schemas.robot import (
+    RobotInfo,
+    RobotOverview,
+    SubsystemStatus,
+    SystemState,
+    ShutdownState,
+    ShutdownRequest,
+)
+from app.schemas.audit import (
+    AuditAction,
+    AuditResource,
+    AuditLogEntry,
+    AuditLogQuery,
+    AuditLogListResponse,
+    AuditStatistics,
+    AuditActionCount,
+    AuditUserCount,
+    AuditDailyCount,
+)
 
 __all__ = [
     # Response
@@ -85,4 +137,51 @@ __all__ = [
     "CreateTaskRequest",
     "TaskInfo",
     "TaskDetail",
+    # Preset
+    "PresetType",
+    "ArmPoseData",
+    "HeadPositionData",
+    "LiftHeightData",
+    "WaistAngleData",
+    "LocationData",
+    "GripperPositionData",
+    "FullPoseData",
+    "CreatePresetRequest",
+    "UpdatePresetRequest",
+    "CapturePresetRequest",
+    "ApplyPresetRequest",
+    "PresetInfo",
+    "PresetListResponse",
+    "PresetTypeInfo",
+    # Recording
+    "StartRecordingRequest",
+    "RecordingStatus",
+    "RecordingResult",
+    "RecordingFile",
+    "DefaultTopicsConfig",
+    # Action
+    "ActionSummary",
+    "ActionDetail",
+    "CreateActionRequest",
+    "UpdateActionRequest",
+    "MarkTrainedRequest",
+    "EpisodeInfo",
+    "InferenceConfig",
+    # Robot
+    "RobotInfo",
+    "RobotOverview",
+    "SubsystemStatus",
+    "SystemState",
+    "ShutdownState",
+    "ShutdownRequest",
+    # Audit
+    "AuditAction",
+    "AuditResource",
+    "AuditLogEntry",
+    "AuditLogQuery",
+    "AuditLogListResponse",
+    "AuditStatistics",
+    "AuditActionCount",
+    "AuditUserCount",
+    "AuditDailyCount",
 ]
