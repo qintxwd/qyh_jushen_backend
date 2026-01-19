@@ -19,8 +19,10 @@ QYH Jushen Control Plane - ROS2 服务客户端
 """
 import asyncio
 import logging
-import os
-from typing import Optional, Any
+import time
+import math
+import threading
+from typing import Optional, Any, Dict
 from dataclasses import dataclass, field
 from enum import IntEnum
 
@@ -33,7 +35,7 @@ rclpy = None
 
 try:
     import rclpy
-    from rclpy.node import Node
+    # from rclpy.node import Node
     ROS2_AVAILABLE = True
     logger.info("ROS2 (rclpy) is available")
 except ImportError:
@@ -137,6 +139,19 @@ class ROS2ServiceClient:
         self._node = None
         self._mock_mode = not ROS2_AVAILABLE
         self._service_clients = {}
+
+        # 订阅状态缓存
+        self._latest_joint_state: Optional[Dict[str, Any]] = None
+        self._latest_left_arm_joint_state: Optional[Dict[str, Any]] = None
+        self._latest_right_arm_joint_state: Optional[Dict[str, Any]] = None
+        self._latest_head_joint_state: Optional[Dict[str, Any]] = None
+        self._latest_lift_state: Optional[Dict[str, Any]] = None
+        self._latest_waist_state: Optional[Dict[str, Any]] = None
+        self._latest_left_gripper_state: Optional[Dict[str, Any]] = None
+        self._latest_right_gripper_state: Optional[Dict[str, Any]] = None
+        self._latest_robot_status: Optional[Dict[str, Any]] = None
+        self._latest_odom: Optional[Dict[str, Any]] = None
+        self._state_lock = threading.Lock()
         
         # Mock 状态
         self._mock_recording_status = RecordingStatus()
@@ -163,6 +178,9 @@ class ROS2ServiceClient:
             
             # 创建服务客户端
             await self._create_service_clients()
+
+            # 创建订阅（状态）
+            await self._create_subscriptions()
             
             logger.info("ROS2 client initialized successfully")
             return True
@@ -179,8 +197,17 @@ class ROS2ServiceClient:
         
         try:
             # 动态导入服务类型（避免在非 ROS2 环境报错）
-            from qyh_bag_recorder.srv import StartRecording, StopRecording, GetRecordingStatus
-            from qyh_task_engine_msgs.srv import ExecuteTask, CancelTask, PauseTask, ResumeTask
+            from qyh_bag_recorder.srv import (
+                StartRecording,
+                StopRecording,
+                GetRecordingStatus,
+            )
+            from qyh_task_engine_msgs.srv import (
+                ExecuteTask,
+                CancelTask,
+                PauseTask,
+                ResumeTask,
+            )
             from std_srvs.srv import Trigger as ShutdownTrigger
             from qyh_jaka_control_msgs.srv import MoveJ
             from qyh_lift_msgs.srv import LiftControl
@@ -189,14 +216,20 @@ class ROS2ServiceClient:
             from std_srvs.srv import SetBool
             
             # 录制服务
-            self._service_clients['start_recording'] = self._node.create_client(
-                StartRecording, '/bag_recorder/start_recording'
+            self._service_clients['start_recording'] = (
+                self._node.create_client(
+                    StartRecording,
+                    '/bag_recorder/start_recording',
+                )
             )
             self._service_clients['stop_recording'] = self._node.create_client(
                 StopRecording, '/bag_recorder/stop_recording'
             )
-            self._service_clients['get_recording_status'] = self._node.create_client(
-                GetRecordingStatus, '/bag_recorder/get_status'
+            self._service_clients['get_recording_status'] = (
+                self._node.create_client(
+                    GetRecordingStatus,
+                    '/bag_recorder/get_status',
+                )
             )
             
             # 任务服务
@@ -242,14 +275,542 @@ class ROS2ServiceClient:
             )
             
             # 头部服务
-            self._service_clients['head_enable_torque'] = self._node.create_client(
-                SetBool, '/head_motor_node/enable_torque'
+            self._service_clients['head_enable_torque'] = (
+                self._node.create_client(
+                    SetBool,
+                    '/head_motor_node/enable_torque',
+                )
             )
             
-            logger.info(f"Created {len(self._service_clients)} ROS2 service clients")
+            logger.info(
+                "Created %d ROS2 service clients",
+                len(self._service_clients),
+            )
             
         except ImportError as e:
             logger.warning(f"Some ROS2 message types not available: {e}")
+
+    async def _create_subscriptions(self):
+        """创建状态订阅"""
+        if self._mock_mode or self._node is None:
+            return
+
+        try:
+            from sensor_msgs.msg import JointState
+            from nav_msgs.msg import Odometry
+            from qyh_lift_msgs.msg import LiftState
+            from qyh_waist_msgs.msg import WaistState
+            from qyh_gripper_msgs.msg import GripperState
+            from qyh_standard_robot_msgs.msg import StandardRobotStatus
+
+            self._node.create_subscription(
+                JointState,
+                '/joint_states',
+                self._on_joint_state,
+                10
+            )
+
+            self._node.create_subscription(
+                JointState,
+                '/left_arm/joint_states',
+                self._on_left_arm_joint_state,
+                10
+            )
+
+            self._node.create_subscription(
+                JointState,
+                '/right_arm/joint_states',
+                self._on_right_arm_joint_state,
+                10
+            )
+
+            self._node.create_subscription(
+                JointState,
+                '/head/joint_states',
+                self._on_head_joint_state,
+                10
+            )
+
+            self._node.create_subscription(
+                LiftState,
+                '/lift/state',
+                self._on_lift_state,
+                10
+            )
+
+            self._node.create_subscription(
+                WaistState,
+                '/waist/state',
+                self._on_waist_state,
+                10
+            )
+
+            self._node.create_subscription(
+                GripperState,
+                '/left/gripper_state',
+                self._on_left_gripper_state,
+                10
+            )
+
+            self._node.create_subscription(
+                GripperState,
+                '/right/gripper_state',
+                self._on_right_gripper_state,
+                10
+            )
+
+            self._node.create_subscription(
+                StandardRobotStatus,
+                '/standard_robot_status',
+                self._on_standard_robot_status,
+                10
+            )
+
+            self._node.create_subscription(
+                Odometry,
+                '/odom',
+                self._on_odom,
+                10
+            )
+
+            logger.info(
+                "ROS2 subscriptions created: /joint_states, "
+                "/left_arm/joint_states, "
+                "/right_arm/joint_states, "
+                "/head/joint_states, "
+                "/lift/state, /waist/state, "
+                "/left/gripper_state, "
+                "/right/gripper_state, "
+                "/standard_robot_status, /odom"
+            )
+
+        except ImportError as e:
+            logger.warning(f"ROS2 topic types not available: {e}")
+
+    def _on_joint_state(self, msg):
+        data = {
+            "stamp": time.time(),
+            "name": list(msg.name),
+            "position": list(msg.position),
+            "velocity": list(msg.velocity),
+            "effort": list(msg.effort),
+        }
+        with self._state_lock:
+            self._latest_joint_state = data
+
+    def _on_left_arm_joint_state(self, msg):
+        data = {
+            "stamp": time.time(),
+            "name": list(msg.name),
+            "position": list(msg.position),
+            "velocity": list(msg.velocity),
+            "effort": list(msg.effort),
+        }
+        with self._state_lock:
+            self._latest_left_arm_joint_state = data
+
+    def _on_right_arm_joint_state(self, msg):
+        data = {
+            "stamp": time.time(),
+            "name": list(msg.name),
+            "position": list(msg.position),
+            "velocity": list(msg.velocity),
+            "effort": list(msg.effort),
+        }
+        with self._state_lock:
+            self._latest_right_arm_joint_state = data
+
+    def _on_head_joint_state(self, msg):
+        data = {
+            "stamp": time.time(),
+            "name": list(msg.name),
+            "position": list(msg.position),
+            "velocity": list(msg.velocity),
+            "effort": list(msg.effort),
+        }
+        with self._state_lock:
+            self._latest_head_joint_state = data
+
+    def _on_lift_state(self, msg):
+        data = {
+            "stamp": time.time(),
+            "enabled": msg.enabled,
+            "current_position": msg.current_position,
+            "current_speed": msg.current_speed,
+            "alarm": msg.alarm,
+            "position_reached": msg.position_reached,
+            "electromagnet_on": msg.electromagnet_on,
+            "connected": msg.connected,
+            "shutdown_requested": msg.shutdown_requested,
+        }
+        with self._state_lock:
+            self._latest_lift_state = data
+
+    def _on_waist_state(self, msg):
+        data = {
+            "stamp": time.time(),
+            "enabled": msg.enabled,
+            "current_position": msg.current_position,
+            "current_angle": msg.current_angle,
+            "current_speed": msg.current_speed,
+            "alarm": msg.alarm,
+            "position_reached": msg.position_reached,
+            "connected": msg.connected,
+        }
+        with self._state_lock:
+            self._latest_waist_state = data
+
+    def _on_left_gripper_state(self, msg):
+        data = {
+            "stamp": time.time(),
+            "is_activated": msg.is_activated,
+            "is_moving": msg.is_moving,
+            "object_status": msg.object_status,
+            "target_position": msg.target_position,
+            "current_position": msg.current_position,
+            "target_speed": msg.target_speed,
+            "current_speed": msg.current_speed,
+            "target_force": msg.target_force,
+            "current_force": msg.current_force,
+            "fault_code": msg.fault_code,
+            "fault_message": msg.fault_message,
+            "communication_ok": msg.communication_ok,
+        }
+        with self._state_lock:
+            self._latest_left_gripper_state = data
+
+    def _on_right_gripper_state(self, msg):
+        data = {
+            "stamp": time.time(),
+            "is_activated": msg.is_activated,
+            "is_moving": msg.is_moving,
+            "object_status": msg.object_status,
+            "target_position": msg.target_position,
+            "current_position": msg.current_position,
+            "target_speed": msg.target_speed,
+            "current_speed": msg.current_speed,
+            "target_force": msg.target_force,
+            "current_force": msg.current_force,
+            "fault_code": msg.fault_code,
+            "fault_message": msg.fault_message,
+            "communication_ok": msg.communication_ok,
+        }
+        with self._state_lock:
+            self._latest_right_gripper_state = data
+
+    def _on_standard_robot_status(self, msg):
+        data = {
+            "stamp": time.time(),
+            "pose": msg.pose.pose,
+            "twist": msg.twist,
+            "battery_remaining_percentage": msg.battery_remaining_percentage,
+            "is_emergency_stopped": msg.is_emergency_stopped,
+            "is_charging": msg.is_charging,
+            "system_status": msg.system_status,
+            "location_status": msg.location_status,
+            "operation_status": msg.operation_status,
+        }
+        with self._state_lock:
+            self._latest_robot_status = data
+
+    def _on_odom(self, msg):
+        data = {
+            "stamp": time.time(),
+            "pose": msg.pose.pose,
+            "twist": msg.twist.twist,
+        }
+        with self._state_lock:
+            self._latest_odom = data
+
+    def get_robot_state(self) -> Optional[Dict[str, Any]]:
+        """返回当前机器人状态（基于 ROS2 topic 缓存）"""
+        if self._mock_mode or self._node is None:
+            return None
+
+        try:
+            rclpy.spin_once(self._node, timeout_sec=0.0)
+        except Exception:
+            pass
+
+        # 复制缓存
+        with self._state_lock:
+            latest_joint_state = self._latest_joint_state
+            latest_left_arm_joint_state = self._latest_left_arm_joint_state
+            latest_right_arm_joint_state = self._latest_right_arm_joint_state
+            latest_head_joint_state = self._latest_head_joint_state
+            latest_lift_state = self._latest_lift_state
+            latest_waist_state = self._latest_waist_state
+            latest_left_gripper_state = self._latest_left_gripper_state
+            latest_right_gripper_state = self._latest_right_gripper_state
+            latest_robot_status = self._latest_robot_status
+            latest_odom = self._latest_odom
+
+        if (
+            not latest_joint_state
+            and not latest_left_arm_joint_state
+            and not latest_right_arm_joint_state
+            and not latest_head_joint_state
+            and not latest_lift_state
+            and not latest_waist_state
+            and not latest_left_gripper_state
+            and not latest_right_gripper_state
+            and not latest_robot_status
+            and not latest_odom
+        ):
+            return None
+
+        state: Dict[str, Any] = {}
+
+        # 解析关节状态
+        if latest_joint_state:
+            names = latest_joint_state.get("name", [])
+            positions = latest_joint_state.get("position", [])
+            velocities = latest_joint_state.get("velocity", [])
+            efforts = latest_joint_state.get("effort", [])
+
+            joint_map = {}
+            for idx, name in enumerate(names):
+                joint_map[name] = {
+                    "name": name,
+                    "position": (
+                        positions[idx] if idx < len(positions) else 0.0
+                    ),
+                    "velocity": (
+                        velocities[idx] if idx < len(velocities) else 0.0
+                    ),
+                    "effort": efforts[idx] if idx < len(efforts) else 0.0,
+                }
+
+            def select_names(predicate):
+                return [n for n in names if predicate(n)]
+
+            left_gripper_names = select_names(
+                lambda n: "gripper" in n
+                and ("left" in n or n.startswith("l_"))
+            )
+            right_gripper_names = select_names(
+                lambda n: "gripper" in n
+                and ("right" in n or n.startswith("r_"))
+            )
+
+            head_names = select_names(lambda n: "head" in n)
+            lift_names = select_names(lambda n: "lift" in n)
+            waist_names = select_names(lambda n: "waist" in n)
+
+            def is_left_arm(n: str) -> bool:
+                if "left" in n or n.startswith("l_") or n.startswith("l-"):
+                    return (
+                        "gripper" not in n
+                        and "head" not in n
+                        and "lift" not in n
+                        and "waist" not in n
+                    )
+                return False
+
+            def is_right_arm(n: str) -> bool:
+                if "right" in n or n.startswith("r_") or n.startswith("r-"):
+                    return (
+                        "gripper" not in n
+                        and "head" not in n
+                        and "lift" not in n
+                        and "waist" not in n
+                    )
+                return False
+
+            left_arm_names = select_names(is_left_arm)
+            right_arm_names = select_names(is_right_arm)
+
+            if left_arm_names:
+                state["left_arm"] = {
+                    "joints": [joint_map[n] for n in left_arm_names],
+                    "joint_count": len(left_arm_names),
+                }
+            if right_arm_names:
+                state["right_arm"] = {
+                    "joints": [joint_map[n] for n in right_arm_names],
+                    "joint_count": len(right_arm_names),
+                }
+            if head_names:
+                state["head"] = {
+                    "joints": [joint_map[n] for n in head_names],
+                    "joint_count": len(head_names),
+                }
+            if lift_names:
+                state["lift"] = {
+                    "joints": [joint_map[n] for n in lift_names],
+                    "joint_count": len(lift_names),
+                }
+            if waist_names:
+                state["waist"] = {
+                    "joints": [joint_map[n] for n in waist_names],
+                    "joint_count": len(waist_names),
+                }
+
+            if left_gripper_names:
+                j = joint_map[left_gripper_names[0]]
+                state["left_gripper"] = {
+                    "position": j["position"],
+                    "force": j["effort"],
+                    "is_grasping": j["effort"] > 0.1,
+                }
+            if right_gripper_names:
+                j = joint_map[right_gripper_names[0]]
+                state["right_gripper"] = {
+                    "position": j["position"],
+                    "force": j["effort"],
+                    "is_grasping": j["effort"] > 0.1,
+                }
+
+        # 头部关节状态（专用话题）
+        if latest_head_joint_state:
+            names = latest_head_joint_state.get("name", [])
+            positions = latest_head_joint_state.get("position", [])
+            velocities = latest_head_joint_state.get("velocity", [])
+            efforts = latest_head_joint_state.get("effort", [])
+            head_joints = []
+            for idx, name in enumerate(names):
+                head_joints.append({
+                    "name": name,
+                    "position": (
+                        positions[idx] if idx < len(positions) else 0.0
+                    ),
+                    "velocity": (
+                        velocities[idx] if idx < len(velocities) else 0.0
+                    ),
+                    "effort": efforts[idx] if idx < len(efforts) else 0.0,
+                })
+            if head_joints:
+                state["head"] = {
+                    "joints": head_joints,
+                    "joint_count": len(head_joints),
+                }
+
+        # 左/右机械臂关节状态（专用话题）
+        if latest_left_arm_joint_state:
+            names = latest_left_arm_joint_state.get("name", [])
+            positions = latest_left_arm_joint_state.get("position", [])
+            velocities = latest_left_arm_joint_state.get("velocity", [])
+            efforts = latest_left_arm_joint_state.get("effort", [])
+            joints = []
+            for idx, name in enumerate(names):
+                joints.append({
+                    "name": name,
+                    "position": (
+                        positions[idx] if idx < len(positions) else 0.0
+                    ),
+                    "velocity": (
+                        velocities[idx] if idx < len(velocities) else 0.0
+                    ),
+                    "effort": efforts[idx] if idx < len(efforts) else 0.0,
+                })
+            if joints:
+                state["left_arm"] = {
+                    "joints": joints,
+                    "joint_count": len(joints),
+                }
+
+        if latest_right_arm_joint_state:
+            names = latest_right_arm_joint_state.get("name", [])
+            positions = latest_right_arm_joint_state.get("position", [])
+            velocities = latest_right_arm_joint_state.get("velocity", [])
+            efforts = latest_right_arm_joint_state.get("effort", [])
+            joints = []
+            for idx, name in enumerate(names):
+                joints.append({
+                    "name": name,
+                    "position": (
+                        positions[idx] if idx < len(positions) else 0.0
+                    ),
+                    "velocity": (
+                        velocities[idx] if idx < len(velocities) else 0.0
+                    ),
+                    "effort": efforts[idx] if idx < len(efforts) else 0.0,
+                })
+            if joints:
+                state["right_arm"] = {
+                    "joints": joints,
+                    "joint_count": len(joints),
+                }
+
+        # 升降/腰部状态
+        if latest_lift_state:
+            state["lift"] = latest_lift_state
+        if latest_waist_state:
+            state["waist"] = latest_waist_state
+
+        # 夹爪状态
+        if latest_left_gripper_state:
+            state["left_gripper"] = {
+                "position": (
+                    latest_left_gripper_state.get("current_position", 0)
+                    / 255.0
+                ),
+                "force": latest_left_gripper_state.get("current_force", 0),
+                "is_grasping": (
+                    latest_left_gripper_state.get("object_status", 0) == 2
+                ),
+            }
+        if latest_right_gripper_state:
+            state["right_gripper"] = {
+                "position": (
+                    latest_right_gripper_state.get("current_position", 0)
+                    / 255.0
+                ),
+                "force": latest_right_gripper_state.get("current_force", 0),
+                "is_grasping": (
+                    latest_right_gripper_state.get("object_status", 0) == 2
+                ),
+            }
+
+        # 解析底盘状态（优先 standard_robot_status）
+        if latest_robot_status:
+            pose = latest_robot_status["pose"]
+            twist = latest_robot_status["twist"]
+
+            qx = pose.orientation.x
+            qy = pose.orientation.y
+            qz = pose.orientation.z
+            qw = pose.orientation.w
+
+            siny_cosp = 2.0 * (qw * qz + qx * qy)
+            cosy_cosp = 1.0 - 2.0 * (qy * qy + qz * qz)
+            yaw = math.atan2(siny_cosp, cosy_cosp)
+
+            state["chassis"] = {
+                "x": pose.position.x,
+                "y": pose.position.y,
+                "theta": yaw,
+                "linear_velocity": twist.linear.x,
+                "angular_velocity": twist.angular.z,
+            }
+
+            state["battery"] = latest_robot_status.get(
+                "battery_remaining_percentage"
+            )
+
+        # 解析底盘状态（备用 odom）
+        elif latest_odom:
+            pose = latest_odom["pose"]
+            twist = latest_odom["twist"]
+
+            qx = pose.orientation.x
+            qy = pose.orientation.y
+            qz = pose.orientation.z
+            qw = pose.orientation.w
+
+            siny_cosp = 2.0 * (qw * qz + qx * qy)
+            cosy_cosp = 1.0 - 2.0 * (qy * qy + qz * qz)
+            yaw = math.atan2(siny_cosp, cosy_cosp)
+
+            state["chassis"] = {
+                "x": pose.position.x,
+                "y": pose.position.y,
+                "theta": yaw,
+                "linear_velocity": twist.linear.x,
+                "angular_velocity": twist.angular.z,
+            }
+
+        return state
     
     async def shutdown(self):
         """关闭 ROS2 节点"""
@@ -293,7 +854,10 @@ class ROS2ServiceClient:
                 is_recording=True,
                 action_name=action_name,
                 duration_sec=0.0,
-                bag_path=f"~/qyh-robot-system/model_actions/{action_name}/data/bags/episode_001",
+                bag_path=(
+                    f"~/qyh-robot-system/model_actions/{action_name}/"
+                    "data/bags/episode_001"
+                ),
                 topics=topics,
             )
             logger.info(f"[MOCK] Started recording: {action_name}")
@@ -317,8 +881,13 @@ class ROS2ServiceClient:
             request.topics = topics
             
             future = client.call_async(request)
-            response = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: rclpy.spin_until_future_complete(self._node, future, timeout_sec=5.0)
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: rclpy.spin_until_future_complete(
+                    self._node,
+                    future,
+                    timeout_sec=5.0,
+                ),
             )
             
             if future.done():

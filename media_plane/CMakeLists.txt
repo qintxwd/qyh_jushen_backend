@@ -52,6 +52,9 @@ find_package(yaml-cpp REQUIRED)
 # JSON (for signaling messages)
 find_package(nlohmann_json 3.9 REQUIRED)
 
+# OpenSSL (JWT signature verification)
+find_package(OpenSSL REQUIRED)
+
 # ==================== 主程序 ====================
 
 set(SOURCES
@@ -83,6 +86,7 @@ target_link_libraries(media_plane_server PRIVATE
     Threads::Threads
     yaml-cpp
     nlohmann_json::nlohmann_json
+    OpenSSL::Crypto
 )
 
 # ROS2 依赖链接

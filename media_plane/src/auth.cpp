@@ -10,6 +10,10 @@
 #include <algorithm>
 #include <ctime>
 #include <iostream>
+#include <vector>
+#include <openssl/hmac.h>
+#include <openssl/evp.h>
+#include <openssl/crypto.h>
 
 using json = nlohmann::json;
 
@@ -58,14 +62,6 @@ std::string JwtVerifier::base64_url_decode(const std::string& input) {
     return decoded;
 }
 
-bool JwtVerifier::verify_signature(const std::string& /*header_payload*/,
-                                    const std::string& /*signature*/) const {
-    // TODO: 实现 HMAC-SHA256 验证
-    // 需要 OpenSSL 或其他加密库
-    // 暂时跳过签名验证
-    return true;
-}
-
 std::optional<UserInfo> JwtVerifier::verify(const std::string& token) const {
     // 分割 Token
     std::vector<std::string> parts;
@@ -79,6 +75,20 @@ std::optional<UserInfo> JwtVerifier::verify(const std::string& token) const {
         return std::nullopt;
     }
     
+    // 解析 Header，校验 alg
+    std::string header_json = base64_url_decode(parts[0]);
+    try {
+        auto header = json::parse(header_json);
+        if (header.contains("alg")) {
+            auto alg = header["alg"].get<std::string>();
+            if (alg != "HS256") {
+                return std::nullopt;
+            }
+        }
+    } catch (const json::exception&) {
+        return std::nullopt;
+    }
+
     // 验证签名
     std::string header_payload = parts[0] + "." + parts[1];
     if (!verify_signature(header_payload, parts[2])) {
@@ -120,6 +130,37 @@ std::optional<UserInfo> JwtVerifier::verify(const std::string& token) const {
         std::cerr << "JWT parse error: " << e.what() << std::endl;
         return std::nullopt;
     }
+}
+
+bool JwtVerifier::verify_signature(const std::string& header_payload,
+                                    const std::string& signature) const {
+    if (secret_.empty()) {
+        return false;
+    }
+
+    // 解码签名（Base64 URL）
+    std::string sig_bytes = base64_url_decode(signature);
+    if (sig_bytes.empty()) {
+        return false;
+    }
+
+    unsigned char digest[EVP_MAX_MD_SIZE];
+    unsigned int digest_len = 0;
+
+    const auto* key = reinterpret_cast<const unsigned char*>(secret_.data());
+    const auto* data = reinterpret_cast<const unsigned char*>(header_payload.data());
+
+    if (!HMAC(EVP_sha256(), key, static_cast<int>(secret_.size()),
+              data, static_cast<int>(header_payload.size()), digest, &digest_len)) {
+        return false;
+    }
+
+    if (sig_bytes.size() != digest_len) {
+        return false;
+    }
+
+    // 常量时间比较
+    return CRYPTO_memcmp(sig_bytes.data(), digest, digest_len) == 0;
 }
 
 // ==================== SimpleJwtVerifier ====================

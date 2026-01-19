@@ -17,6 +17,11 @@
 #include <memory>
 #include <chrono>
 #include <cmath>
+#include <array>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 #ifdef WITH_ROS2
 #include <rclcpp/rclcpp.hpp>

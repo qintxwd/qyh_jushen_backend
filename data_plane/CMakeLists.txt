@@ -29,6 +29,9 @@ find_package(Threads REQUIRED)
 # yaml-cpp (配置文件解析)
 find_package(yaml-cpp REQUIRED)
 
+# OpenSSL (JWT)
+find_package(OpenSSL REQUIRED)
+
 # JSON (Control Sync)
 find_package(nlohmann_json 3.9 REQUIRED)
 
@@ -103,6 +106,7 @@ target_link_libraries(data_plane_server PRIVATE
     Boost::thread
     Threads::Threads
     yaml-cpp
+    OpenSSL::Crypto
     nlohmann_json::nlohmann_json
 )
 

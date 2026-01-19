@@ -10,16 +10,23 @@ QYH Jushen Control Plane - 机器人信息 API
 """
 import os
 import logging
+import time
+import glob
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Tuple
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 
 from app.dependencies import get_current_user, get_current_admin
 from app.models.user import User
-from app.schemas.response import ApiResponse, ErrorCodes, success_response, error_response
+from app.schemas.response import (
+    ApiResponse,
+    ErrorCodes,
+    success_response,
+    error_response,
+)
 from app.schemas.robot import (
     RobotInfo,
     RobotOverview,
@@ -30,6 +37,9 @@ from app.schemas.robot import (
     ShutdownState,
     ShutdownRequest,
 )
+from app.services.health_checker import get_health_checker, ServiceStatus
+from app.services.ros2_client import get_ros2_client, ROS2ServiceClient
+from app.core.mode_manager import mode_manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -43,8 +53,6 @@ URDF_PATH = os.path.expanduser("~/qyh-robot-system/config/robot.urdf")
 # ============================================================================
 # ROS2 集成
 # ============================================================================
-
-from app.services.ros2_client import get_ros2_client, ROS2ServiceClient
 
 
 class ROS2Bridge:
@@ -67,8 +75,8 @@ class ROS2Bridge:
     
     def get_robot_state(self) -> Optional[dict]:
         """获取机器人状态"""
-        # TODO: 从 ROS2 Topic 获取实际状态
-        return None
+        client = self._get_client()
+        return client.get_robot_state()
     
     def get_shutdown_state(self) -> dict:
         """获取关机状态"""
@@ -113,64 +121,142 @@ ros2_bridge = ROS2Bridge()
 # 辅助函数
 # ============================================================================
 
-def _get_subsystem_status() -> list:
+async def _get_subsystem_status() -> list:
     """获取子系统状态列表"""
-    # TODO: 实际检查各子系统状态
     now = datetime.now().isoformat()
-    
+    health_checker = get_health_checker()
+    results = await health_checker.check_all()
+
+    def _map_status(result_name: str, display_name: str) -> SubsystemStatus:
+        result = results.get(result_name)
+        if not result:
+            return SubsystemStatus(
+                name=display_name,
+                connected=False,
+                status="unknown",
+                message="状态未获取",
+            )
+
+        if result.status == ServiceStatus.HEALTHY:
+            status = "ok"
+            connected = True
+        elif result.status == ServiceStatus.DEGRADED:
+            status = "warning"
+            connected = True
+        elif result.status == ServiceStatus.UNHEALTHY:
+            status = "error"
+            connected = False
+        else:
+            status = "unknown"
+            connected = False
+
+        return SubsystemStatus(
+            name=display_name,
+            connected=connected,
+            status=status,
+            message=result.message or "",
+            last_seen=now if connected else None,
+        )
+
     subsystems = [
-        SubsystemStatus(
-            name="ROS2 Core",
-            connected=ros2_bridge.is_connected(),
-            status="ok" if ros2_bridge.is_connected() else "error",
-            message="ROS2 运行中" if ros2_bridge.is_connected() else "未连接",
-            last_seen=now if ros2_bridge.is_connected() else None,
-        ),
-        SubsystemStatus(
-            name="Data Plane",
-            connected=False,  # TODO: 检查 WebSocket 服务
-            status="unknown",
-            message="待检查",
-        ),
-        SubsystemStatus(
-            name="Media Plane",
-            connected=False,  # TODO: 检查 WebRTC 服务
-            status="unknown",
-            message="待检查",
-        ),
+        _map_status("ros2", "ROS2 Core"),
+        _map_status("data_plane", "Data Plane"),
+        _map_status("media_plane", "Media Plane"),
         SubsystemStatus(
             name="Left Arm",
-            connected=False,  # TODO: 从 ROS2 获取
+            connected=False,
             status="unknown",
-            message="待检查",
+            message="状态源未接入",
         ),
         SubsystemStatus(
             name="Right Arm",
             connected=False,
             status="unknown",
-            message="待检查",
+            message="状态源未接入",
         ),
         SubsystemStatus(
             name="Head",
             connected=False,
             status="unknown",
-            message="待检查",
+            message="状态源未接入",
         ),
         SubsystemStatus(
             name="Chassis",
             connected=False,
             status="unknown",
-            message="待检查",
+            message="状态源未接入",
         ),
         SubsystemStatus(
             name="PLC",
             connected=False,
             status="unknown",
-            message="待检查",
+            message="状态源未接入",
         ),
     ]
-    
+
     return [s.model_dump() for s in subsystems]
+
+
+def _read_temperature_zones() -> List[Tuple[str, float]]:
+    zones = []
+    for zone_path in glob.glob("/sys/class/thermal/thermal_zone*/"):
+        type_path = os.path.join(zone_path, "type")
+        temp_path = os.path.join(zone_path, "temp")
+        try:
+            with open(type_path, "r", encoding="utf-8") as f:
+                zone_type = f.read().strip().lower()
+            with open(temp_path, "r", encoding="utf-8") as f:
+                raw = f.read().strip()
+            if not raw:
+                continue
+            temp_c = float(raw) / 1000.0
+            zones.append((zone_type, temp_c))
+        except Exception:
+            continue
+    return zones
+
+
+def _get_system_state() -> SystemState:
+    cpu_temp = 0.0
+    gpu_temp = 0.0
+    battery = 100.0
+    uptime_seconds = 0
+
+    zones = _read_temperature_zones()
+    cpu_candidates = [
+        t for name, t in zones if "cpu" in name or "x86_pkg_temp" in name
+    ]
+    gpu_candidates = [t for name, t in zones if "gpu" in name]
+
+    if cpu_candidates:
+        cpu_temp = max(cpu_candidates)
+    elif zones:
+        cpu_temp = max(t for _, t in zones)
+
+    if gpu_candidates:
+        gpu_temp = max(gpu_candidates)
+
+    try:
+        with open("/proc/uptime", "r", encoding="utf-8") as f:
+            uptime_seconds = int(float(f.read().split()[0]))
+    except Exception:
+        uptime_seconds = int(time.monotonic())
+
+    try:
+        for path in glob.glob("/sys/class/power_supply/*/capacity"):
+            with open(path, "r", encoding="utf-8") as f:
+                battery = float(f.read().strip())
+                break
+    except Exception:
+        battery = 100.0
+
+    return SystemState(
+        cpu_temp=cpu_temp,
+        gpu_temp=gpu_temp,
+        battery=battery,
+        mode=mode_manager.current_mode.value,
+        uptime_seconds=uptime_seconds,
+    )
 
 
 def _load_urdf() -> Optional[str]:
@@ -245,22 +331,32 @@ async def get_robot_overview(
         name="QYH Jushen",
         model=ROBOT_NAME,
         version=ROBOT_VERSION,
-        subsystems=_get_subsystem_status(),
-        system=SystemState(
-            cpu_temp=0.0,
-            gpu_temp=0.0,
-            battery=100.0,
-            mode="idle",
-            uptime_seconds=0,
-        ).model_dump(),
+        subsystems=await _get_subsystem_status(),
+        system=_get_system_state().model_dump(),
     )
     
     # 尝试从 ROS2 获取实际状态
     if ros2_bridge.is_connected():
         state = ros2_bridge.get_robot_state()
         if state:
-            # TODO: 填充实际状态数据
-            pass
+            if state.get("left_arm"):
+                overview.left_arm = state["left_arm"]
+            if state.get("right_arm"):
+                overview.right_arm = state["right_arm"]
+            if state.get("head"):
+                overview.head = state["head"]
+            if state.get("lift"):
+                overview.lift = state["lift"]
+            if state.get("waist"):
+                overview.waist = state["waist"]
+            if state.get("chassis"):
+                overview.chassis = BaseState(**state["chassis"])
+            if state.get("left_gripper"):
+                overview.left_gripper = GripperState(**state["left_gripper"])
+            if state.get("right_gripper"):
+                overview.right_gripper = GripperState(**state["right_gripper"])
+            if state.get("battery") is not None and overview.system:
+                overview.system["battery"] = float(state["battery"])
     
     return success_response(
         data=overview.model_dump(),
