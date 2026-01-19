@@ -3,6 +3,7 @@
  * @brief ROS2 桥接模块
  * 
  * 负责与 ROS2 系统通信，订阅状态话题并发布控制命令
+ * 支持双臂机器人的完整状态监控和控制
  */
 
 #pragma once
@@ -12,12 +13,29 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <geometry_msgs/msg/twist.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/float64.hpp>
+#include <std_msgs/msg/float64_multi_array.hpp>
+#include <nav_msgs/msg/odometry.hpp>
+#include <trajectory_msgs/msg/joint_trajectory.hpp>
 
 #include <memory>
 #include <functional>
 #include <string>
 #include <vector>
+#include <mutex>
+#include <atomic>
+#include <thread>
+
+// 前向声明 Protobuf 类型
+namespace qyh::dataplane {
+    class VRControlIntent;
+    class JointCommand;
+    class EndEffectorCommand;
+    class GripperCommand;
+    class NavigationGoal;
+}
 
 namespace qyh::dataplane {
 
@@ -28,6 +46,8 @@ class Server;
 
 /**
  * @brief ROS2 桥接
+ * 
+ * 完整实现机器人状态订阅和控制命令发布
  */
 class ROS2Bridge {
 public:
@@ -61,19 +81,38 @@ public:
      */
     void set_server(Server* server) { server_ = server; }
     
+    // ==================== 控制命令发布 ====================
+    
     /**
      * @brief 发布 VR 控制意图
-     * @param data 序列化的 VRControlIntent
+     * @param intent VR 控制意图消息
      */
-    void publish_vr_intent(const std::vector<uint8_t>& data);
+    void publish_vr_intent(const VRControlIntent& intent);
     
     /**
      * @brief 发布底盘速度命令
-     * @param linear_x 线速度 X
-     * @param linear_y 线速度 Y
-     * @param angular_z 角速度 Z
      */
     void publish_cmd_vel(double linear_x, double linear_y, double angular_z);
+    
+    /**
+     * @brief 发布关节命令
+     */
+    void publish_joint_command(const JointCommand& cmd);
+    
+    /**
+     * @brief 发布末端执行器命令
+     */
+    void publish_end_effector_command(const EndEffectorCommand& cmd);
+    
+    /**
+     * @brief 发布夹爪命令
+     */
+    void publish_gripper_command(const GripperCommand& cmd);
+    
+    /**
+     * @brief 发布导航目标
+     */
+    void publish_navigation_goal(const NavigationGoal& goal);
     
     /**
      * @brief 发布 Watchdog 心跳
@@ -86,16 +125,29 @@ public:
     rclcpp::Node::SharedPtr get_node() { return node_; }
     
 private:
-    /**
-     * @brief 关节状态回调
-     */
-    void joint_state_callback(const sensor_msgs::msg::JointState::SharedPtr msg);
+    // ==================== 状态回调函数 ====================
     
-    /**
-     * @brief 将关节状态转换为 Protobuf
-     */
+    void joint_state_callback(const sensor_msgs::msg::JointState::SharedPtr msg);
+    void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg);
+    void left_arm_state_callback(const sensor_msgs::msg::JointState::SharedPtr msg);
+    void right_arm_state_callback(const sensor_msgs::msg::JointState::SharedPtr msg);
+    void lift_state_callback(const std_msgs::msg::Float64::SharedPtr msg);
+    void waist_state_callback(const std_msgs::msg::Float64::SharedPtr msg);
+    void head_pan_state_callback(const std_msgs::msg::Float64::SharedPtr msg);
+    void head_tilt_state_callback(const std_msgs::msg::Float64::SharedPtr msg);
+    void left_gripper_state_callback(const std_msgs::msg::Float64::SharedPtr msg);
+    void right_gripper_state_callback(const std_msgs::msg::Float64::SharedPtr msg);
+    void battery_state_callback(const std_msgs::msg::Float64::SharedPtr msg);
+    void emergency_stop_callback(const std_msgs::msg::Bool::SharedPtr msg);
+    
+    // ==================== 数据转换函数 ====================
+    
     std::vector<uint8_t> joint_state_to_proto(
         const sensor_msgs::msg::JointState::SharedPtr msg);
+    
+    void broadcast_state(const std::string& topic_name, 
+                         int message_type,
+                         const std::vector<uint8_t>& data);
     
 private:
     const Config& config_;
@@ -105,15 +157,43 @@ private:
     rclcpp::Node::SharedPtr node_;
     rclcpp::executors::SingleThreadedExecutor::SharedPtr executor_;
     
-    // 订阅者
+    // ==================== 订阅者 ====================
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_sub_;
+    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr left_arm_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr right_arm_sub_;
+    rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr lift_sub_;
+    rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr waist_sub_;
+    rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr head_pan_sub_;
+    rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr head_tilt_sub_;
+    rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr left_gripper_sub_;
+    rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr right_gripper_sub_;
+    rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr battery_sub_;
+    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr emergency_stop_sub_;
     
-    // 发布者
+    // ==================== 发布者 ====================
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
+    rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr left_arm_cmd_pub_;
+    rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr right_arm_cmd_pub_;
+    rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr left_ee_cmd_pub_;
+    rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr right_ee_cmd_pub_;
+    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr left_gripper_cmd_pub_;
+    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr right_gripper_cmd_pub_;
+    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr lift_cmd_pub_;
+    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr waist_cmd_pub_;
+    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr head_pan_cmd_pub_;
+    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr head_tilt_cmd_pub_;
+    rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr nav_goal_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr watchdog_heartbeat_pub_;
+    rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr vr_intent_pub_;
     
     std::atomic<bool> running_{false};
     std::thread spin_thread_;
+    
+    // 状态缓存（用于聚合推送）
+    std::mutex state_mutex_;
+    double battery_level_ = 0.0;
+    bool emergency_stop_active_ = false;
 };
 
 } // namespace qyh::dataplane

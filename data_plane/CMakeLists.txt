@@ -37,6 +37,7 @@ if(ament_cmake_FOUND)
     find_package(std_msgs REQUIRED)
     find_package(sensor_msgs REQUIRED)
     find_package(geometry_msgs REQUIRED)
+    find_package(tf2_msgs REQUIRED)
     set(WITH_ROS2 ON)
 else()
     message(STATUS "Building without ROS2 support")
@@ -74,6 +75,9 @@ set(SOURCES
     src/message_handler.cpp
     src/state_cache.cpp
     src/config.cpp
+    src/rate_limiter.cpp
+    src/control_sync.cpp
+    src/connection_manager.cpp
 )
 
 if(WITH_ROS2)
@@ -105,6 +109,7 @@ if(WITH_ROS2)
         std_msgs
         sensor_msgs
         geometry_msgs
+        tf2_msgs
     )
 endif()
 

@@ -108,9 +108,44 @@ public:
     const UserInfo& user_info() const { return user_info_; }
     
     /**
+     * @brief 检查是否有用户信息
+     */
+    bool has_user_info() const { return user_info_.user_id != 0; }
+    
+    /**
      * @brief 设置用户信息（认证成功后）
      */
     void set_user_info(const UserInfo& info) { user_info_ = info; }
+    
+    /**
+     * @brief 设置客户端类型
+     */
+    void set_client_type(const std::string& type) { client_type_ = type; }
+    
+    /**
+     * @brief 获取客户端类型
+     */
+    const std::string& client_type() const { return client_type_; }
+    
+    /**
+     * @brief 设置客户端版本
+     */
+    void set_client_version(const std::string& version) { client_version_ = version; }
+    
+    /**
+     * @brief 获取客户端版本
+     */
+    const std::string& client_version() const { return client_version_; }
+    
+    /**
+     * @brief 设置最大推送频率
+     */
+    void set_max_push_rate(int hz) { max_push_rate_hz_ = hz; }
+    
+    /**
+     * @brief 获取最大推送频率
+     */
+    int max_push_rate() const { return max_push_rate_hz_; }
     
     /**
      * @brief 添加订阅
@@ -192,6 +227,10 @@ private:
     std::string session_id_;
     SessionState state_ = SessionState::CONNECTING;
     UserInfo user_info_;
+    
+    std::string client_type_;       // "web", "vr", "mobile"
+    std::string client_version_;    // 客户端版本
+    int max_push_rate_hz_ = 30;     // 最大推送频率
     
     beast::flat_buffer read_buffer_;
     

@@ -3,6 +3,7 @@
  * @brief 状态缓存
  * 
  * 缓存从 ROS2 接收的最新状态，供 WebSocket 推送使用
+ * 支持双臂机器人的完整状态管理
  */
 
 #pragma once
@@ -12,72 +13,119 @@
 #include <optional>
 #include <vector>
 #include <cstdint>
+#include <string>
+#include <unordered_map>
 
 namespace qyh::dataplane {
 
 /**
  * @brief 状态缓存
+ * 
+ * 线程安全的状态数据缓存，支持按类型存取最新状态
  */
 class StateCache {
 public:
     StateCache() = default;
     
-    /**
-     * @brief 更新机器人状态
-     * @param data 序列化的状态数据
-     */
+    // ==================== 综合状态 ====================
+    
+    /** @brief 更新机器人综合状态 */
     void update_robot_state(const std::vector<uint8_t>& data);
     
-    /**
-     * @brief 获取机器人状态
-     * @return 序列化的状态数据，如果没有则返回 std::nullopt
-     */
+    /** @brief 获取机器人综合状态 */
     std::optional<std::vector<uint8_t>> get_robot_state() const;
     
-    /**
-     * @brief 更新关节状态
-     */
+    // ==================== 关节状态 ====================
+    
+    /** @brief 更新关节状态 */
     void update_joint_state(const std::vector<uint8_t>& data);
     
-    /**
-     * @brief 获取关节状态
-     */
+    /** @brief 获取关节状态 */
     std::optional<std::vector<uint8_t>> get_joint_state() const;
     
-    /**
-     * @brief 更新机械臂状态
-     */
+    // ==================== 机械臂状态 ====================
+    
+    /** @brief 更新机械臂综合状态 */
     void update_arm_state(const std::vector<uint8_t>& data);
     
-    /**
-     * @brief 获取机械臂状态
-     */
+    /** @brief 获取机械臂综合状态 */
     std::optional<std::vector<uint8_t>> get_arm_state() const;
     
-    /**
-     * @brief 更新底盘状态
-     */
+    /** @brief 更新左臂关节状态 */
+    void update_left_arm_state(const std::vector<uint8_t>& data);
+    
+    /** @brief 获取左臂关节状态 */
+    std::optional<std::vector<uint8_t>> get_left_arm_state() const;
+    
+    /** @brief 更新右臂关节状态 */
+    void update_right_arm_state(const std::vector<uint8_t>& data);
+    
+    /** @brief 获取右臂关节状态 */
+    std::optional<std::vector<uint8_t>> get_right_arm_state() const;
+    
+    // ==================== 底盘状态 ====================
+    
+    /** @brief 更新底盘状态 */
     void update_chassis_state(const std::vector<uint8_t>& data);
     
-    /**
-     * @brief 获取底盘状态
-     */
+    /** @brief 获取底盘状态 */
     std::optional<std::vector<uint8_t>> get_chassis_state() const;
     
-    /**
-     * @brief 获取状态更新时间
-     */
+    // ==================== 执行器状态 ====================
+    
+    /** @brief 更新升降状态 */
+    void update_lift_state(const std::vector<uint8_t>& data);
+    
+    /** @brief 获取升降状态 */
+    std::optional<std::vector<uint8_t>> get_lift_state() const;
+    
+    /** @brief 更新腰部状态 */
+    void update_waist_state(const std::vector<uint8_t>& data);
+    
+    /** @brief 获取腰部状态 */
+    std::optional<std::vector<uint8_t>> get_waist_state() const;
+    
+    /** @brief 更新头部状态 */
+    void update_head_state(const std::vector<uint8_t>& data);
+    
+    /** @brief 获取头部状态 */
+    std::optional<std::vector<uint8_t>> get_head_state() const;
+    
+    // ==================== 夹爪状态 ====================
+    
+    /** @brief 更新夹爪状态 */
+    void update_gripper_state(const std::string& gripper_id, const std::vector<uint8_t>& data);
+    
+    /** @brief 获取夹爪状态 */
+    std::optional<std::vector<uint8_t>> get_gripper_state(const std::string& gripper_id) const;
+    
+    // ==================== 通用接口 ====================
+    
+    /** @brief 获取状态更新时间 */
     std::chrono::steady_clock::time_point last_update_time() const {
         return last_update_time_;
     }
     
+    /** @brief 检查状态是否过期 */
+    bool is_stale(std::chrono::milliseconds max_age) const;
+    
+    /** @brief 清空所有缓存 */
+    void clear();
+    
 private:
     mutable std::mutex mutex_;
     
+    // 状态数据
     std::vector<uint8_t> robot_state_;
     std::vector<uint8_t> joint_state_;
     std::vector<uint8_t> arm_state_;
+    std::vector<uint8_t> left_arm_state_;
+    std::vector<uint8_t> right_arm_state_;
     std::vector<uint8_t> chassis_state_;
+    std::vector<uint8_t> lift_state_;
+    std::vector<uint8_t> waist_state_;
+    std::vector<uint8_t> head_state_;
+    std::unordered_map<std::string, std::vector<uint8_t>> gripper_states_;
     
     std::chrono::steady_clock::time_point last_update_time_;
 };

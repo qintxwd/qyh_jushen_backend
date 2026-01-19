@@ -1,6 +1,8 @@
 /**
  * @file message_handler.hpp
  * @brief 消息处理器
+ * 
+ * 负责解析和处理所有入站 WebSocket 消息
  */
 
 #pragma once
@@ -9,6 +11,13 @@
 #include <vector>
 #include <cstdint>
 #include <functional>
+#include <string>
+
+// 前向声明 Protobuf 类型
+namespace qyh::dataplane {
+    class WebSocketMessage;
+    class Timestamp;
+}
 
 namespace qyh::dataplane {
 
@@ -61,61 +70,64 @@ public:
                         const std::vector<uint8_t>& data);
     
 private:
-    /**
-     * @brief 处理认证请求
-     */
+    // ==================== 消息处理函数 ====================
+    
+    /** @brief 处理认证请求 */
     void handle_auth_request(std::shared_ptr<Session> session,
-                             const std::vector<uint8_t>& payload);
+                             const WebSocketMessage& msg);
     
-    /**
-     * @brief 处理订阅请求
-     */
+    /** @brief 处理订阅请求 */
     void handle_subscribe(std::shared_ptr<Session> session,
-                          const std::vector<uint8_t>& payload);
+                          const WebSocketMessage& msg);
     
-    /**
-     * @brief 处理取消订阅
-     */
+    /** @brief 处理取消订阅 */
     void handle_unsubscribe(std::shared_ptr<Session> session,
-                            const std::vector<uint8_t>& payload);
+                            const WebSocketMessage& msg);
     
-    /**
-     * @brief 处理心跳
-     */
+    /** @brief 处理心跳 */
     void handle_heartbeat(std::shared_ptr<Session> session,
-                          const std::vector<uint8_t>& payload);
+                          const WebSocketMessage& msg);
     
-    /**
-     * @brief 处理 VR 控制意图
-     */
+    /** @brief 处理 VR 控制意图 */
     void handle_vr_control(std::shared_ptr<Session> session,
-                           const std::vector<uint8_t>& payload);
+                           const WebSocketMessage& msg);
     
-    /**
-     * @brief 处理底盘速度命令
-     */
+    /** @brief 处理底盘速度命令 */
     void handle_chassis_velocity(std::shared_ptr<Session> session,
-                                 const std::vector<uint8_t>& payload);
+                                 const WebSocketMessage& msg);
     
-    /**
-     * @brief 处理关节命令
-     */
+    /** @brief 处理关节命令 */
     void handle_joint_command(std::shared_ptr<Session> session,
-                              const std::vector<uint8_t>& payload);
+                              const WebSocketMessage& msg);
     
-    /**
-     * @brief 发送错误响应
-     */
+    /** @brief 处理末端执行器命令 */
+    void handle_end_effector_command(std::shared_ptr<Session> session,
+                                     const WebSocketMessage& msg);
+    
+    /** @brief 处理夹爪命令 */
+    void handle_gripper_command(std::shared_ptr<Session> session,
+                                const WebSocketMessage& msg);
+    
+    /** @brief 处理导航目标 */
+    void handle_navigation_goal(std::shared_ptr<Session> session,
+                                const WebSocketMessage& msg);
+    
+    // ==================== 响应发送函数 ====================
+    
+    /** @brief 发送错误响应 */
     void send_error(std::shared_ptr<Session> session,
                     int32_t code,
                     const std::string& message);
     
-    /**
-     * @brief 发送认证响应
-     */
+    /** @brief 发送认证响应 */
     void send_auth_response(std::shared_ptr<Session> session,
                             bool success,
                             const std::string& error_message = "");
+    
+    // ==================== 辅助函数 ====================
+    
+    /** @brief 设置时间戳 */
+    void set_timestamp(qyh::dataplane::Timestamp* timestamp);
     
 private:
     const Config& config_;
