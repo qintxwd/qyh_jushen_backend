@@ -7,6 +7,7 @@
 #include "data_plane/server.hpp"
 #include "data_plane/message_handler.hpp"
 #include "data_plane/control_sync.hpp"
+#include "data_plane/vr_session.hpp"
 #include "data_plane/logger.hpp"
 
 #include <random>
@@ -41,6 +42,9 @@ Session::Session(tcp::socket&& socket,
 }
 
 Session::~Session() {
+    // 清理 VR 会话（如果是 VR 客户端）
+    VRSessionManager::instance().on_disconnect(session_id_, "session_closed");
+    
     if (control_sync_) {
         control_sync_->disassociate_session(session_id_);
     }

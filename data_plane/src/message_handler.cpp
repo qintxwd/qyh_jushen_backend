@@ -12,6 +12,8 @@
 #include "data_plane/state_cache.hpp"
 #include "data_plane/config.hpp"
 #include "data_plane/control_sync.hpp"
+#include "data_plane/vr_session.hpp"
+#include "data_plane/server.hpp"
 
 #include "data_plane/ros2_bridge.hpp"
 #include "data_plane/watchdog.hpp"
@@ -155,6 +157,22 @@ void MessageHandler::handle_auth_request(std::shared_ptr<Session> session,
         control_sync_->associate_session(session->session_id(), user_info->user_id);
     }
     
+    // VR 专用通道: 如果是 VR 客户端，尝试注册到 VRSessionManager
+    if (auth_req.client_type() == "vr") {
+        bool accepted = VRSessionManager::instance().try_accept(
+            session,
+            "PICO 4",  // TODO: 从 auth_req 扩展字段获取设备信息
+            auth_req.client_version()
+        );
+        
+        if (!accepted) {
+            // VR 通道已被占用，拒绝连接
+            send_auth_response(session, false, "VR channel already occupied");
+            session->close();
+            return;
+        }
+    }
+    
     std::cout << "[MessageHandler] Session " << session->session_id() 
               << " authenticated as " << user_info->username 
               << " (" << auth_req.client_type() << " v" << auth_req.client_version() << ")"
@@ -225,10 +243,14 @@ void MessageHandler::handle_heartbeat(std::shared_ptr<Session> session,
 
 void MessageHandler::handle_vr_control(std::shared_ptr<Session> session,
                                         const WebSocketMessage& msg) {
-    // 检查控制权限
-    if (!session->has_control_permission()) {
-        send_error(session, 403, "No control permission");
-        return;
+    // VR 专用通道: 检查是否是 VR 会话
+    // VR 会话已通过 VRSessionManager 单连接限制，无需额外控制权检查
+    if (!VRSessionManager::instance().is_vr_session(session->session_id())) {
+        // 非 VR 会话，回退到传统控制权检查
+        if (!session->has_control_permission()) {
+            send_error(session, 403, "No control permission");
+            return;
+        }
     }
     
     if (!msg.has_vr_control()) {
@@ -236,9 +258,56 @@ void MessageHandler::handle_vr_control(std::shared_ptr<Session> session,
         return;
     }
     
+    const auto& vr_intent = msg.vr_control();
+    
+    // 发布到 ROS2
     if (ros2_bridge_) {
-        const auto& vr_intent = msg.vr_control();
         ros2_bridge_->publish_vr_intent(vr_intent);
+    }
+    
+    // 构建 VRSystemState 并广播给订阅者
+    if (server_) {
+        VRSystemState vr_state;
+        
+        // 设置时间戳
+        set_timestamp(vr_state.mutable_header()->mutable_timestamp());
+        vr_state.mutable_header()->set_frame_id("vr_system");
+        
+        // VR 连接状态
+        vr_state.set_connected(VRSessionManager::instance().is_connected());
+        
+        // 头部位姿
+        if (vr_intent.has_head_pose()) {
+            *vr_state.mutable_head_pose() = vr_intent.head_pose();
+        }
+        
+        // 控制器状态
+        vr_state.set_left_controller_active(
+            vr_intent.has_left_hand() && vr_intent.left_hand().active());
+        vr_state.set_right_controller_active(
+            vr_intent.has_right_hand() && vr_intent.right_hand().active());
+        
+        // Clutch 状态 (假设 grip > 0.5 表示 clutch engaged)
+        vr_state.set_left_clutch_engaged(
+            vr_intent.has_left_hand() && vr_intent.left_hand().grip() > 0.5f);
+        vr_state.set_right_clutch_engaged(
+            vr_intent.has_right_hand() && vr_intent.right_hand().grip() > 0.5f);
+        
+        // 序列化并缓存
+        std::vector<uint8_t> state_data(vr_state.ByteSizeLong());
+        vr_state.SerializeToArray(state_data.data(), static_cast<int>(state_data.size()));
+        state_cache_.update_vr_system_state(state_data);
+        
+        // 包装为 WebSocketMessage 并广播
+        WebSocketMessage ws_msg;
+        ws_msg.set_type(MSG_VR_SYSTEM_STATE);
+        set_timestamp(ws_msg.mutable_timestamp());
+        *ws_msg.mutable_vr_system_state() = vr_state;
+        
+        std::vector<uint8_t> broadcast_data(ws_msg.ByteSizeLong());
+        ws_msg.SerializeToArray(broadcast_data.data(), static_cast<int>(broadcast_data.size()));
+        
+        server_->broadcast_to_subscribers("vr_system_state", broadcast_data);
     }
 }
 

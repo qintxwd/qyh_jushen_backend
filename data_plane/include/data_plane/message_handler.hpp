@@ -27,6 +27,7 @@ class JWTValidator;
 class StateCache;
 class Config;
 class ControlSyncService;
+class Server;
 
 class ROS2Bridge;
 class Watchdog;
@@ -52,6 +53,11 @@ public:
      * @brief 设置 ROS2 桥接
      */
     void set_ros2_bridge(ROS2Bridge* bridge) { ros2_bridge_ = bridge; }
+    
+    /**
+     * @brief 设置 WebSocket 服务器 (用于广播 VR 状态)
+     */
+    void set_server(Server* server) { server_ = server; }
     
     /**
      * @brief 设置 Watchdog
@@ -136,6 +142,7 @@ private:
     JWTValidator& validator_;
     StateCache& state_cache_;
     ControlSyncService* control_sync_ = nullptr;
+    Server* server_ = nullptr;
     
     ROS2Bridge* ros2_bridge_ = nullptr;
     Watchdog* watchdog_ = nullptr;

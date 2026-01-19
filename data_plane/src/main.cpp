@@ -9,6 +9,7 @@
 #include "data_plane/message_handler.hpp"
 #include "data_plane/state_cache.hpp"
 #include "data_plane/control_sync.hpp"
+#include "data_plane/vr_session.hpp"
 
 #include "data_plane/ros2_bridge.hpp"
 #include "data_plane/watchdog.hpp"
@@ -71,6 +72,10 @@ int main(int argc, char* argv[]) {
         }
         handler.set_control_sync(&control_sync);
         
+        // 初始化 VR 会话管理器
+        qyh::dataplane::VRSessionManager::instance().set_control_plane_url(
+            config.control_sync.control_plane_url);
+        
         // 创建 ROS2 桥接
         qyh::dataplane::ROS2Bridge ros2_bridge(config, state_cache);
         if (!ros2_bridge.init()) {
@@ -88,6 +93,9 @@ int main(int argc, char* argv[]) {
         // 创建服务器
         auto server = std::make_shared<qyh::dataplane::Server>(io_context, config, handler);
         server->set_control_sync(&control_sync);
+        
+        // 连接 MessageHandler 和 Server (用于 VR 状态广播)
+        handler.set_server(server.get());
         
         ros2_bridge.set_server(server.get());
         

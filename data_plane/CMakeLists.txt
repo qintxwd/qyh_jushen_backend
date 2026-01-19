@@ -93,6 +93,7 @@ set(SOURCES
     src/connection_manager.cpp
     src/ros2_bridge.cpp
     src/watchdog.cpp
+    src/vr_session.cpp
 )
 
 add_executable(data_plane_server ${SOURCES})

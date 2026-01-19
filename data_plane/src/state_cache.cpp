@@ -176,6 +176,22 @@ std::optional<std::vector<uint8_t>> StateCache::get_gripper_state(const std::str
     return it->second;
 }
 
+// ==================== VR 状态 ====================
+
+void StateCache::update_vr_system_state(const std::vector<uint8_t>& data) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    vr_system_state_ = data;
+    last_update_time_ = std::chrono::steady_clock::now();
+}
+
+std::optional<std::vector<uint8_t>> StateCache::get_vr_system_state() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (vr_system_state_.empty()) {
+        return std::nullopt;
+    }
+    return vr_system_state_;
+}
+
 // ==================== 通用接口 ====================
 
 bool StateCache::is_stale(std::chrono::milliseconds max_age) const {
@@ -197,6 +213,7 @@ void StateCache::clear() {
     head_pan_state_.clear();
     head_tilt_state_.clear();
     gripper_states_.clear();
+    vr_system_state_.clear();
 }
 
 } // namespace qyh::dataplane

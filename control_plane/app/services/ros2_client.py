@@ -17,7 +17,6 @@ QYH Jushen Control Plane - ROS2 服务客户端
 - qyh_head_motor_control: 头部控制
 """
 import asyncio
-import copy
 import json
 import logging
 import math
@@ -171,28 +170,9 @@ class ROS2ServiceClient:
         self._led_color_publisher = None
         self._led_blink_publisher = None
 
-        # VR 状态缓存
-        self._latest_vr_state = {
-            "connected": False,
-            "head_position": [0.0, 0.0, 0.0],
-            "head_orientation": [0.0, 0.0, 0.0, 1.0],
-            "left_hand_active": False,
-            "left_position": [0.0, 0.0, 0.0],
-            "left_orientation": [0.0, 0.0, 0.0, 1.0],
-            "left_joystick": [0.0, 0.0],
-            "left_trigger": 0.0,
-            "left_grip_value": 0.0,
-            "left_clutch_engaged": False,
-            "left_buttons": [0, 0, 0, 0, 0, 0],
-            "right_hand_active": False,
-            "right_position": [0.0, 0.0, 0.0],
-            "right_orientation": [0.0, 0.0, 0.0, 1.0],
-            "right_joystick": [0.0, 0.0],
-            "right_trigger": 0.0,
-            "right_grip_value": 0.0,
-            "right_clutch_engaged": False,
-            "right_buttons": [0, 0, 0, 0, 0, 0],
-        }
+        # 注意: VR 状态不再由 Control Plane 管理
+        # VR 使用 Data Plane 的专用 WebSocket 通道 (/vr)
+        # 参见 VR_ARCHITECTURE.md
 
         # 底盘持久化配置应用状态
         self._chassis_config_applied = False
@@ -389,10 +369,8 @@ class ROS2ServiceClient:
             return
 
         try:
-            from sensor_msgs.msg import JointState, Joy
+            from sensor_msgs.msg import JointState
             from nav_msgs.msg import Odometry
-            from geometry_msgs.msg import PoseStamped
-            from std_msgs.msg import Bool
             from qyh_lift_msgs.msg import LiftState
             from qyh_waist_msgs.msg import WaistState
             from qyh_gripper_msgs.msg import GripperState
@@ -468,49 +446,9 @@ class ROS2ServiceClient:
                 10
             )
 
-            # VR 状态订阅
-            self._node.create_subscription(
-                PoseStamped,
-                '/vr/head/pose',
-                self._on_vr_head_pose,
-                10
-            )
-            self._node.create_subscription(
-                Bool,
-                '/vr/left_controller/active',
-                self._on_vr_left_active,
-                10
-            )
-            self._node.create_subscription(
-                PoseStamped,
-                '/vr/left_controller/pose',
-                self._on_vr_left_pose,
-                10
-            )
-            self._node.create_subscription(
-                Joy,
-                '/vr/left_controller/joy',
-                self._on_vr_left_joy,
-                10
-            )
-            self._node.create_subscription(
-                Bool,
-                '/vr/right_controller/active',
-                self._on_vr_right_active,
-                10
-            )
-            self._node.create_subscription(
-                PoseStamped,
-                '/vr/right_controller/pose',
-                self._on_vr_right_pose,
-                10
-            )
-            self._node.create_subscription(
-                Joy,
-                '/vr/right_controller/joy',
-                self._on_vr_right_joy,
-                10
-            )
+            # 注意: VR 订阅已移除
+            # VR 使用 Data Plane 的专用 WebSocket 通道 (/vr)
+            # 参见 VR_ARCHITECTURE.md
 
             # 订阅关机状态（如果有）
             # TODO: 需要定义 ShutdownState 消息类型
@@ -558,7 +496,9 @@ class ROS2ServiceClient:
             logger.info("ROS2 publishers created: /cmd_vel, /robot_led/*")
             
         except ImportError as e:
-            logger.warning(f"ROS2 message types for publishers not available: {e}")
+            logger.warning(
+                f"ROS2 message types for publishers not available: {e}"
+            )
 
     async def _wait_for_future(self, future, timeout=5.0):
         """等待 ROS2 Future 完成 (非阻塞)"""
@@ -716,96 +656,8 @@ class ROS2ServiceClient:
         with self._state_lock:
             self._latest_shutdown_state = data
 
-    def _on_vr_head_pose(self, msg):
-        with self._state_lock:
-            self._latest_vr_state["head_position"] = [
-                msg.pose.position.x,
-                msg.pose.position.y,
-                msg.pose.position.z,
-            ]
-            self._latest_vr_state["head_orientation"] = [
-                msg.pose.orientation.x,
-                msg.pose.orientation.y,
-                msg.pose.orientation.z,
-                msg.pose.orientation.w,
-            ]
-            self._latest_vr_state["connected"] = True
-
-    def _on_vr_left_active(self, msg):
-        with self._state_lock:
-            self._latest_vr_state["left_hand_active"] = bool(msg.data)
-            self._latest_vr_state["connected"] = True
-
-    def _on_vr_left_pose(self, msg):
-        with self._state_lock:
-            self._latest_vr_state["left_position"] = [
-                msg.pose.position.x,
-                msg.pose.position.y,
-                msg.pose.position.z,
-            ]
-            self._latest_vr_state["left_orientation"] = [
-                msg.pose.orientation.x,
-                msg.pose.orientation.y,
-                msg.pose.orientation.z,
-                msg.pose.orientation.w,
-            ]
-            self._latest_vr_state["connected"] = True
-
-    def _on_vr_left_joy(self, msg):
-        with self._state_lock:
-            if len(msg.axes) >= 2:
-                self._latest_vr_state["left_joystick"] = [
-                    msg.axes[0],
-                    msg.axes[1],
-                ]
-            if len(msg.axes) >= 3:
-                self._latest_vr_state["left_trigger"] = msg.axes[2]
-            if len(msg.axes) >= 4:
-                self._latest_vr_state["left_grip_value"] = msg.axes[3]
-                self._latest_vr_state["left_clutch_engaged"] = (
-                    msg.axes[3] > 0.8
-                )
-            if len(msg.buttons) >= 6:
-                self._latest_vr_state["left_buttons"] = list(msg.buttons[:6])
-            self._latest_vr_state["connected"] = True
-
-    def _on_vr_right_active(self, msg):
-        with self._state_lock:
-            self._latest_vr_state["right_hand_active"] = bool(msg.data)
-            self._latest_vr_state["connected"] = True
-
-    def _on_vr_right_pose(self, msg):
-        with self._state_lock:
-            self._latest_vr_state["right_position"] = [
-                msg.pose.position.x,
-                msg.pose.position.y,
-                msg.pose.position.z,
-            ]
-            self._latest_vr_state["right_orientation"] = [
-                msg.pose.orientation.x,
-                msg.pose.orientation.y,
-                msg.pose.orientation.z,
-                msg.pose.orientation.w,
-            ]
-            self._latest_vr_state["connected"] = True
-
-    def _on_vr_right_joy(self, msg):
-        with self._state_lock:
-            if len(msg.axes) >= 2:
-                self._latest_vr_state["right_joystick"] = [
-                    msg.axes[0],
-                    msg.axes[1],
-                ]
-            if len(msg.axes) >= 3:
-                self._latest_vr_state["right_trigger"] = msg.axes[2]
-            if len(msg.axes) >= 4:
-                self._latest_vr_state["right_grip_value"] = msg.axes[3]
-                self._latest_vr_state["right_clutch_engaged"] = (
-                    msg.axes[3] > 0.8
-                )
-            if len(msg.buttons) >= 6:
-                self._latest_vr_state["right_buttons"] = list(msg.buttons[:6])
-            self._latest_vr_state["connected"] = True
+    # 注意: VR 回调函数已移除 (原 _on_vr_* 系列)
+    # VR 状态由 Data Plane 管理，参见 VR_ARCHITECTURE.md
 
     def get_shutdown_state(self) -> Dict[str, Any]:
         """获取关机状态"""
@@ -821,10 +673,9 @@ class ROS2ServiceClient:
             "plc_connected": False,
         }
 
-    def get_vr_state(self) -> Dict[str, Any]:
-        """获取 VR 状态"""
-        with self._state_lock:
-            return copy.deepcopy(self._latest_vr_state)
+    # 注意: get_vr_state() 已移除
+    # VR 状态由 Data Plane 管理，查询接口见 /api/v1/vr/status
+    # 实时 VR 位姿请订阅 Data Plane 的 VRSystemState 话题
 
     def get_robot_state(self) -> Optional[Dict[str, Any]]:
         """返回当前机器人状态（基于 ROS2 topic 缓存）"""
@@ -880,7 +731,6 @@ class ROS2ServiceClient:
             
             if cache_entry is None or cache_entry["names"] != names_tuple:
                 # 重新构建缓存
-                idx_map = {}
                 left_arm_indices = []
                 right_arm_indices = []
                 head_indices = []
@@ -901,9 +751,17 @@ class ROS2ServiceClient:
                         lift_indices.append(i)
                     elif "waist" in n:
                         waist_indices.append(i)
-                    elif "left" in n or n.startswith("l_") or n.startswith("l-"):
+                    elif (
+                        "left" in n
+                        or n.startswith("l_")
+                        or n.startswith("l-")
+                    ):
                         left_arm_indices.append(i)
-                    elif "right" in n or n.startswith("r_") or n.startswith("r-"):
+                    elif (
+                        "right" in n
+                        or n.startswith("r_")
+                        or n.startswith("r-")
+                    ):
                         right_arm_indices.append(i)
                 
                 cache_entry = {
@@ -922,11 +780,14 @@ class ROS2ServiceClient:
             def get_joints(indices):
                 res = []
                 for i in indices:
+                    pos = positions[i] if i < len(positions) else 0.0
+                    vel = velocities[i] if i < len(velocities) else 0.0
+                    eff = efforts[i] if i < len(efforts) else 0.0
                     res.append({
                         "name": names[i],
-                        "position": positions[i] if i < len(positions) else 0.0,
-                        "velocity": velocities[i] if i < len(velocities) else 0.0,
-                        "effort": efforts[i] if i < len(efforts) else 0.0,
+                        "position": pos,
+                        "velocity": vel,
+                        "effort": eff,
                     })
                 return res
 

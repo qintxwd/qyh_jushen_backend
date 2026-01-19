@@ -1,191 +1,174 @@
-"""VR遥操作状态查询 API
+"""VR 遥操作状态 API (简化版)
 
-提供VR系统状态查询接口，包括:
-- VR连接状态
-- Clutch(离合)状态
-- 手柄位姿和按钮状态
+VR 采用专用通道设计:
+- VR 通过 Data Plane 的 /vr 端点连接 (单连接限制)
+- Control Plane 只负责查询 VR 连接状态
+- Web/Mobile 通过订阅 Data Plane 的 VRSystemState 获取实时状态
 
-注意: 这是低频查询接口(补充WebSocket推送)
+本模块提供:
+- GET /status: 查询 VR 连接状态
+- POST /internal/connected: Data Plane 上报 VR 连接
+- POST /internal/disconnected: Data Plane 上报 VR 断开
 """
-from typing import List
-from fastapi import APIRouter, Depends
+import logging
+from datetime import datetime
+from typing import Optional
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
-from app.dependencies import get_current_admin
+from app.dependencies import get_current_user
 from app.models.user import User
 from app.schemas.response import ApiResponse, success_response
-from app.services.ros2_client import get_ros2_client_dependency, ROS2ServiceClient
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 # ==================== 数据模型 ====================
 
-class Pose(BaseModel):
-    """位姿模型"""
-    position: List[float] = Field(
-        default=[0.0, 0.0, 0.0],
-        description="位置 [x, y, z]"
-    )
-    orientation: List[float] = Field(
-        default=[0.0, 0.0, 0.0, 1.0],
-        description="姿态四元数 [x, y, z, w]"
+class VRClientInfo(BaseModel):
+    """VR 客户端信息"""
+    device: str = Field(default="", description="设备型号")
+    version: str = Field(default="", description="客户端版本")
+    session_id: str = Field(default="", description="会话ID")
+    connected_at: Optional[datetime] = Field(
+        default=None, description="连接时间"
     )
 
 
-class ControllerState(BaseModel):
-    """VR手柄状态"""
-    active: bool = Field(default=False, description="手柄是否激活")
-    pose: Pose = Field(default_factory=Pose, description="手柄位姿")
-    joystick: List[float] = Field(
-        default=[0.0, 0.0], description="摇杆位置 [x, y]"
-    )
-    trigger: float = Field(default=0.0, description="扳机值 (0.0-1.0)")
-    grip: float = Field(default=0.0, description="握力值 (0.0-1.0)")
-    buttons: List[int] = Field(
-        default=[0, 0, 0, 0],
-        description="按钮状态 [Button1, Button2, Menu, JoyClick]"
-    )
-    clutch_engaged: bool = Field(
-        default=False, description="Clutch是否接合"
+class VRConnectionStatus(BaseModel):
+    """VR 连接状态"""
+    connected: bool = Field(default=False, description="是否已连接")
+    client_info: Optional[VRClientInfo] = Field(
+        default=None, description="客户端信息"
     )
 
 
-class ClutchStatus(BaseModel):
-    """Clutch状态"""
-    left_clutch_engaged: bool = Field(default=False, description="左手Clutch接合")
-    right_clutch_engaged: bool = Field(default=False, description="右手Clutch接合")
-    left_grip_value: float = Field(default=0.0, description="左手握力 (0.0-1.0)")
-    right_grip_value: float = Field(default=0.0, description="右手握力 (0.0-1.0)")
+class VRConnectedRequest(BaseModel):
+    """VR 连接上报请求 (Data Plane → Control Plane)"""
+    device: str = Field(default="PICO 4", description="设备型号")
+    version: str = Field(default="1.0.0", description="客户端版本")
+    session_id: str = Field(..., description="WebSocket 会话ID")
 
 
-class VRStatus(BaseModel):
-    """VR系统状态"""
-    connected: bool = Field(default=False, description="VR系统连接状态")
-    head_pose: Pose = Field(default_factory=Pose, description="头部位姿")
-    left_controller: ControllerState = Field(
-        default_factory=ControllerState,
-        description="左手控制器"
+class VRDisconnectedRequest(BaseModel):
+    """VR 断开上报请求 (Data Plane → Control Plane)"""
+    session_id: str = Field(..., description="WebSocket 会话ID")
+    reason: str = Field(
+        default="client_close",
+        description="断开原因: client_close, heartbeat_timeout, error"
     )
-    right_controller: ControllerState = Field(
-        default_factory=ControllerState,
-        description="右手控制器"
-    )
-    # 保持向后兼容
-    left_hand_active: bool = Field(
-        default=False, description="左手激活状态"
-    )
-    right_hand_active: bool = Field(
-        default=False, description="右手激活状态"
-    )
-    clutch: ClutchStatus = Field(
-        default_factory=ClutchStatus, description="Clutch状态"
-    )
+
+
+# ==================== VR 状态存储 (内存) ====================
+
+class VRStateStore:
+    """VR 状态存储 (单例)"""
+
+    _instance: Optional['VRStateStore'] = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._connected = False
+            cls._instance._client_info = None
+        return cls._instance
+
+    @property
+    def connected(self) -> bool:
+        return self._connected
+
+    @property
+    def client_info(self) -> Optional[VRClientInfo]:
+        return self._client_info
+
+    def set_connected(self, info: VRClientInfo):
+        self._connected = True
+        self._client_info = info
+        logger.info(f"VR connected: {info.device} v{info.version}")
+
+    def set_disconnected(self, reason: str):
+        old_info = self._client_info
+        self._connected = False
+        self._client_info = None
+        if old_info:
+            logger.info(
+                f"VR disconnected: {old_info.device}, reason={reason}"
+            )
+
+
+# 全局单例
+vr_state = VRStateStore()
 
 
 # ==================== API 端点 ====================
 
 @router.get("/status", response_model=ApiResponse)
 async def get_vr_status(
-    current_user: User = Depends(get_current_admin),
-    ros2: ROS2ServiceClient = Depends(get_ros2_client_dependency)
+    current_user: User = Depends(get_current_user),
 ) -> ApiResponse:
-    """获取VR系统完整状态
-    
-    包括:
-    - VR连接状态
-    - 头部位姿
-    - 左/右手控制器状态(位姿、按钮、摇杆、Trigger、Grip)
-    - Clutch接合状态
-    
-    权限: 需要管理员权限
+    """查询 VR 连接状态
+
+    返回:
+    - connected: VR 是否已连接到 Data Plane
+    - client_info: VR 客户端信息 (设备型号、版本、连接时间)
+
+    注意: 实时 VR 位姿/按钮状态请订阅 Data Plane 的 VRSystemState
     """
-    # 从ROS2服务获取VR状态
-    state = ros2.get_vr_state()
-    
-    # 解析头部位姿
-    head_pose = Pose(
-        position=state.get("head_position", [0.0, 0.0, 0.0]),
-        orientation=state.get("head_orientation", [0.0, 0.0, 0.0, 1.0])
-    )
-    
-    # 解析左手控制器
-    left_active = state.get("left_hand_active", False)
-    left_clutch = state.get("left_clutch_engaged", False)
-    left_grip = state.get("left_grip_value", 0.0)
-    
-    left_controller = ControllerState(
-        active=left_active,
-        pose=Pose(
-            position=state.get("left_position", [0.0, 0.0, 0.0]),
-            orientation=state.get("left_orientation", [0.0, 0.0, 0.0, 1.0])
-        ),
-        joystick=state.get("left_joystick", [0.0, 0.0]),
-        trigger=state.get("left_trigger", 0.0),
-        grip=left_grip,
-        buttons=state.get("left_buttons", [0, 0, 0, 0]),
-        clutch_engaged=left_clutch
-    )
-    
-    # 解析右手控制器
-    right_active = state.get("right_hand_active", False)
-    right_clutch = state.get("right_clutch_engaged", False)
-    right_grip = state.get("right_grip_value", 0.0)
-    
-    right_controller = ControllerState(
-        active=right_active,
-        pose=Pose(
-            position=state.get("right_position", [0.0, 0.0, 0.0]),
-            orientation=state.get("right_orientation", [0.0, 0.0, 0.0, 1.0])
-        ),
-        joystick=state.get("right_joystick", [0.0, 0.0]),
-        trigger=state.get("right_trigger", 0.0),
-        grip=right_grip,
-        buttons=state.get("right_buttons", [0, 0, 0, 0]),
-        clutch_engaged=right_clutch
-    )
-    
-    status = VRStatus(
-        connected=state.get("connected", False),
-        head_pose=head_pose,
-        left_controller=left_controller,
-        right_controller=right_controller,
-        left_hand_active=left_active,
-        right_hand_active=right_active,
-        clutch=ClutchStatus(
-            left_clutch_engaged=left_clutch,
-            right_clutch_engaged=right_clutch,
-            left_grip_value=left_grip,
-            right_grip_value=right_grip
-        )
+    status = VRConnectionStatus(
+        connected=vr_state.connected,
+        client_info=vr_state.client_info
     )
     return success_response(data=status.model_dump())
 
 
-@router.get("/clutch", response_model=ApiResponse)
-async def get_clutch_status(
-    current_user: User = Depends(get_current_admin),
-    ros2: ROS2ServiceClient = Depends(get_ros2_client_dependency)
-) -> ApiResponse:
-    """获取VR Clutch状态
-    
-    Clutch用于VR遥操作的"离合"功能:
-    - 握紧时: 机械臂跟随手柄运动
-    - 松开时: 机械臂保持当前位置，可以重新定位手柄
-    
-    返回:
-    - left/right_clutch_engaged: Clutch是否接合
-    - left/right_grip_value: 握力值 (0.0-1.0)
-    
-    权限: 需要管理员权限
-    """
-    # 从ROS2服务获取VR状态
-    state = ros2.get_vr_state()
+# ==================== 内部接口 (Data Plane 调用) ====================
 
-    clutch = ClutchStatus(
-        left_clutch_engaged=state.get("left_clutch_engaged", False),
-        right_clutch_engaged=state.get("right_clutch_engaged", False),
-        left_grip_value=state.get("left_grip_value", 0.0),
-        right_grip_value=state.get("right_grip_value", 0.0)
+@router.post("/internal/connected", response_model=ApiResponse)
+async def vr_connected(
+    request: VRConnectedRequest,
+    http_request: Request,
+) -> ApiResponse:
+    """VR 连接上报 (内部接口)
+
+    由 Data Plane 在 VR 客户端连接时调用
+
+    注意: 此接口应仅允许内部调用，生产环境需添加鉴权
+    """
+    # TODO: 验证请求来自 Data Plane (内部 Token 或 IP 白名单)
+    client_ip = http_request.client.host if http_request.client else "unknown"
+    logger.info(f"VR connected notification from {client_ip}")
+
+    info = VRClientInfo(
+        device=request.device,
+        version=request.version,
+        session_id=request.session_id,
+        connected_at=datetime.now()
     )
-    return success_response(data=clutch.model_dump())
+    vr_state.set_connected(info)
+
+    return success_response(message="VR connection recorded")
+
+
+@router.post("/internal/disconnected", response_model=ApiResponse)
+async def vr_disconnected(
+    request: VRDisconnectedRequest,
+    http_request: Request,
+) -> ApiResponse:
+    """VR 断开上报 (内部接口)
+
+    由 Data Plane 在 VR 客户端断开时调用
+
+    断开原因:
+    - client_close: 客户端主动断开
+    - heartbeat_timeout: 心跳超时 (Watchdog 触发)
+    - error: 连接错误
+    """
+    # TODO: 验证请求来自 Data Plane
+    client_ip = http_request.client.host if http_request.client else "unknown"
+    logger.info(f"VR disconnected notification from {client_ip}")
+
+    vr_state.set_disconnected(request.reason)
+
+    return success_response(message="VR disconnection recorded")
+

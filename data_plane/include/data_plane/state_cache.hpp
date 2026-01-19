@@ -105,6 +105,14 @@ public:
     /** @brief 获取夹爪状态 */
     std::optional<std::vector<uint8_t>> get_gripper_state(const std::string& gripper_id) const;
     
+    // ==================== VR 状态 ====================
+    
+    /** @brief 更新 VR 系统状态 */
+    void update_vr_system_state(const std::vector<uint8_t>& data);
+    
+    /** @brief 获取 VR 系统状态 */
+    std::optional<std::vector<uint8_t>> get_vr_system_state() const;
+    
     // ==================== 通用接口 ====================
     
     /** @brief 获取状态更新时间 */
@@ -133,6 +141,7 @@ private:
     std::vector<uint8_t> head_pan_state_;
     std::vector<uint8_t> head_tilt_state_;
     std::unordered_map<std::string, std::vector<uint8_t>> gripper_states_;
+    std::vector<uint8_t> vr_system_state_;
     
     std::chrono::steady_clock::time_point last_update_time_;
 };
