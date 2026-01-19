@@ -41,7 +41,7 @@ pkg_check_modules(GST REQUIRED
 )
 
 # Boost (WebSocket signaling)
-find_package(Boost 1.74 REQUIRED COMPONENTS system thread)
+find_package(Boost REQUIRED COMPONENTS system thread)
 
 # Threads
 find_package(Threads REQUIRED)
@@ -79,7 +79,7 @@ target_include_directories(media_plane_server PRIVATE
     ${GST_INCLUDE_DIRS}
 )
 
-target_link_libraries(media_plane_server PRIVATE
+target_link_libraries(media_plane_server
     ${GST_LIBRARIES}
     Boost::system
     Boost::thread

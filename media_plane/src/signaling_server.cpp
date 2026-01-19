@@ -239,11 +239,7 @@ void SignalingSession::handle_message(const std::string& message) {
                 });
             
             // 创建 Offer
-            if (!webrtc_peer_->create_offer()) {
-                send_error("stream_error", "Failed to create WebRTC offer");
-                webrtc_peer_.reset();
-                return;
-            }
+            webrtc_peer_->create_offer();
             
             std::cout << "Stream requested by peer " << peer_id_ 
                       << " for source: " << video_source << std::endl;
@@ -261,9 +257,7 @@ void SignalingSession::handle_message(const std::string& message) {
                 return;
             }
             
-            if (!webrtc_peer_->set_remote_description(sdp, "answer")) {
-                send_error("stream_error", "Failed to set remote description");
-            }
+            webrtc_peer_->set_remote_description(sdp, "answer");
             
         } else if (type == "ice_candidate") {
             // 收到 ICE Candidate
@@ -462,10 +456,10 @@ bool SignalingServer::verify_token(const std::string& token,
         return true;
     }
     
-    UserInfo user_info;
-    if (jwt_verifier_->verify(token, user_info)) {
-        user_id = user_info.user_id;
-        username = user_info.username;
+        auto user_info_opt = jwt_verifier_->verify(token);
+        if (user_info_opt.has_value()) {
+                user_id = user_info_opt->user_id;
+                username = user_info_opt->username;
         return true;
     }
     
@@ -495,7 +489,6 @@ std::vector<std::string> SignalingServer::get_available_sources() const {
 
 void SignalingServer::do_accept() {
     acceptor_.async_accept(
-        net::make_strand(io_context_),
         beast::bind_front_handler(&SignalingServer::on_accept, shared_from_this())
     );
 }
