@@ -204,10 +204,16 @@ def list_recording_files(action_name: Optional[str] = None) -> List[dict]:
 
 
 # ============================================================================
-# ROS2 服务调用（模拟，待集成）
+# ROS2 服务调用
 # ============================================================================
 
+from app.services.ros2_client import get_ros2_client, ROS2ServiceClient
+
+
 async def call_ros2_start_recording(
+    action_name: str,
+    user_name: str,
+    version: str,
     bag_path: str,
     topics: List[str]
 ) -> tuple[bool, str]:
@@ -217,26 +223,55 @@ async def call_ros2_start_recording(
     Returns:
         tuple[bool, str]: (success, message)
     """
-    # TODO: 实现实际的 ROS2 服务调用
-    # 使用 rclpy 或 ros2cli 调用 rosbag2_recorder_server/start_recording
-    
     # 确保目录存在
     if not ensure_directory(bag_path):
         return False, f"无法创建目录: {bag_path}"
     
-    # 模拟成功
-    return True, "录制已开始（模拟模式）"
+    # 获取 ROS2 客户端
+    client = get_ros2_client()
+    if not client._initialized:
+        await client.initialize()
+    
+    # 调用 ROS2 服务
+    result = await client.start_recording(
+        action_name=action_name,
+        user_name=user_name,
+        version=version,
+        topics=topics,
+    )
+    
+    return result.success, result.message
 
 
-async def call_ros2_stop_recording() -> tuple[bool, str]:
+async def call_ros2_stop_recording() -> tuple[bool, str, float]:
     """
     调用 ROS2 服务停止录制
     
     Returns:
-        tuple[bool, str]: (success, message)
+        tuple[bool, str, float]: (success, message, duration_sec)
     """
-    # TODO: 实现实际的 ROS2 服务调用
-    return True, "录制已停止（模拟模式）"
+    client = get_ros2_client()
+    if not client._initialized:
+        await client.initialize()
+    
+    result = await client.stop_recording()
+    duration = result.data.get("duration_sec", 0.0) if result.success else 0.0
+    
+    return result.success, result.message, duration
+
+
+async def call_ros2_get_recording_status():
+    """
+    获取 ROS2 录制状态
+    
+    Returns:
+        RecordingStatus from ROS2 client
+    """
+    client = get_ros2_client()
+    if not client._initialized:
+        await client.initialize()
+    
+    return await client.get_recording_status()
 
 
 async def call_ros2_get_topics() -> List[str]:
@@ -247,6 +282,7 @@ async def call_ros2_get_topics() -> List[str]:
         List[str]: 话题列表
     """
     # TODO: 实现实际的 ros2 topic list 调用
+    # 目前返回默认话题
     return get_default_topics()
 
 
@@ -303,7 +339,13 @@ async def start_recording(
     )
     
     # 调用 ROS2 服务
-    success, message = await call_ros2_start_recording(bag_path, topics)
+    success, message = await call_ros2_start_recording(
+        request.action_name,
+        request.user_name,
+        request.version,
+        bag_path,
+        topics
+    )
     
     if success:
         state.start(

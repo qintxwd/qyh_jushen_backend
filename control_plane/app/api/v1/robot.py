@@ -41,30 +41,40 @@ URDF_PATH = os.path.expanduser("~/qyh-robot-system/config/robot.urdf")
 
 
 # ============================================================================
-# ROS2 集成（模拟，待实现）
+# ROS2 集成
 # ============================================================================
 
+from app.services.ros2_client import get_ros2_client, ROS2ServiceClient
+
+
 class ROS2Bridge:
-    """ROS2 桥接（模拟实现）"""
+    """ROS2 桥接（使用 ROS2ServiceClient）"""
     
     def __init__(self):
-        self._connected = False
-        self._shutdown_in_progress = False
+        self._client: Optional[ROS2ServiceClient] = None
+    
+    def _get_client(self) -> ROS2ServiceClient:
+        """获取 ROS2 客户端"""
+        if self._client is None:
+            self._client = get_ros2_client()
+        return self._client
     
     def is_connected(self) -> bool:
         """检查 ROS2 是否连接"""
-        # TODO: 实际检查 ROS2 连接状态
-        return self._connected
+        client = self._get_client()
+        # 在非 ROS2 环境下返回 False
+        return not client.is_mock_mode
     
     def get_robot_state(self) -> Optional[dict]:
         """获取机器人状态"""
-        # TODO: 从 ROS2 获取实际状态
+        # TODO: 从 ROS2 Topic 获取实际状态
         return None
     
     def get_shutdown_state(self) -> dict:
         """获取关机状态"""
+        # TODO: 订阅 qyh_shutdown_node 的状态话题
         return {
-            "shutdown_in_progress": self._shutdown_in_progress,
+            "shutdown_in_progress": False,
             "trigger_source": 0,
             "countdown_seconds": -1,
             "plc_connected": False,
@@ -72,11 +82,26 @@ class ROS2Bridge:
     
     async def call_shutdown(self, reason: str = "", delay: int = 0) -> dict:
         """调用关机服务"""
-        # TODO: 实际调用 ROS2 关机服务
-        self._shutdown_in_progress = True
+        client = self._get_client()
+        if not client._initialized:
+            await client.initialize()
+        
+        result = await client.request_shutdown()
         return {
-            "success": True,
-            "message": "关机命令已发送（模拟模式）"
+            "success": result.success,
+            "message": result.message
+        }
+    
+    async def call_reboot(self) -> dict:
+        """调用重启服务"""
+        client = self._get_client()
+        if not client._initialized:
+            await client.initialize()
+        
+        result = await client.request_reboot()
+        return {
+            "success": result.success,
+            "message": result.message
         }
 
 
@@ -358,11 +383,18 @@ async def system_reboot(
     系统重启（需要管理员权限）
     """
     try:
-        # TODO: 实现实际的重启逻辑
-        return success_response(
-            data={"reboot_initiated": True},
-            message="系统重启命令已发送（模拟模式）"
-        )
+        result = await ros2_bridge.call_reboot()
+        
+        if result.get("success"):
+            return success_response(
+                data={"reboot_initiated": True},
+                message=result.get("message", "系统重启命令已发送")
+            )
+        else:
+            return error_response(
+                code=ErrorCodes.INTERNAL_ERROR,
+                message=result.get("message", "重启命令发送失败")
+            )
     except Exception as e:
         logger.error(f"Reboot failed: {e}")
         return error_response(

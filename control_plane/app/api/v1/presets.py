@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Query
 from app.dependencies import get_current_user, get_current_operator
 from app.models.user import User
 from app.services.preset_manager import preset_manager
+from app.services.ros2_client import get_ros2_client, RobotSide, LiftCommand, WaistCommand
 from app.schemas.preset import (
     PresetType,
     CreatePresetRequest,
@@ -266,20 +267,103 @@ async def apply_preset(
             message=f"预设 '{preset_id}' 不存在"
         )
     
-    # TODO: 通过 ROS2 Service 应用预设
-    # 这需要 ROS2ServiceClient 的实现
-    # result = await ros2_client.apply_preset(preset_type, preset, request)
+    # 获取 ROS2 客户端
+    ros2_client = get_ros2_client()
+    result = None
     
-    # 临时返回成功（实际需要 ROS2 集成）
-    return success_response(
-        data={
-            "preset_id": preset_id,
-            "preset_name": preset.get("name"),
-            "applied": True,
-            "message": "预设应用命令已发送（ROS2 集成待实现）"
-        },
-        message=f"正在应用预设 '{preset.get('name')}'"
-    )
+    try:
+        if preset_type == PresetType.ARM_POSE:
+            # 机械臂预设 - 使用 MoveJ 服务
+            data = preset.get("data", {})
+            left_joints = data.get("left_joints", [0.0] * 7)
+            right_joints = data.get("right_joints", [0.0] * 7)
+            velocity = data.get("velocity", 0.5)
+            acceleration = data.get("acceleration", 0.3)
+            
+            # 合并为 14 个关节位置
+            joint_positions = left_joints + right_joints
+            
+            # 确定使用哪只手
+            side_str = data.get("side", "dual")
+            if side_str == "left":
+                robot_side = RobotSide.LEFT
+            elif side_str == "right":
+                robot_side = RobotSide.RIGHT
+            else:
+                robot_side = RobotSide.DUAL
+            
+            result = await ros2_client.arm_move_j(
+                joint_positions=joint_positions,
+                robot_side=robot_side,
+                velocity=velocity,
+                acceleration=acceleration,
+                is_block=True  # 阻塞等待完成
+            )
+            
+        elif preset_type == PresetType.LIFT_HEIGHT:
+            # 升降预设 - 使用 LiftControl 服务
+            data = preset.get("data", {})
+            height = data.get("height", 0.0)
+            
+            result = await ros2_client.lift_go_position(
+                position=height,
+                hold=True
+            )
+            
+        elif preset_type == PresetType.WAIST_ANGLE:
+            # 腰部预设 - 使用 WaistControl 服务
+            data = preset.get("data", {})
+            angle = data.get("angle", 0.0)
+            
+            result = await ros2_client.waist_go_angle(
+                angle=angle,
+                hold=True
+            )
+            
+        elif preset_type == PresetType.HEAD_POSITION:
+            # 头部预设 - 暂时不支持完整的位置控制
+            # 头部只有 enable_torque 服务，没有位置控制服务
+            # TODO: 需要头部位置控制服务
+            return success_response(
+                data={
+                    "preset_id": preset_id,
+                    "preset_name": preset.get("name"),
+                    "applied": False,
+                    "message": "头部预设暂不支持自动应用（需要头部位置控制服务）"
+                },
+                message=f"头部预设 '{preset.get('name')}' 暂不支持自动应用"
+            )
+            
+        else:
+            return error_response(
+                code=ErrorCodes.VALIDATION_ERROR,
+                message=f"不支持应用 {preset_type.value} 类型的预设"
+            )
+        
+        # 检查 ROS2 调用结果
+        if result and result.success:
+            return success_response(
+                data={
+                    "preset_id": preset_id,
+                    "preset_name": preset.get("name"),
+                    "applied": True,
+                    "ros2_mock": ros2_client.is_mock_mode,
+                    "message": result.message
+                },
+                message=f"预设 '{preset.get('name')}' 应用成功"
+            )
+        else:
+            error_msg = result.message if result else "ROS2 服务调用失败"
+            return error_response(
+                code=ErrorCodes.OPERATION_FAILED,
+                message=f"应用预设失败: {error_msg}"
+            )
+            
+    except Exception as e:
+        return error_response(
+            code=ErrorCodes.INTERNAL_ERROR,
+            message=f"应用预设时发生错误: {str(e)}"
+        )
 
 
 @router.post("/capture", response_model=ApiResponse)
@@ -291,40 +375,58 @@ async def capture_current_state(
     采集当前状态为新预设
     
     从 ROS2 读取机器人当前状态，创建新预设
-    """
-    # TODO: 通过 ROS2 获取当前状态
-    # current_state = await ros2_client.get_current_state(request.preset_type, request.side)
     
-    # 临时使用模拟数据
-    if request.preset_type == PresetType.ARM_POSE:
-        captured_data = {
-            "side": request.side,
-            "pose_type": "joint",
-            "left_joints": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-            "right_joints": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-            "velocity": 0.5,
-            "acceleration": 0.3,
-        }
-    elif request.preset_type == PresetType.HEAD_POSITION:
-        captured_data = {
-            "pan": 0.0,
-            "tilt": 0.0,
-        }
-    elif request.preset_type == PresetType.LIFT_HEIGHT:
-        captured_data = {
-            "height": 0.0,
-        }
-    elif request.preset_type == PresetType.WAIST_ANGLE:
-        captured_data = {
-            "angle": 0.0,
-        }
-    else:
-        return error_response(
-            code=ErrorCodes.VALIDATION_ERROR,
-            message=f"不支持采集 {request.preset_type.value} 类型的预设"
-        )
+    注意：当前状态采集需要 ROS2 Topic 订阅，
+    在 ROS2 环境不可用时会返回模拟数据。
+    """
+    ros2_client = get_ros2_client()
+    captured_data = None
+    is_mock_data = ros2_client.is_mock_mode
     
     try:
+        # 尝试从 ROS2 获取当前状态
+        if request.preset_type == PresetType.ARM_POSE:
+            # TODO: 需要订阅 /jaka/joint_states 或类似 topic
+            # 暂时使用模拟数据
+            captured_data = {
+                "side": request.side or "dual",
+                "pose_type": "joint",
+                "left_joints": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                "right_joints": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                "velocity": 0.5,
+                "acceleration": 0.3,
+            }
+            is_mock_data = True  # 强制标记为 mock，因为 topic 订阅未实现
+            
+        elif request.preset_type == PresetType.HEAD_POSITION:
+            # TODO: 需要订阅头部状态 topic
+            captured_data = {
+                "pan": 0.0,
+                "tilt": 0.0,
+            }
+            is_mock_data = True
+            
+        elif request.preset_type == PresetType.LIFT_HEIGHT:
+            # TODO: 需要订阅 /lift/status 或类似 topic
+            captured_data = {
+                "height": 0.0,
+            }
+            is_mock_data = True
+            
+        elif request.preset_type == PresetType.WAIST_ANGLE:
+            # TODO: 需要订阅 /waist/status 或类似 topic
+            captured_data = {
+                "angle": 0.0,
+            }
+            is_mock_data = True
+            
+        else:
+            return error_response(
+                code=ErrorCodes.VALIDATION_ERROR,
+                message=f"不支持采集 {request.preset_type.value} 类型的预设"
+            )
+        
+        # 创建预设
         preset = preset_manager.create(
             preset_type=request.preset_type,
             name=request.name,
@@ -333,14 +435,25 @@ async def capture_current_state(
             category="captured",
         )
         
+        message_suffix = "（使用模拟数据，ROS2 Topic 订阅待实现）" if is_mock_data else ""
+        
         return success_response(
-            data=preset,
-            message=f"已采集当前状态为预设 '{request.name}'（ROS2 集成待实现，当前为模拟数据）"
+            data={
+                **preset,
+                "is_mock_data": is_mock_data,
+            },
+            message=f"已采集当前状态为预设 '{request.name}'{message_suffix}"
         )
+        
     except ValueError as e:
         return error_response(
             code=ErrorCodes.VALIDATION_ERROR,
             message=str(e)
+        )
+    except Exception as e:
+        return error_response(
+            code=ErrorCodes.INTERNAL_ERROR,
+            message=f"采集预设时发生错误: {str(e)}"
         )
 
 

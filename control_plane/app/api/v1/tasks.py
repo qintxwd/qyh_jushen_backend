@@ -3,6 +3,7 @@ QYH Jushen Control Plane - 任务管理 API
 
 管理任务的创建、查询、启动、暂停、取消等生命周期
 """
+import json
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, status
@@ -21,6 +22,7 @@ from app.schemas.response import (
     ErrorCodes,
 )
 from app.schemas.task import CreateTaskRequest, TaskInfo, TaskDetail
+from app.services.ros2_client import get_ros2_client
 
 router = APIRouter()
 
@@ -186,7 +188,24 @@ async def start_task(
     task.started_at = datetime.utcnow()
     db.commit()
     
-    # TODO: 通知 ROS2 启动任务
+    # 通知 ROS2 启动任务
+    ros2_client = get_ros2_client()
+    if not ros2_client._initialized:
+        await ros2_client.initialize()
+    
+    task_json = json.dumps(task.program) if task.program else "{}"
+    ros2_result = await ros2_client.execute_task(task_json, debug_mode=False)
+    
+    if not ros2_result.success:
+        # ROS2 调用失败，回滚状态
+        task.status = TaskStatus.PENDING.value
+        task.started_at = None
+        db.commit()
+        mode_manager.switch_to(RobotMode.IDLE, force=True)
+        return error_response(
+            code=ErrorCodes.INTERNAL_ERROR,
+            message=f"ROS2 任务启动失败: {ros2_result.message}"
+        )
     
     return success_response(
         data=task_to_info(task),
@@ -220,7 +239,11 @@ async def pause_task(
     task.status = TaskStatus.PAUSED.value
     db.commit()
     
-    # TODO: 通知 ROS2 暂停任务
+    # 通知 ROS2 暂停任务
+    ros2_client = get_ros2_client()
+    if not ros2_client._initialized:
+        await ros2_client.initialize()
+    await ros2_client.pause_task(str(task.id))
     
     return success_response(
         data=task_to_info(task),
@@ -254,7 +277,11 @@ async def resume_task(
     task.status = TaskStatus.RUNNING.value
     db.commit()
     
-    # TODO: 通知 ROS2 恢复任务
+    # 通知 ROS2 恢复任务
+    ros2_client = get_ros2_client()
+    if not ros2_client._initialized:
+        await ros2_client.initialize()
+    await ros2_client.resume_task(str(task.id))
     
     return success_response(
         data=task_to_info(task),
@@ -292,7 +319,11 @@ async def cancel_task(
     # 切换回 idle 模式
     mode_manager.switch_to(RobotMode.IDLE, force=True)
     
-    # TODO: 通知 ROS2 取消任务
+    # 通知 ROS2 取消任务
+    ros2_client = get_ros2_client()
+    if not ros2_client._initialized:
+        await ros2_client.initialize()
+    await ros2_client.cancel_task(str(task.id))
     
     return success_response(
         data=task_to_info(task),
