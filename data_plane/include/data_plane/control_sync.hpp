@@ -15,6 +15,8 @@
 #include <chrono>
 #include <thread>
 #include <memory>
+#include <unordered_map>
+#include <vector>
 
 namespace qyh::dataplane {
 

@@ -29,6 +29,8 @@ using tcp = net::ip::tcp;
 // 前向声明
 class Session;
 class Config;
+class MessageHandler;
+class ControlSyncService;
 
 /**
  * @brief WebSocket 服务器
@@ -40,7 +42,7 @@ public:
      * @param io_context IO 上下文
      * @param config 配置
      */
-    Server(net::io_context& io_context, const Config& config);
+    Server(net::io_context& io_context, const Config& config, MessageHandler& handler);
     
     ~Server();
     
@@ -86,6 +88,11 @@ public:
      * @brief 获取会话数量
      */
     size_t session_count() const;
+
+    /**
+     * @brief 设置控制权同步服务
+     */
+    void set_control_sync(ControlSyncService* service) { control_sync_ = service; }
     
 private:
     /**
@@ -102,6 +109,9 @@ private:
     net::io_context& io_context_;
     tcp::acceptor acceptor_;
     const Config& config_;
+    MessageHandler& handler_;
+
+    ControlSyncService* control_sync_ = nullptr;
     
     std::unordered_map<std::string, std::shared_ptr<Session>> sessions_;
     mutable std::mutex sessions_mutex_;

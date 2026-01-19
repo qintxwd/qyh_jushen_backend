@@ -29,6 +29,7 @@ using tcp = net::ip::tcp;
 // 前向声明
 class Server;
 class MessageHandler;
+class ControlSyncService;
 
 /**
  * @brief 会话状态
@@ -182,6 +183,11 @@ public:
      * @brief 是否有控制权限
      */
     bool has_control_permission() const;
+
+    /**
+     * @brief 设置控制权同步服务
+     */
+    void set_control_sync(ControlSyncService* service) { control_sync_ = service; }
     
 private:
     /**
@@ -243,6 +249,8 @@ private:
     
     std::chrono::steady_clock::time_point last_heartbeat_;
     mutable std::mutex heartbeat_mutex_;
+
+    ControlSyncService* control_sync_ = nullptr;
 };
 
 } // namespace qyh::dataplane

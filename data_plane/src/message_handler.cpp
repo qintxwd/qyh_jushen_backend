@@ -11,6 +11,7 @@
 #include "data_plane/auth.hpp"
 #include "data_plane/state_cache.hpp"
 #include "data_plane/config.hpp"
+#include "data_plane/control_sync.hpp"
 
 #ifdef WITH_ROS2
 #include "data_plane/ros2_bridge.hpp"
@@ -151,6 +152,10 @@ void MessageHandler::handle_auth_request(std::shared_ptr<Session> session,
     session->set_client_type(auth_req.client_type());
     session->set_client_version(auth_req.client_version());
     session->set_state(SessionState::AUTHENTICATED);
+
+    if (control_sync_) {
+        control_sync_->associate_session(session->session_id(), user_info->user_id);
+    }
     
     std::cout << "[MessageHandler] Session " << session->session_id() 
               << " authenticated as " << user_info->username 

@@ -6,6 +6,7 @@
 #include "data_plane/session.hpp"
 #include "data_plane/server.hpp"
 #include "data_plane/message_handler.hpp"
+#include "data_plane/control_sync.hpp"
 
 #include <random>
 #include <sstream>
@@ -35,6 +36,9 @@ Session::Session(tcp::socket&& socket,
 }
 
 Session::~Session() {
+    if (control_sync_) {
+        control_sync_->disassociate_session(session_id_);
+    }
     server_.remove_session(session_id_);
 }
 
@@ -101,8 +105,15 @@ bool Session::is_heartbeat_timeout(std::chrono::milliseconds timeout) const {
 }
 
 bool Session::has_control_permission() const {
-    // TODO: 检查是否持有控制锁
-    return user_info_.has_permission("robot:control");
+    if (!user_info_.has_permission("robot:control")) {
+        return false;
+    }
+
+    if (control_sync_) {
+        return control_sync_->session_has_control(session_id_);
+    }
+
+    return true;
 }
 
 void Session::do_accept() {

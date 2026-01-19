@@ -6,15 +6,18 @@
 #include "data_plane/server.hpp"
 #include "data_plane/session.hpp"
 #include "data_plane/config.hpp"
+#include "data_plane/message_handler.hpp"
+#include "data_plane/control_sync.hpp"
 
 #include <iostream>
 
 namespace qyh::dataplane {
 
-Server::Server(net::io_context& io_context, const Config& config)
+Server::Server(net::io_context& io_context, const Config& config, MessageHandler& handler)
     : io_context_(io_context)
     , acceptor_(io_context)
     , config_(config)
+    , handler_(handler)
 {
 }
 
@@ -105,9 +108,11 @@ void Server::on_accept(beast::error_code ec, tcp::socket socket) {
             socket.close();
         } else {
             // 创建新会话
-            // TODO: 传入 MessageHandler
-            // auto session = std::make_shared<Session>(std::move(socket), *this, handler_);
-            // session->start();
+            auto session = std::make_shared<Session>(std::move(socket), *this, handler_);
+            if (control_sync_) {
+                session->set_control_sync(control_sync_);
+            }
+            session->start();
             std::cout << "New connection from " 
                       << socket.remote_endpoint().address().to_string() << std::endl;
         }

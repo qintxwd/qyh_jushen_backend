@@ -10,6 +10,7 @@
 
 #include <iostream>
 #include <algorithm>
+#include <cstdlib>
 
 namespace qyh::mediaplane {
 
@@ -61,6 +62,21 @@ PipelineManager::~PipelineManager() {
 bool PipelineManager::init() {
     // 创建 GMainLoop
     main_loop_ = g_main_loop_new(nullptr, FALSE);
+
+#ifdef ENABLE_ROS2
+    if (config_.ros2.enabled) {
+#if defined(_WIN32)
+        if (config_.ros2.domain_id >= 0) {
+            _putenv_s("ROS_DOMAIN_ID", std::to_string(config_.ros2.domain_id).c_str());
+        }
+#else
+        if (config_.ros2.domain_id >= 0) {
+            setenv("ROS_DOMAIN_ID", std::to_string(config_.ros2.domain_id).c_str(), 1);
+        }
+#endif
+        ROS2ImageSourceFactory::instance().init_ros2();
+    }
+#endif
     
     std::cout << "Pipeline manager initialized with " 
               << video_sources_.size() << " video sources" << std::endl;
@@ -195,10 +211,7 @@ GstElement* PipelineManager::create_video_source_element(const VideoSource* sour
         // 创建新的 ROS2ImageSource
         ROS2ImageSourceConfig ros2_config;
         ros2_config.topic_name = source->topic;
-        ros2_config.name = source->name;
-        ros2_config.width = config_.encoding.width;
-        ros2_config.height = config_.encoding.height;
-        ros2_config.framerate = config_.encoding.framerate;
+        ros2_config.queue_size = 1;
         
         auto& factory = ROS2ImageSourceFactory::instance();
         auto ros2_source = factory.create_source(ros2_config);

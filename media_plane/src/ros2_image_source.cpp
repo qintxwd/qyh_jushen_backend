@@ -313,20 +313,24 @@ rclcpp::Node::SharedPtr ROS2ImageSourceFactory::get_shared_node() {
     return shared_node_;
 }
 
-std::unique_ptr<ROS2ImageSource> ROS2ImageSourceFactory::create_source(const std::string& topic) {
+std::shared_ptr<ROS2ImageSource> ROS2ImageSourceFactory::create_source(const std::string& topic) {
     ROS2ImageSourceConfig config;
     config.topic_name = topic;
     config.queue_size = 1;
-    
-    auto source = std::make_unique<ROS2ImageSource>(config);
-    
+    return create_source(config);
+}
+
+std::shared_ptr<ROS2ImageSource> ROS2ImageSourceFactory::create_source(
+    const ROS2ImageSourceConfig& config) {
+    auto source = std::make_shared<ROS2ImageSource>(config);
+
     auto node = get_shared_node();
     if (node) {
         source->init(node);
     } else {
         source->init();
     }
-    
+
     return source;
 }
 

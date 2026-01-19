@@ -8,6 +8,7 @@
 #include "data_plane/auth.hpp"
 #include "data_plane/message_handler.hpp"
 #include "data_plane/state_cache.hpp"
+#include "data_plane/control_sync.hpp"
 
 #ifdef WITH_ROS2
 #include "data_plane/ros2_bridge.hpp"
@@ -63,6 +64,18 @@ int main(int argc, char* argv[]) {
         qyh::dataplane::JWTValidator validator(config.auth.jwt_secret, 
                                                 config.auth.jwt_algorithm);
         qyh::dataplane::MessageHandler handler(config, validator, state_cache);
+
+        // 控制权同步
+        qyh::dataplane::ControlSyncService control_sync({
+            config.control_sync.control_plane_url,
+            config.control_sync.sync_interval_ms,
+            config.control_sync.timeout_ms,
+            config.control_sync.enabled
+        });
+        if (config.control_sync.enabled) {
+            control_sync.start();
+        }
+        handler.set_control_sync(&control_sync);
         
 #ifdef WITH_ROS2
         // 创建 ROS2 桥接
@@ -81,7 +94,8 @@ int main(int argc, char* argv[]) {
 #endif
         
         // 创建服务器
-        auto server = std::make_shared<qyh::dataplane::Server>(io_context, config);
+        auto server = std::make_shared<qyh::dataplane::Server>(io_context, config, handler);
+        server->set_control_sync(&control_sync);
         
 #ifdef WITH_ROS2
         ros2_bridge.set_server(server.get());
@@ -105,6 +119,7 @@ int main(int argc, char* argv[]) {
             watchdog.stop();
             ros2_bridge.stop();
 #endif
+            control_sync.stop();
             io_context.stop();
         });
         

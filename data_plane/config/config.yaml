@@ -46,6 +46,16 @@ state_publish:
   # 是否启用状态聚合
   enable_aggregation: true
 
+control_sync:
+  # Control Plane 基础地址
+  control_plane_url: "http://localhost:8000"
+  # 同步间隔（毫秒）
+  sync_interval_ms: 1000
+  # 请求超时（毫秒）
+  timeout_ms: 5000
+  # 是否启用同步
+  enabled: true
+
 topics:
   # 订阅话题
   subscribe:

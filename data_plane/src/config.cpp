@@ -62,6 +62,15 @@ bool Config::load_from_file(const std::string& path) {
             if (sp["joint_state_hz"]) state_publish.joint_state_hz = sp["joint_state_hz"].as<int>();
             if (sp["enable_aggregation"]) state_publish.enable_aggregation = sp["enable_aggregation"].as<bool>();
         }
+
+        // Control Sync 配置
+        if (config["control_sync"]) {
+            auto cs = config["control_sync"];
+            if (cs["control_plane_url"]) control_sync.control_plane_url = cs["control_plane_url"].as<std::string>();
+            if (cs["sync_interval_ms"]) control_sync.sync_interval_ms = cs["sync_interval_ms"].as<int>();
+            if (cs["timeout_ms"]) control_sync.timeout_ms = cs["timeout_ms"].as<int>();
+            if (cs["enabled"]) control_sync.enabled = cs["enabled"].as<bool>();
+        }
         
         // Logging 配置
         if (config["logging"]) {
@@ -99,6 +108,10 @@ void Config::load_from_env() {
     
     if (const char* val = std::getenv("WATCHDOG_TIMEOUT_MS")) {
         watchdog.timeout_ms = std::stoi(val);
+    }
+
+    if (const char* val = std::getenv("CONTROL_PLANE_URL")) {
+        control_sync.control_plane_url = val;
     }
 }
 

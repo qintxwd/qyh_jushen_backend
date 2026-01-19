@@ -4,12 +4,82 @@
  */
 
 #include "data_plane/control_sync.hpp"
+
+#include <boost/beast/core.hpp>
+#include <boost/beast/http.hpp>
+#include <boost/beast/version.hpp>
+#include <boost/asio/connect.hpp>
+#include <boost/asio/ip/tcp.hpp>
+
+#include <nlohmann/json.hpp>
+
 #include <iostream>
+#include <regex>
 
 // 简单的 HTTP 客户端（实际项目中可使用 cpr 或 Boost.Beast）
 // 这里提供一个模拟实现，生产环境需要替换为真正的 HTTP 客户端
 
 namespace qyh::dataplane {
+
+namespace {
+namespace beast = boost::beast;
+namespace http = beast::http;
+namespace net = boost::asio;
+using tcp = net::ip::tcp;
+
+struct ParsedUrl {
+    std::string host;
+    std::string port;
+    std::string target;
+    bool valid = false;
+};
+
+ParsedUrl parse_http_url(const std::string& url, const std::string& default_path) {
+    ParsedUrl result;
+
+    std::string work = url;
+    if (work.rfind("http://", 0) == 0) {
+        work = work.substr(7);
+    }
+
+    // 拆分 host[:port] 和 path
+    std::string hostport;
+    std::string path;
+    auto slash_pos = work.find('/');
+    if (slash_pos == std::string::npos) {
+        hostport = work;
+        path = default_path;
+    } else {
+        hostport = work.substr(0, slash_pos);
+        path = work.substr(slash_pos);
+    }
+
+    std::string host;
+    std::string port = "80";
+    auto colon_pos = hostport.find(':');
+    if (colon_pos == std::string::npos) {
+        host = hostport;
+    } else {
+        host = hostport.substr(0, colon_pos);
+        port = hostport.substr(colon_pos + 1);
+    }
+
+    if (host.empty()) {
+        return result;
+    }
+
+    if (path.empty()) {
+        path = default_path;
+    }
+
+    result.host = host;
+    result.port = port;
+    result.target = path;
+    result.valid = true;
+    return result;
+}
+
+} // namespace
 
 // ==================== ControlSyncService ====================
 
@@ -131,27 +201,79 @@ void ControlSyncService::sync_loop() {
 }
 
 bool ControlSyncService::fetch_control_status() {
-    // TODO: 实现真正的 HTTP 请求
-    // GET {control_plane_url}/api/v1/control/status
-    // 
-    // 响应格式:
-    // {
-    //     "control_held": true,
-    //     "holder_user_id": 1,
-    //     "holder_username": "admin",
-    //     "holder_session_id": "xxx",
-    //     "acquired_at": "2024-01-19T10:00:00Z",
-    //     "expires_at": "2024-01-19T10:05:00Z"
-    // }
-    
-    // 模拟实现：实际项目中需要使用 HTTP 库
-    // 可选方案：
-    // 1. libcurl / cpr
-    // 2. Boost.Beast HTTP 客户端
-    // 3. 通过 Unix Socket 与 Control Plane 通信
-    // 4. 通过 Redis Pub/Sub 订阅控制权变更
-    
-    return true;
+    const std::string default_path = "/api/v1/control/status";
+    auto parsed = parse_http_url(config_.control_plane_url, default_path);
+    if (!parsed.valid) {
+        std::cerr << "[ControlSync] Invalid control_plane_url: " << config_.control_plane_url << std::endl;
+        return false;
+    }
+
+    try {
+        net::io_context ioc;
+        tcp::resolver resolver(ioc);
+        beast::tcp_stream stream(ioc);
+
+        // 解析并连接
+        auto const results = resolver.resolve(parsed.host, parsed.port);
+        stream.expires_after(std::chrono::milliseconds(config_.timeout_ms));
+        stream.connect(results);
+
+        // 发送请求
+        http::request<http::string_body> req{http::verb::get, parsed.target, 11};
+        req.set(http::field::host, parsed.host);
+        req.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
+
+        http::write(stream, req);
+
+        // 读取响应
+        beast::flat_buffer buffer;
+        http::response<http::string_body> res;
+        http::read(stream, buffer, res);
+
+        // 关闭连接
+        beast::error_code ec;
+        stream.socket().shutdown(tcp::socket::shutdown_both, ec);
+
+        if (res.result() != http::status::ok) {
+            std::cerr << "[ControlSync] HTTP error: " << res.result_int() << std::endl;
+            return false;
+        }
+
+        auto json = nlohmann::json::parse(res.body(), nullptr, false);
+        if (json.is_discarded()) {
+            std::cerr << "[ControlSync] Invalid JSON response" << std::endl;
+            return false;
+        }
+
+        if (!json.value("success", false)) {
+            std::cerr << "[ControlSync] Response error: " << json.value("message", "unknown") << std::endl;
+            return false;
+        }
+
+        auto data = json.value("data", nlohmann::json::object());
+        bool locked = data.value("locked", false);
+
+        ControlInfo info;
+        info.is_held = locked;
+
+        if (locked && data.contains("holder") && data["holder"].is_object()) {
+            auto holder = data["holder"];
+            info.holder_user_id = holder.value("user_id", 0);
+            info.holder_username = holder.value("username", "");
+            info.holder_session_id = holder.value("session_id", "");
+
+            int remaining = holder.value("remaining_seconds", 0);
+            info.acquired_at = std::chrono::steady_clock::now();
+            info.expires_at = info.acquired_at + std::chrono::seconds(remaining);
+        }
+
+        update_control(info);
+        return true;
+
+    } catch (const std::exception& e) {
+        std::cerr << "[ControlSync] Exception: " << e.what() << std::endl;
+        return false;
+    }
 }
 
 void ControlSyncService::notify_change(const ControlInfo& old_info, 

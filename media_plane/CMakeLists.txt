@@ -21,7 +21,6 @@ if(ament_cmake_FOUND)
     
     find_package(rclcpp REQUIRED)
     find_package(sensor_msgs REQUIRED)
-    find_package(cv_bridge REQUIRED)
     
     add_definitions(-DENABLE_ROS2)
 else()
@@ -91,7 +90,6 @@ if(ENABLE_ROS2)
     ament_target_dependencies(media_plane_server
         rclcpp
         sensor_msgs
-        cv_bridge
     )
 endif()
 

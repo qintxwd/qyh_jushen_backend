@@ -57,6 +57,16 @@ struct StatePublishConfig {
 };
 
 /**
+ * @brief 控制权同步配置
+ */
+struct ControlSyncConfig {
+    std::string control_plane_url = "http://localhost:8000";
+    int sync_interval_ms = 1000;
+    int timeout_ms = 5000;
+    bool enabled = true;
+};
+
+/**
  * @brief 日志配置
  */
 struct LoggingConfig {
@@ -88,6 +98,7 @@ public:
     ROS2Config ros2;
     WatchdogConfig watchdog;
     StatePublishConfig state_publish;
+    ControlSyncConfig control_sync;
     LoggingConfig logging;
     
 private:

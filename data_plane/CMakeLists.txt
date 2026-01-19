@@ -29,6 +29,9 @@ find_package(Threads REQUIRED)
 # yaml-cpp (配置文件解析)
 find_package(yaml-cpp REQUIRED)
 
+# JSON (Control Sync)
+find_package(nlohmann_json 3.9 REQUIRED)
+
 # ROS2 (可选)
 find_package(ament_cmake QUIET)
 if(ament_cmake_FOUND)
@@ -100,6 +103,7 @@ target_link_libraries(data_plane_server PRIVATE
     Boost::thread
     Threads::Threads
     yaml-cpp
+    nlohmann_json::nlohmann_json
 )
 
 if(WITH_ROS2)

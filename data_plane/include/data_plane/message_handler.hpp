@@ -26,6 +26,7 @@ class Session;
 class JWTValidator;
 class StateCache;
 class Config;
+class ControlSyncService;
 
 #ifdef WITH_ROS2
 class ROS2Bridge;
@@ -68,6 +69,11 @@ public:
      */
     void handle_message(std::shared_ptr<Session> session,
                         const std::vector<uint8_t>& data);
+
+    /**
+     * @brief 设置控制权同步服务
+     */
+    void set_control_sync(ControlSyncService* service) { control_sync_ = service; }
     
 private:
     // ==================== 消息处理函数 ====================
@@ -133,6 +139,7 @@ private:
     const Config& config_;
     JWTValidator& validator_;
     StateCache& state_cache_;
+    ControlSyncService* control_sync_ = nullptr;
     
 #ifdef WITH_ROS2
     ROS2Bridge* ros2_bridge_ = nullptr;

@@ -181,7 +181,14 @@ public:
      * @param topic 话题名称
      * @return 图像源
      */
-    std::unique_ptr<ROS2ImageSource> create_source(const std::string& topic);
+    std::shared_ptr<ROS2ImageSource> create_source(const std::string& topic);
+
+    /**
+     * @brief 创建图像源（使用完整配置）
+     * @param config 配置
+     * @return 图像源
+     */
+    std::shared_ptr<ROS2ImageSource> create_source(const ROS2ImageSourceConfig& config);
     
     /**
      * @brief 检测可用的摄像头话题
