@@ -82,13 +82,18 @@ class ROS2Bridge:
     
     def get_shutdown_state(self) -> dict:
         """获取关机状态"""
-        # TODO: 订阅 qyh_shutdown_node 的状态话题
-        return {
-            "shutdown_in_progress": False,
-            "trigger_source": 0,
-            "countdown_seconds": -1,
-            "plc_connected": False,
-        }
+        client = self._get_client()
+        return client.get_shutdown_state()
+
+    async def apply_chassis_config_if_needed(
+        self,
+        chassis_connected: bool,
+    ) -> None:
+        """底盘连接后应用持久化配置"""
+        client = self._get_client()
+        if not client._initialized:
+            await client.initialize()
+        await client.apply_chassis_config_if_needed(chassis_connected)
     
     async def call_shutdown(self, reason: str = "", delay: int = 0) -> dict:
         """调用关机服务"""
@@ -340,6 +345,9 @@ async def get_robot_overview(
     # 尝试从 ROS2 获取实际状态
     state = ros2_bridge.get_robot_state()
     if state:
+        await ros2_bridge.apply_chassis_config_if_needed(
+            chassis_connected=bool(state.get("chassis"))
+        )
         if state.get("left_arm"):
             overview.left_arm = state["left_arm"]
         if state.get("right_arm"):

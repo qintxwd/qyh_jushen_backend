@@ -207,4 +207,19 @@ Control Plane 核心功能已全部实现，共 **79 个 API 端点**，覆盖 *
 
 ---
 
-*最后更新：2025-01-19 - P0 安全任务完成，健康检查、审计日志、控制权持久化完成*
+## 🟢 P1 功能增强（已完成）
+
+✅ **关机状态查询接口**
+- 新增 `GET /api/v1/robot/shutdown/state` 接口
+- 返回关机进度、触发源、倒计时、PLC 连接状态
+- ROS2ServiceClient 支持状态缓存和订阅（预留）
+
+✅ **底盘配置持久化**
+- 新增 `GET/PUT /api/v1/chassis/config` 接口
+- 新增 `POST /api/v1/chassis/config/reset` 接口
+- 配置文件位置与旧版一致: `persistent/web/chassis_config.json`
+- 支持部分更新和字段验证
+
+---
+
+*最后更新：2025-01-19 - P0/P1 任务完成，总端点数: 85*

@@ -17,11 +17,15 @@ QYH Jushen Control Plane - ROS2 服务客户端
 - qyh_head_motor_control: 头部控制
 """
 import asyncio
+import copy
+import json
 import logging
-import time
 import math
+import os
 import threading
-from typing import Optional, Any, Dict, List
+import time
+from pathlib import Path
+from typing import Optional, Any, Dict
 from dataclasses import dataclass, field
 from enum import IntEnum
 
@@ -154,14 +158,47 @@ class ROS2ServiceClient:
         self._latest_right_gripper_state: Optional[Dict[str, Any]] = None
         self._latest_robot_status: Optional[Dict[str, Any]] = None
         self._latest_odom: Optional[Dict[str, Any]] = None
+        self._latest_shutdown_state: Optional[Dict[str, Any]] = None
         self._state_lock = threading.Lock()
 
         # 缓存 joint_states 的索引映射，避免每次 get_robot_state 都解析
-        # 结构: { "left_arm": [indice1, ...], "head": [...], "hash": hash(tuple(names)) }
+        # 结构: { "left_arm": [indice1, ...], "head": [...], "hash": ... }
         self._joint_indices_cache = {}
         
         # 紧急停止发布器
         self._emergency_stop_publisher = None
+        # LED 发布器
+        self._led_color_publisher = None
+        self._led_blink_publisher = None
+
+        # VR 状态缓存
+        self._latest_vr_state = {
+            "connected": False,
+            "head_position": [0.0, 0.0, 0.0],
+            "head_orientation": [0.0, 0.0, 0.0, 1.0],
+            "left_hand_active": False,
+            "left_position": [0.0, 0.0, 0.0],
+            "left_orientation": [0.0, 0.0, 0.0, 1.0],
+            "left_joystick": [0.0, 0.0],
+            "left_trigger": 0.0,
+            "left_grip_value": 0.0,
+            "left_clutch_engaged": False,
+            "left_buttons": [0, 0, 0, 0, 0, 0],
+            "right_hand_active": False,
+            "right_position": [0.0, 0.0, 0.0],
+            "right_orientation": [0.0, 0.0, 0.0, 1.0],
+            "right_joystick": [0.0, 0.0],
+            "right_trigger": 0.0,
+            "right_grip_value": 0.0,
+            "right_clutch_engaged": False,
+            "right_buttons": [0, 0, 0, 0, 0, 0],
+        }
+
+        # 底盘持久化配置应用状态
+        self._chassis_config_applied = False
+        self._chassis_config_last_attempt = 0.0
+        self._chassis_config_retry_interval = 5.0
+        self._chassis_config_lock = threading.Lock()
         
         self._initialized = True
     
@@ -186,7 +223,10 @@ class ROS2ServiceClient:
             self._executor.add_node(self._node)
 
             # 启动后台 Spin 线程
-            self._spin_thread = threading.Thread(target=self._spin_background, daemon=True)
+            self._spin_thread = threading.Thread(
+                target=self._spin_background,
+                daemon=True,
+            )
             self._spin_thread.start()
 
             # 创建服务客户端
@@ -242,6 +282,11 @@ class ROS2ServiceClient:
             from qyh_waist_msgs.srv import WaistControl
             from qyh_gripper_msgs.srv import MoveGripper
             from std_srvs.srv import SetBool
+            from qyh_standard_robot_msgs.srv import (
+                GoSetSpeedType,
+                GoSetSpeakerVolume,
+                GoSetObstacleStrategy,
+            )
             
             # 录制服务
             self._service_clients['start_recording'] = (
@@ -309,6 +354,26 @@ class ROS2ServiceClient:
                     '/head_motor_node/enable_torque',
                 )
             )
+
+            # 底盘参数服务
+            self._service_clients['chassis_set_speed_level'] = (
+                self._node.create_client(
+                    GoSetSpeedType,
+                    'go_set_speed_level',
+                )
+            )
+            self._service_clients['chassis_set_volume'] = (
+                self._node.create_client(
+                    GoSetSpeakerVolume,
+                    'go_set_speaker_volume',
+                )
+            )
+            self._service_clients['chassis_set_obstacle'] = (
+                self._node.create_client(
+                    GoSetObstacleStrategy,
+                    'go_set_obstacle_strategy',
+                )
+            )
             
             logger.info(
                 "Created %d ROS2 service clients",
@@ -324,8 +389,10 @@ class ROS2ServiceClient:
             return
 
         try:
-            from sensor_msgs.msg import JointState
+            from sensor_msgs.msg import JointState, Joy
             from nav_msgs.msg import Odometry
+            from geometry_msgs.msg import PoseStamped
+            from std_msgs.msg import Bool
             from qyh_lift_msgs.msg import LiftState
             from qyh_waist_msgs.msg import WaistState
             from qyh_gripper_msgs.msg import GripperState
@@ -401,6 +468,60 @@ class ROS2ServiceClient:
                 10
             )
 
+            # VR 状态订阅
+            self._node.create_subscription(
+                PoseStamped,
+                '/vr/head/pose',
+                self._on_vr_head_pose,
+                10
+            )
+            self._node.create_subscription(
+                Bool,
+                '/vr/left_controller/active',
+                self._on_vr_left_active,
+                10
+            )
+            self._node.create_subscription(
+                PoseStamped,
+                '/vr/left_controller/pose',
+                self._on_vr_left_pose,
+                10
+            )
+            self._node.create_subscription(
+                Joy,
+                '/vr/left_controller/joy',
+                self._on_vr_left_joy,
+                10
+            )
+            self._node.create_subscription(
+                Bool,
+                '/vr/right_controller/active',
+                self._on_vr_right_active,
+                10
+            )
+            self._node.create_subscription(
+                PoseStamped,
+                '/vr/right_controller/pose',
+                self._on_vr_right_pose,
+                10
+            )
+            self._node.create_subscription(
+                Joy,
+                '/vr/right_controller/joy',
+                self._on_vr_right_joy,
+                10
+            )
+
+            # 订阅关机状态（如果有）
+            # TODO: 需要定义 ShutdownState 消息类型
+            # from qyh_shutdown_msgs.msg import ShutdownState
+            # self._node.create_subscription(
+            #     ShutdownState,
+            #     '/qyh_shutdown_node/state',
+            #     self._on_shutdown_state,
+            #     10
+            # )
+
             logger.info("ROS2 subscriptions created: /joint_states, ...")
 
         except ImportError as e:
@@ -413,6 +534,7 @@ class ROS2ServiceClient:
         
         try:
             from geometry_msgs.msg import Twist
+            from std_msgs.msg import ColorRGBA, String
             
             # 创建 cmd_vel 发布器（用于紧急停止）
             self._emergency_stop_publisher = self._node.create_publisher(
@@ -420,8 +542,20 @@ class ROS2ServiceClient:
                 '/cmd_vel',
                 10
             )
+
+            # LED 发布器
+            self._led_color_publisher = self._node.create_publisher(
+                ColorRGBA,
+                '/robot_led/set_color',
+                10
+            )
+            self._led_blink_publisher = self._node.create_publisher(
+                String,
+                '/robot_led/blink',
+                10
+            )
             
-            logger.info("ROS2 publishers created: /cmd_vel")
+            logger.info("ROS2 publishers created: /cmd_vel, /robot_led/*")
             
         except ImportError as e:
             logger.warning(f"ROS2 message types for publishers not available: {e}")
@@ -570,6 +704,127 @@ class ROS2ServiceClient:
         }
         with self._state_lock:
             self._latest_odom = data
+
+    def _on_shutdown_state(self, msg):
+        """关机状态回调（当消息类型可用时）"""
+        data = {
+            "shutdown_in_progress": msg.shutdown_in_progress,
+            "trigger_source": msg.trigger_source,
+            "countdown_seconds": msg.countdown_seconds,
+            "plc_connected": msg.plc_connected,
+        }
+        with self._state_lock:
+            self._latest_shutdown_state = data
+
+    def _on_vr_head_pose(self, msg):
+        with self._state_lock:
+            self._latest_vr_state["head_position"] = [
+                msg.pose.position.x,
+                msg.pose.position.y,
+                msg.pose.position.z,
+            ]
+            self._latest_vr_state["head_orientation"] = [
+                msg.pose.orientation.x,
+                msg.pose.orientation.y,
+                msg.pose.orientation.z,
+                msg.pose.orientation.w,
+            ]
+            self._latest_vr_state["connected"] = True
+
+    def _on_vr_left_active(self, msg):
+        with self._state_lock:
+            self._latest_vr_state["left_hand_active"] = bool(msg.data)
+            self._latest_vr_state["connected"] = True
+
+    def _on_vr_left_pose(self, msg):
+        with self._state_lock:
+            self._latest_vr_state["left_position"] = [
+                msg.pose.position.x,
+                msg.pose.position.y,
+                msg.pose.position.z,
+            ]
+            self._latest_vr_state["left_orientation"] = [
+                msg.pose.orientation.x,
+                msg.pose.orientation.y,
+                msg.pose.orientation.z,
+                msg.pose.orientation.w,
+            ]
+            self._latest_vr_state["connected"] = True
+
+    def _on_vr_left_joy(self, msg):
+        with self._state_lock:
+            if len(msg.axes) >= 2:
+                self._latest_vr_state["left_joystick"] = [
+                    msg.axes[0],
+                    msg.axes[1],
+                ]
+            if len(msg.axes) >= 3:
+                self._latest_vr_state["left_trigger"] = msg.axes[2]
+            if len(msg.axes) >= 4:
+                self._latest_vr_state["left_grip_value"] = msg.axes[3]
+                self._latest_vr_state["left_clutch_engaged"] = (
+                    msg.axes[3] > 0.8
+                )
+            if len(msg.buttons) >= 6:
+                self._latest_vr_state["left_buttons"] = list(msg.buttons[:6])
+            self._latest_vr_state["connected"] = True
+
+    def _on_vr_right_active(self, msg):
+        with self._state_lock:
+            self._latest_vr_state["right_hand_active"] = bool(msg.data)
+            self._latest_vr_state["connected"] = True
+
+    def _on_vr_right_pose(self, msg):
+        with self._state_lock:
+            self._latest_vr_state["right_position"] = [
+                msg.pose.position.x,
+                msg.pose.position.y,
+                msg.pose.position.z,
+            ]
+            self._latest_vr_state["right_orientation"] = [
+                msg.pose.orientation.x,
+                msg.pose.orientation.y,
+                msg.pose.orientation.z,
+                msg.pose.orientation.w,
+            ]
+            self._latest_vr_state["connected"] = True
+
+    def _on_vr_right_joy(self, msg):
+        with self._state_lock:
+            if len(msg.axes) >= 2:
+                self._latest_vr_state["right_joystick"] = [
+                    msg.axes[0],
+                    msg.axes[1],
+                ]
+            if len(msg.axes) >= 3:
+                self._latest_vr_state["right_trigger"] = msg.axes[2]
+            if len(msg.axes) >= 4:
+                self._latest_vr_state["right_grip_value"] = msg.axes[3]
+                self._latest_vr_state["right_clutch_engaged"] = (
+                    msg.axes[3] > 0.8
+                )
+            if len(msg.buttons) >= 6:
+                self._latest_vr_state["right_buttons"] = list(msg.buttons[:6])
+            self._latest_vr_state["connected"] = True
+
+    def get_shutdown_state(self) -> Dict[str, Any]:
+        """获取关机状态"""
+        with self._state_lock:
+            if self._latest_shutdown_state:
+                return self._latest_shutdown_state.copy()
+        
+        # 返回默认状态
+        return {
+            "shutdown_in_progress": False,
+            "trigger_source": 0,
+            "countdown_seconds": -1,
+            "plc_connected": False,
+        }
+
+    def get_vr_state(self) -> Dict[str, Any]:
+        """获取 VR 状态"""
+        with self._state_lock:
+            return copy.deepcopy(self._latest_vr_state)
 
     def get_robot_state(self) -> Optional[Dict[str, Any]]:
         """返回当前机器人状态（基于 ROS2 topic 缓存）"""
@@ -870,6 +1125,163 @@ class ROS2ServiceClient:
             }
 
         return state
+
+    # ==================== 底盘持久化配置 ====================
+
+    def _get_chassis_config_file(self) -> Path:
+        """获取底盘配置文件路径"""
+        workspace_root = Path(
+            os.environ.get(
+                'QYH_WORKSPACE_ROOT',
+                Path.home() / 'qyh-robot-system',
+            )
+        )
+        config_dir = workspace_root / "persistent" / "web"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        return config_dir / "chassis_config.json"
+
+    def _load_chassis_config(self) -> Dict[str, Any]:
+        """加载底盘配置"""
+        config_file = self._get_chassis_config_file()
+        if config_file.exists():
+            try:
+                return json.loads(config_file.read_text(encoding='utf-8'))
+            except Exception:
+                pass
+        return {
+            "speed_level": 50,
+            "volume": 50,
+            "obstacle_strategy": 1,
+        }
+
+    async def set_chassis_speed_level(self, level: int) -> ServiceResponse:
+        """设置底盘速度级别"""
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
+
+        try:
+            from qyh_standard_robot_msgs.srv import GoSetSpeedType
+
+            client = self._service_clients.get('chassis_set_speed_level')
+            if not client or not client.wait_for_service(timeout_sec=2.0):
+                return ServiceResponse(False, "底盘速度服务不可用")
+
+            request = GoSetSpeedType.Request()
+            request.speed_level = int(level)
+
+            future = client.call_async(request)
+            result = await self._wait_for_future(future, timeout=5.0)
+
+            if result is not None:
+                return ServiceResponse(result.success, result.message)
+            return ServiceResponse(False, "服务调用超时")
+        except Exception as e:
+            logger.error(f"set_chassis_speed_level error: {e}")
+            return ServiceResponse(False, str(e))
+
+    async def set_chassis_volume(self, volume: int) -> ServiceResponse:
+        """设置底盘扬声器音量"""
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
+
+        try:
+            from qyh_standard_robot_msgs.srv import GoSetSpeakerVolume
+
+            client = self._service_clients.get('chassis_set_volume')
+            if not client or not client.wait_for_service(timeout_sec=2.0):
+                return ServiceResponse(False, "底盘音量服务不可用")
+
+            request = GoSetSpeakerVolume.Request()
+            request.volume = int(volume)
+
+            future = client.call_async(request)
+            result = await self._wait_for_future(future, timeout=5.0)
+
+            if result is not None:
+                return ServiceResponse(result.success, result.message)
+            return ServiceResponse(False, "服务调用超时")
+        except Exception as e:
+            logger.error(f"set_chassis_volume error: {e}")
+            return ServiceResponse(False, str(e))
+
+    async def apply_chassis_config_if_needed(
+        self,
+        chassis_connected: bool,
+    ) -> None:
+        """底盘连接后应用持久化配置"""
+        if not chassis_connected:
+            return
+
+        now = time.time()
+        with self._chassis_config_lock:
+            if self._chassis_config_applied:
+                return
+            if (
+                now - self._chassis_config_last_attempt
+                < self._chassis_config_retry_interval
+            ):
+                return
+            self._chassis_config_last_attempt = now
+
+        config = self._load_chassis_config()
+        speed_level = config.get("speed_level", 50)
+        volume = config.get("volume", 50)
+
+        speed_result = await self.set_chassis_speed_level(speed_level)
+        volume_result = await self.set_chassis_volume(volume)
+
+        if speed_result.success and volume_result.success:
+            with self._chassis_config_lock:
+                self._chassis_config_applied = True
+        else:
+            logger.warning(
+                "Apply chassis config failed: speed=%s, volume=%s",
+                speed_result.message,
+                volume_result.message,
+            )
+
+    # ==================== LED 控制 ====================
+
+    async def set_led_color(
+        self,
+        r: int,
+        g: int,
+        b: int,
+        w: int = 0,
+    ) -> ServiceResponse:
+        """设置 LED 纯色"""
+        if self._node is None or self._led_color_publisher is None:
+            return ServiceResponse(False, "LED 发布器未初始化")
+
+        try:
+            from std_msgs.msg import ColorRGBA
+
+            msg = ColorRGBA()
+            msg.r = max(0.0, min(1.0, r / 255.0))
+            msg.g = max(0.0, min(1.0, g / 255.0))
+            msg.b = max(0.0, min(1.0, b / 255.0))
+            msg.a = max(0.0, min(1.0, w / 255.0))
+            self._led_color_publisher.publish(msg)
+            return ServiceResponse(True, "LED 颜色已发送")
+        except Exception as e:
+            logger.error(f"set_led_color error: {e}")
+            return ServiceResponse(False, str(e))
+
+    async def set_led_blink(self, command: str) -> ServiceResponse:
+        """设置 LED 闪烁模式"""
+        if self._node is None or self._led_blink_publisher is None:
+            return ServiceResponse(False, "LED 闪烁发布器未初始化")
+
+        try:
+            from std_msgs.msg import String
+
+            msg = String()
+            msg.data = command
+            self._led_blink_publisher.publish(msg)
+            return ServiceResponse(True, "LED 闪烁指令已发送")
+        except Exception as e:
+            logger.error(f"set_led_blink error: {e}")
+            return ServiceResponse(False, str(e))
     
     async def shutdown(self):
         """关闭 ROS2 节点"""
