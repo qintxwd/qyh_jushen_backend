@@ -1,0 +1,41 @@
+[Unit]
+Description=QYH Robot Data Plane (WebSocket/ROS2)
+Documentation=https://github.com/qyh-robot/backend
+After=network.target ros2-daemon.service
+Requires=ros2-daemon.service
+
+[Service]
+Type=simple
+User=robot
+Group=robot
+WorkingDirectory=/opt/qyh-robot/data_plane
+EnvironmentFile=/etc/qyh-robot/environment
+
+# ROS2 环境
+Environment=ROS_DOMAIN_ID=0
+Environment=RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+
+ExecStart=/opt/qyh-robot/data_plane/bin/data_plane_server \
+    /etc/qyh-robot/data_plane/config.yaml
+
+Restart=always
+RestartSec=3
+
+# 实时调度（可选，需要权限）
+# Nice=-10
+# CPUSchedulingPolicy=fifo
+# CPUSchedulingPriority=50
+
+# 安全加固
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/qyh-robot
+PrivateTmp=true
+
+# 资源限制
+MemoryMax=256M
+CPUQuota=200%
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,68 @@
+// 通用定义 - 所有服务共享的基础类型
+syntax = "proto3";
+package qyh.dataplane;
+
+option cc_enable_arenas = true;
+
+// 时间戳（所有消息必须携带）
+message Timestamp {
+    int64 seconds = 1;      // 秒（Unix 时间戳）
+    int32 nanos = 2;        // 纳秒
+}
+
+// 3D 向量
+message Vector3 {
+    double x = 1;
+    double y = 2;
+    double z = 3;
+}
+
+// 四元数
+message Quaternion {
+    double x = 1;
+    double y = 2;
+    double z = 3;
+    double w = 4;
+}
+
+// 位姿
+message Pose {
+    Vector3 position = 1;
+    Quaternion orientation = 2;
+}
+
+// 速度（线速度 + 角速度）
+message Twist {
+    Vector3 linear = 1;
+    Vector3 angular = 2;
+}
+
+// 消息头（所有消息必须包含）
+message Header {
+    Timestamp stamp = 1;        // 时间戳
+    string frame_id = 2;        // 坐标系 ID
+    uint64 sequence = 3;        // 序列号
+}
+
+// 用户信息（从 JWT 解析）
+message UserInfo {
+    int64 user_id = 1;
+    string username = 2;
+    string role = 3;                    // admin, operator, viewer
+    repeated string permissions = 4;    // teleop, task_manage, config
+}
+
+// 会话信息
+message SessionInfo {
+    string session_id = 1;
+    UserInfo user = 2;
+    Timestamp connected_at = 3;
+    bool has_control = 4;
+}
+
+// 通用错误消息
+message Error {
+    int32 code = 1;
+    string message = 2;
+    string details = 3;
+}

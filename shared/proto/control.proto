@@ -1,0 +1,122 @@
+// 控制消息定义 - 客户端到服务端的控制意图
+syntax = "proto3";
+package qyh.dataplane;
+
+import "common.proto";
+
+option cc_enable_arenas = true;
+
+// ==================== 控制类型枚举 ====================
+
+// 控制意图类型
+enum ControlType {
+    CONTROL_NONE = 0;
+    CONTROL_VR_TELEOP = 1;      // VR 遥操作
+    CONTROL_GAMEPAD = 2;        // 手柄控制
+    CONTROL_KEYBOARD = 3;       // 键盘控制
+    CONTROL_AUTO = 4;           // 自主模式
+}
+
+// ==================== VR 控制 ====================
+
+// VR 手柄数据
+message VRController {
+    bool active = 1;                    // 手柄是否激活
+    Pose pose = 2;                      // 手柄位姿
+    float trigger = 3;                  // 扳机值 (0.0 - 1.0)
+    float grip = 4;                     // 握力值 (0.0 - 1.0)
+    repeated float joystick = 5;        // 摇杆 [x, y]
+    repeated bool buttons = 6;          // 按钮状态 [Button1, Button2, Menu, JoyClick]
+    bool clutch_engaged = 7;            // Clutch 接合状态
+}
+
+// VR 控制意图
+message VRControlIntent {
+    Header header = 1;
+    Pose head_pose = 2;                 // 头部位姿
+    VRController left_hand = 3;         // 左手控制器
+    VRController right_hand = 4;        // 右手控制器
+}
+
+// ==================== 底盘控制 ====================
+
+// 底盘速度命令
+message ChassisVelocity {
+    Header header = 1;
+    double linear_x = 2;                // 前进速度 (m/s)
+    double linear_y = 3;                // 横向速度 (m/s)
+    double angular_z = 4;               // 角速度 (rad/s)
+}
+
+// 导航目标
+message NavigationGoal {
+    Header header = 1;
+    Pose target_pose = 2;               // 目标位姿
+    bool is_localization_only = 3;      // 仅定位，不导航
+}
+
+// ==================== 机械臂控制 ====================
+
+// 关节位置命令
+message JointCommand {
+    Header header = 1;
+    repeated string names = 2;          // 关节名称
+    repeated double positions = 3;      // 目标位置 (rad)
+    repeated double velocities = 4;     // 速度限制 (rad/s)
+}
+
+// 末端执行器命令
+message EndEffectorCommand {
+    Header header = 1;
+    string arm_side = 2;                // "left" 或 "right"
+    Pose target_pose = 3;               // 目标位姿
+    double speed_factor = 4;            // 速度因子 (0.0 - 1.0)
+}
+
+// 夹爪命令
+message GripperCommand {
+    Header header = 1;
+    string gripper_id = 2;              // "left" 或 "right"
+    double position = 3;                // 开合度 (0.0=闭合, 1.0=完全打开)
+    double force = 4;                   // 夹持力 (N)
+}
+
+// ==================== 心跳 ====================
+
+// 心跳消息
+message Heartbeat {
+    Header header = 1;
+    string session_id = 2;
+    ControlType control_type = 3;       // 当前控制类型
+}
+
+// ==================== 订阅管理 ====================
+
+// 订阅请求
+message SubscribeRequest {
+    Header header = 1;
+    repeated string topics = 2;         // 要订阅的话题
+    int32 max_rate_hz = 3;              // 最大推送频率
+}
+
+// 取消订阅
+message UnsubscribeRequest {
+    Header header = 1;
+    repeated string topics = 2;
+}
+
+// ==================== 认证 ====================
+
+// 认证请求（WebSocket 连接后首条消息）
+message AuthRequest {
+    string token = 1;                   // JWT Token
+    string client_type = 2;             // "web", "vr", "mobile"
+    string client_version = 3;          // 客户端版本
+}
+
+// 认证响应
+message AuthResponse {
+    bool success = 1;
+    SessionInfo session = 2;
+    Error error = 3;
+}

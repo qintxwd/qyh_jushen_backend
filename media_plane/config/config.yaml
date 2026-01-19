@@ -1,0 +1,60 @@
+# Media Plane 配置文件
+
+server:
+  # WebSocket Signaling 端口
+  signaling_port: 8888
+  host: "0.0.0.0"
+  max_connections: 10
+
+video:
+  # 视频源
+  sources:
+    - name: "head_camera"
+      device: "/dev/video0"
+      type: "v4l2"
+      enabled: true
+    - name: "arm_camera"
+      device: "/dev/video1"
+      type: "v4l2"
+      enabled: false
+
+  # 编码参数
+  encoding:
+    # 编解码器: h264, h265, vp8, vp9
+    codec: "h264"
+    # 使用硬件编码 (Jetson NVENC)
+    hardware_encoder: true
+    # 分辨率
+    width: 1280
+    height: 720
+    # 帧率
+    framerate: 30
+    # 码率 (kbps)
+    bitrate: 2000
+    # 关键帧间隔
+    keyframe_interval: 30
+
+webrtc:
+  # STUN 服务器
+  stun_servers:
+    - "stun:stun.l.google.com:19302"
+  
+  # TURN 服务器（可选，内网不需要）
+  turn_servers: []
+  
+  # ICE 传输策略: all, relay
+  ice_transport_policy: "all"
+
+# Jetson 硬件加速配置
+jetson:
+  # 使用 NVENC 编码
+  use_nvenc: true
+  # NVENC 预设: ultrafast, fast, medium, slow
+  nvenc_preset: "fast"
+  # 使用 NVDEC 解码（如果需要接收视频）
+  use_nvdec: false
+
+logging:
+  level: "INFO"
+  file: ""
+  journald: true

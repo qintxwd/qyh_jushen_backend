@@ -1,0 +1,193 @@
+// 状态消息定义 - 服务端到客户端的状态推送
+syntax = "proto3";
+package qyh.dataplane;
+
+import "common.proto";
+
+option cc_enable_arenas = true;
+
+// ==================== 关节状态 ====================
+
+// 关节状态
+message JointState {
+    Header header = 1;
+    repeated string names = 2;          // 关节名称
+    repeated double positions = 3;      // 位置 (rad)
+    repeated double velocities = 4;     // 速度 (rad/s)
+    repeated double efforts = 5;        // 力矩 (Nm)
+}
+
+// ==================== 机械臂状态 ====================
+
+// 机械臂状态
+message ArmState {
+    Header header = 1;
+    bool connected = 2;                 // 连接状态
+    bool powered_on = 3;                // 上电状态
+    bool enabled = 4;                   // 使能状态
+    bool in_estop = 5;                  // 急停状态
+    bool in_error = 6;                  // 错误状态
+    bool servo_mode = 7;                // 伺服模式
+    string error_message = 8;           // 错误信息
+    
+    // 左臂关节位置 (7 DOF)
+    repeated double left_positions = 9;
+    // 右臂关节位置 (7 DOF)
+    repeated double right_positions = 10;
+    
+    // 末端位姿
+    Pose left_end_effector = 11;
+    Pose right_end_effector = 12;
+    
+    // 到位状态
+    bool left_in_position = 13;
+    bool right_in_position = 14;
+}
+
+// 夹爪状态
+message GripperState {
+    Header header = 1;
+    string gripper_id = 2;              // "left" 或 "right"
+    double position = 3;                // 当前开合度
+    double force = 4;                   // 当前夹持力
+    bool object_detected = 5;           // 是否检测到物体
+    bool in_motion = 6;                 // 是否在运动中
+}
+
+// ==================== 底盘状态 ====================
+
+// 底盘状态
+message ChassisState {
+    Header header = 1;
+    Pose odom = 2;                      // 里程计位姿
+    Twist velocity = 3;                 // 当前速度
+    double battery_level = 4;           // 电池电量 (0-100)
+    bool charging = 5;                  // 是否在充电
+    bool emergency_stop = 6;            // 急停状态
+    
+    // 导航状态
+    NavigationStatus navigation = 7;
+}
+
+// 导航状态
+message NavigationStatus {
+    enum State {
+        IDLE = 0;
+        NAVIGATING = 1;
+        PAUSED = 2;
+        SUCCEEDED = 3;
+        FAILED = 4;
+        CANCELLED = 5;
+    }
+    
+    State state = 1;
+    Pose current_goal = 2;              // 当前目标
+    double distance_remaining = 3;      // 剩余距离 (m)
+    double eta_seconds = 4;             // 预计到达时间 (s)
+    string error_message = 5;           // 失败原因
+}
+
+// ==================== 传感器数据 ====================
+
+// IMU 数据
+message ImuData {
+    Header header = 1;
+    Quaternion orientation = 2;
+    Vector3 angular_velocity = 3;
+    Vector3 linear_acceleration = 4;
+}
+
+// ==================== 升降/腰部/头部 ====================
+
+// 单轴执行器状态（升降、腰部、头部通用）
+message ActuatorState {
+    Header header = 1;
+    string actuator_id = 2;             // "lift", "waist", "head_pan", "head_tilt"
+    double position = 3;                // 当前位置
+    double velocity = 4;                // 当前速度
+    double min_limit = 5;               // 最小限位
+    double max_limit = 6;               // 最大限位
+    bool in_motion = 7;                 // 是否在运动中
+    bool in_position = 8;               // 是否到位
+}
+
+// ==================== 机器人综合状态 ====================
+
+// 机器人工作模式
+enum RobotMode {
+    MODE_IDLE = 0;
+    MODE_TELEOP = 1;
+    MODE_AUTO = 2;
+    MODE_MAINTENANCE = 3;
+    MODE_ERROR = 4;
+}
+
+// 机器人综合状态（主状态消息，30Hz 推送）
+message RobotState {
+    Header header = 1;
+    
+    // 工作模式
+    RobotMode mode = 2;
+    
+    // 控制权信息
+    bool control_held = 3;
+    string control_holder = 4;          // 控制权持有者用户名
+    
+    // 子系统状态
+    ArmState arm = 5;
+    ChassisState chassis = 6;
+    JointState joints = 7;
+    
+    // 执行器状态
+    ActuatorState lift = 8;
+    ActuatorState waist = 9;
+    ActuatorState head_pan = 10;
+    ActuatorState head_tilt = 11;
+    
+    // 夹爪状态
+    GripperState left_gripper = 12;
+    GripperState right_gripper = 13;
+    
+    // 系统状态
+    bool system_ready = 14;
+    repeated string active_errors = 15;
+    repeated string warnings = 16;
+}
+
+// ==================== VR 状态 ====================
+
+// VR 系统状态
+message VRSystemState {
+    Header header = 1;
+    bool connected = 2;
+    Pose head_pose = 3;
+    bool left_controller_active = 4;
+    bool right_controller_active = 5;
+    bool left_clutch_engaged = 6;
+    bool right_clutch_engaged = 7;
+}
+
+// ==================== 任务状态 ====================
+
+// 任务执行状态
+message TaskState {
+    Header header = 1;
+    int64 task_id = 2;
+    string task_name = 3;
+    
+    enum Status {
+        PENDING = 0;
+        RUNNING = 1;
+        PAUSED = 2;
+        COMPLETED = 3;
+        FAILED = 4;
+        CANCELLED = 5;
+    }
+    Status status = 4;
+    
+    int32 current_step = 5;
+    int32 total_steps = 6;
+    double progress = 7;                // 0.0 - 1.0
+    string current_action = 8;          // 当前执行的动作描述
+    string error_message = 9;
+}

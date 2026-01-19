@@ -1,0 +1,130 @@
+// 消息封装 - WebSocket 传输的顶层消息
+syntax = "proto3";
+package qyh.dataplane;
+
+import "common.proto";
+import "control.proto";
+import "state.proto";
+
+option cc_enable_arenas = true;
+
+// 消息类型枚举
+enum MessageType {
+    MSG_UNKNOWN = 0;
+    
+    // 认证 (0x0001 - 0x000F)
+    MSG_AUTH_REQUEST = 1;
+    MSG_AUTH_RESPONSE = 2;
+    
+    // 订阅管理 (0x0010 - 0x001F)
+    MSG_SUBSCRIBE = 16;
+    MSG_UNSUBSCRIBE = 17;
+    
+    // 心跳 (0x0020 - 0x002F)
+    MSG_HEARTBEAT = 32;
+    MSG_HEARTBEAT_ACK = 33;
+    
+    // 控制意图 (0x0100 - 0x01FF)
+    MSG_VR_CONTROL = 256;
+    MSG_CHASSIS_VELOCITY = 257;
+    MSG_JOINT_COMMAND = 258;
+    MSG_END_EFFECTOR_CMD = 259;
+    MSG_GRIPPER_COMMAND = 260;
+    MSG_NAVIGATION_GOAL = 261;
+    
+    // 状态推送 (0x0200 - 0x02FF)
+    MSG_ROBOT_STATE = 512;
+    MSG_JOINT_STATE = 513;
+    MSG_ARM_STATE = 514;
+    MSG_CHASSIS_STATE = 515;
+    MSG_GRIPPER_STATE = 516;
+    MSG_VR_SYSTEM_STATE = 517;
+    MSG_TASK_STATE = 518;
+    MSG_ACTUATOR_STATE = 519;
+    
+    // 错误 (0x0300 - 0x03FF)
+    MSG_ERROR = 768;
+    
+    // 系统通知 (0x0400 - 0x04FF)
+    MSG_MODE_CHANGED = 1024;
+    MSG_CONTROL_CHANGED = 1025;
+    MSG_EMERGENCY_STOP = 1026;
+}
+
+// WebSocket 消息封装
+// 所有消息都使用此结构进行封装
+message WebSocketMessage {
+    // 消息类型
+    MessageType type = 1;
+    
+    // 序列号（用于请求-响应匹配）
+    uint64 sequence = 2;
+    
+    // 时间戳
+    Timestamp timestamp = 3;
+    
+    // 消息体（根据 type 选择对应字段）
+    oneof payload {
+        // 认证
+        AuthRequest auth_request = 10;
+        AuthResponse auth_response = 11;
+        
+        // 订阅
+        SubscribeRequest subscribe = 20;
+        UnsubscribeRequest unsubscribe = 21;
+        
+        // 心跳
+        Heartbeat heartbeat = 30;
+        
+        // 控制意图
+        VRControlIntent vr_control = 100;
+        ChassisVelocity chassis_velocity = 101;
+        JointCommand joint_command = 102;
+        EndEffectorCommand end_effector_cmd = 103;
+        GripperCommand gripper_command = 104;
+        NavigationGoal navigation_goal = 105;
+        
+        // 状态
+        RobotState robot_state = 200;
+        JointState joint_state = 201;
+        ArmState arm_state = 202;
+        ChassisState chassis_state = 203;
+        GripperState gripper_state = 204;
+        VRSystemState vr_system_state = 205;
+        TaskState task_state = 206;
+        ActuatorState actuator_state = 207;
+        
+        // 错误
+        Error error = 300;
+        
+        // 系统通知
+        ModeChangedNotification mode_changed = 400;
+        ControlChangedNotification control_changed = 401;
+        EmergencyStopNotification emergency_stop = 402;
+    }
+}
+
+// 模式变更通知
+message ModeChangedNotification {
+    Header header = 1;
+    RobotMode old_mode = 2;
+    RobotMode new_mode = 3;
+    string reason = 4;
+}
+
+// 控制权变更通知
+message ControlChangedNotification {
+    Header header = 1;
+    bool control_held = 2;
+    string holder_username = 3;
+    int64 holder_user_id = 4;
+    string change_reason = 5;           // acquired, released, timeout, forced
+}
+
+// 急停通知
+message EmergencyStopNotification {
+    Header header = 1;
+    bool active = 2;                    // true=急停激活, false=急停解除
+    string source = 3;                  // 触发来源
+    string reason = 4;
+}
