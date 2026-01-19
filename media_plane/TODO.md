@@ -4,7 +4,7 @@
 >
 > **Media Plane 职责**：多摄像头视频流硬件编码和 WebRTC 低延迟传输
 >
-> **最后更新**: 2025-01-19
+> **最后更新**: 2025-01-20
 
 ---
 
@@ -12,14 +12,47 @@
 
 | 模块 | 文件 | 状态 | 说明 |
 |------|------|------|------|
-| **配置管理** | `config.cpp` | ✅ 完成 | YAML + 环境变量 + JWT |
+| **配置管理** | `config.cpp` | ✅ 完成 | YAML + 环境变量 + JWT + ROS2 |
 | **媒体服务器** | `media_server.cpp` | ✅ 完成 | 信令集成完成 |
-| **管道管理器** | `pipeline_manager.cpp` | ✅ 完成 | 多源+统计+错误处理 |
+| **管道管理器** | `pipeline_manager.cpp` | ✅ 完成 | 多源+统计+ROS2+错误处理 |
 | **信令服务器** | `signaling_server.cpp` | ✅ 完成 | 完整协议支持 |
 | **WebRTC Peer** | `webrtc_peer.cpp` | ✅ 基本完成 | 需测试验证 |
 | **认证模块** | `auth.cpp` | ✅ 完成 | JWT 验证实现 |
+| **ROS2 图像源** | `ros2_image_source.cpp` | ✅ 新增 | Orbbec 摄像头支持 |
 
-**总体进度：~95%**
+**总体进度：~98%**
+
+---
+
+## 🎯 重要更新：Orbbec RGBD 摄像头支持
+
+> 项目使用奥比中光 Gemini 330 系列 RGBD 摄像头，通过 ROS2 发布图像话题。
+> Media Plane 新增 ROS2 图像源适配器，可直接订阅 ROS2 图像话题并注入 GStreamer 管道。
+
+### 摄像头配置
+
+| 摄像头 | USB 端口 | 序列号 | ROS2 话题 |
+|--------|----------|--------|-----------|
+| head_camera | 2-3.1 | CP0HC5300021 | /head_camera/color/image_raw |
+| right_camera | 2-3.2 | CP0BB530003J | /right_camera/color/image_raw |
+| left_camera | 2-3.3.3 | CP0BB53000AT | /left_camera/color/image_raw |
+
+### ROS2 集成架构
+
+```
+[Orbbec Camera Node] ---> [ROS2 Image Topic] ---> [ROS2ImageSource]
+                                                       |
+                                                       v
+                                                  [appsrc] ---> [videoconvert] ---> [encoder] ---> [webrtcbin]
+```
+
+### 新增文件
+
+- `ros2_image_source.hpp` - ROS2 图像源头文件
+- `ros2_image_source.cpp` - ROS2 图像源实现
+  - 订阅 sensor_msgs/msg/Image
+  - 转换为 GstBuffer
+  - 通过 appsrc 注入管道
 
 ---
 
@@ -35,6 +68,8 @@
 - [x] 环境变量覆盖支持
 - [x] JWT 密钥配置 (支持环境变量 JWT_SECRET)
 - [x] 认证开关配置 (require_auth)
+- [x] **ROS2Config** - ROS2 配置（域 ID、话题发现间隔）
+- [x] **topic 字段** - 视频源 ROS2 话题配置
 
 ### 2. 信令服务器 ✅ 完成
 
@@ -69,13 +104,25 @@
 
 - [x] VideoSource 结构
 - [x] 视频源类型支持 (v4l2/nvarguscamerasrc/videotestsrc)
+- [x] **ROS2 图像源支持** (ros2 类型)
 - [x] 编码器创建 (nvv4l2h264enc/x264enc)
 - [x] GMainLoop 管理
 - [x] 完整视频管道创建
 - [x] create_peer() 创建视频源元素
 - [x] 多视频源支持
 
-### 5. 认证模块 ✅ 新增
+### 5. ROS2 图像源 ✅ 新增
+
+- [x] ROS2ImageSource 类
+- [x] 订阅 sensor_msgs/msg/Image
+- [x] 多种编码格式支持 (rgb8/bgr8/rgba8/mono8/yuv422)
+- [x] GstBuffer 转换和推送
+- [x] appsrc 元素创建和配置
+- [x] ROS2ImageSourceFactory 工厂类
+- [x] 共享 ROS2 Node
+- [x] FPS 统计
+
+### 6. 认证模块 ✅ 完成
 
 - [x] JWT Token 验证 (JwtVerifier)
 - [x] Base64 URL 解码
@@ -83,14 +130,14 @@
 - [x] 过期时间检查
 - [x] UserInfo 结构体
 
-### 6. 媒体服务器集成 ✅ 完成
+### 7. 媒体服务器集成 ✅ 完成
 
 - [x] io_context 管理
 - [x] SignalingServer 集成
 - [x] io_thread 异步运行
 - [x] 生命周期管理
 
-### 7. Pipeline 统计 ✅ 新增
+### 8. Pipeline 统计 ✅ 完成
 
 - [x] PipelineStats 结构体
 - [x] active_peers 统计
@@ -104,46 +151,37 @@
 
 ### 优先级 P0 (必须完成)
 
-1. ~~**媒体服务器信令集成**~~ ✅ 已完成
-
-2. ~~**完整视频管道**~~ ✅ 已完成
-
-3. **Peer 生命周期管理**
-   - [x] Peer 状态回调基础
-   - [x] 断开连接清理
-   - [ ] 超时处理
+1. **集成测试**
+   - [ ] 在 Jetson Orin Nano 上编译测试
+   - [ ] Orbbec 摄像头实际测试
+   - [ ] WebRTC 端到端验证
 
 ### 优先级 P1 (重要)
 
-4. ~~**JWT 认证**~~ ✅ 已完成
+2. **超时处理**
+   - [ ] ROS2 话题超时检测
+   - [ ] WebRTC 连接超时
+   - [ ] 自动重连机制
 
-5. **多相机支持** ✅ 已完成
-   - [x] 按名称选择视频源 (head/left_hand/right_hand)
-   - [x] 切换视频源 (switch_source) - 需要重连
-   - [x] 视频源可用性列表
-   - [x] is_source_available 检查
-
-6. **错误处理** ✅ 已完成
-   - [x] 基本错误响应
-   - [x] GStreamer 错误回调
-   - [x] report_error 机制
-   - [ ] 编码器失败后备
+3. **编码器后备**
+   - [ ] NVENC 失败时自动切换软编
+   - [ ] 分辨率自适应
 
 ### 优先级 P2 (增强)
 
-7. **监控和统计** ✅ 基本完成
+4. **监控和统计**
    - [x] 连接数统计
    - [x] Peer 创建统计
    - [x] 错误计数
    - [ ] 延迟统计
    - [ ] Prometheus 指标
 
-8. **动态配置**
+5. **动态配置**
    - [ ] 运行时调整码率
    - [ ] 运行时调整分辨率
    - [ ] 热重载配置
 
-9. **高级功能**
+6. **高级功能**
    - [ ] TURN 服务器支持
    - [ ] H.265 支持
    - [ ] 帧时间戳同步

@@ -16,19 +16,35 @@ video:
   # 默认视频源
   default_source: "head_camera"
   
-  # 视频源
+  # 视频源配置
+  # type 类型说明:
+  #   - ros2: 从 ROS2 话题订阅图像 (Orbbec/RealSense等)
+  #   - v4l2: 直接访问 V4L2 设备
+  #   - nvargus: Jetson CSI 摄像头
+  #   - test: 测试图案源
   sources:
+    # Orbbec Gemini 330 头部摄像头
     - name: "head_camera"
-      device: "/dev/video0"
-      type: "v4l2"
+      type: "ros2"
+      topic: "/head_camera/color/image_raw"
       enabled: true
-    - name: "arm_camera"
-      device: "/dev/video1"
-      type: "v4l2"
-      enabled: false
+    
+    # Orbbec Gemini 330 左手摄像头
+    - name: "left_camera"
+      type: "ros2"
+      topic: "/left_camera/color/image_raw"
+      enabled: true
+    
+    # Orbbec Gemini 330 右手摄像头
+    - name: "right_camera"
+      type: "ros2"
+      topic: "/right_camera/color/image_raw"
+      enabled: true
+    
+    # 测试视频源（开发调试用）
     - name: "test_pattern"
-      device: ""
       type: "test"
+      device: ""
       enabled: true
 
   # 编码参数
@@ -66,6 +82,15 @@ jetson:
   nvenc_preset: "fast"
   # 使用 NVDEC 解码（如果需要接收视频）
   use_nvdec: false
+
+# ROS2 配置
+ros2:
+  # 是否启用 ROS2 支持
+  enabled: true
+  # ROS_DOMAIN_ID（如果不同于系统默认）
+  domain_id: -1  # -1 表示使用环境变量
+  # 话题发现间隔（秒）
+  discovery_interval: 5
 
 logging:
   level: "INFO"

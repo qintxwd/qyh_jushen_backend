@@ -24,6 +24,7 @@ PipelineManager::PipelineManager(const Config& config)
         VideoSource vs;
         vs.name = src.name;
         vs.device = src.device;
+        vs.topic = src.topic;  // ROS2 话题
         vs.type = src.type;
         vs.enabled = src.enabled;
         video_sources_.push_back(vs);
@@ -101,6 +102,17 @@ void PipelineManager::stop_sources() {
         peers_.clear();
     }
     
+#ifdef ENABLE_ROS2
+    // 停止所有 ROS2 图像源
+    {
+        std::lock_guard<std::mutex> lock(ros2_sources_mutex_);
+        for (auto& [topic, ros2_src] : ros2_sources_) {
+            ros2_src->stop();
+        }
+        ros2_sources_.clear();
+    }
+#endif
+    
     // 停止视频源
     for (auto& source : video_sources_) {
         if (source.element) {
@@ -167,6 +179,47 @@ GstElement* PipelineManager::create_video_source_element(const VideoSource* sour
         }
         return video_src;
     }
+    
+#ifdef ENABLE_ROS2
+    if (source->type == "ros2") {
+        // ROS2 图像源 - 返回 appsrc 元素
+        // 查找或创建 ROS2ImageSource
+        std::lock_guard<std::mutex> lock(ros2_sources_mutex_);
+        
+        auto it = ros2_sources_.find(source->topic);
+        if (it != ros2_sources_.end()) {
+            // 已有该话题的源，直接返回 appsrc
+            return it->second->get_appsrc();
+        }
+        
+        // 创建新的 ROS2ImageSource
+        ROS2ImageSourceConfig ros2_config;
+        ros2_config.topic_name = source->topic;
+        ros2_config.name = source->name;
+        ros2_config.width = config_.encoding.width;
+        ros2_config.height = config_.encoding.height;
+        ros2_config.framerate = config_.encoding.framerate;
+        
+        auto& factory = ROS2ImageSourceFactory::instance();
+        auto ros2_source = factory.create_source(ros2_config);
+        
+        if (ros2_source) {
+            ros2_source->start();
+            ros2_sources_[source->topic] = ros2_source;
+            
+            std::cout << "Created ROS2 image source for topic: " << source->topic << std::endl;
+            return ros2_source->get_appsrc();
+        } else {
+            std::cerr << "Failed to create ROS2 image source for topic: " << source->topic << std::endl;
+            // 回退到测试源
+            video_src = gst_element_factory_make("videotestsrc", nullptr);
+            if (video_src) {
+                g_object_set(video_src, "is-live", TRUE, "pattern", 0, nullptr);
+            }
+            return video_src;
+        }
+    }
+#endif
     
     if (source->type == "v4l2") {
         video_src = gst_element_factory_make("v4l2src", nullptr);

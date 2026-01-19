@@ -16,8 +16,9 @@ namespace qyh::mediaplane {
  */
 struct VideoSourceConfig {
     std::string name;           // 源名称（如 "head_camera"）
-    std::string device;         // 设备路径（如 "/dev/video0"）
-    std::string type;           // 源类型（v4l2/nvargus/test）
+    std::string device;         // 设备路径（如 "/dev/video0"）用于 v4l2
+    std::string topic;          // ROS2 话题（如 "/head_camera/color/image_raw"）用于 ros2 类型
+    std::string type;           // 源类型（ros2/v4l2/nvargus/test）
     bool enabled = true;
 };
 
@@ -83,6 +84,15 @@ struct VideoConfig {
 };
 
 /**
+ * @brief ROS2 配置
+ */
+struct ROS2Config {
+    bool enabled = true;
+    int domain_id = -1;         // -1 表示使用环境变量
+    int discovery_interval = 5;  // 话题发现间隔（秒）
+};
+
+/**
  * @brief 总配置
  */
 class Config {
@@ -106,6 +116,7 @@ public:
     EncodingConfig encoding;
     WebRTCConfig webrtc;
     JetsonConfig jetson;
+    ROS2Config ros2;
     LoggingConfig logging;
 };
 

@@ -10,6 +10,25 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_compile_options(-Wall -Wextra -Wpedantic)
 
+# ==================== ROS2 依赖 ====================
+
+# 尝试查找 ament_cmake（ROS2 构建系统）
+find_package(ament_cmake QUIET)
+
+if(ament_cmake_FOUND)
+    message(STATUS "ROS2 ament_cmake found, enabling ROS2 image source")
+    set(ENABLE_ROS2 ON)
+    
+    find_package(rclcpp REQUIRED)
+    find_package(sensor_msgs REQUIRED)
+    find_package(cv_bridge REQUIRED)
+    
+    add_definitions(-DENABLE_ROS2)
+else()
+    message(WARNING "ROS2 not found, ROS2 image source will be disabled")
+    set(ENABLE_ROS2 OFF)
+endif()
+
 # ==================== 依赖查找 ====================
 
 # GStreamer
@@ -46,6 +65,11 @@ set(SOURCES
     src/auth.cpp
 )
 
+# 如果启用 ROS2，添加 ROS2 图像源
+if(ENABLE_ROS2)
+    list(APPEND SOURCES src/ros2_image_source.cpp)
+endif()
+
 add_executable(media_plane_server ${SOURCES})
 
 target_include_directories(media_plane_server PRIVATE
@@ -62,6 +86,15 @@ target_link_libraries(media_plane_server PRIVATE
     nlohmann_json::nlohmann_json
 )
 
+# ROS2 依赖链接
+if(ENABLE_ROS2)
+    ament_target_dependencies(media_plane_server
+        rclcpp
+        sensor_msgs
+        cv_bridge
+    )
+endif()
+
 target_compile_options(media_plane_server PRIVATE ${GST_CFLAGS_OTHER})
 
 # ==================== 安装 ====================
@@ -73,3 +106,8 @@ install(TARGETS media_plane_server
 install(DIRECTORY config/
     DESTINATION etc/qyh-robot/media_plane
 )
+
+# ROS2 ament 包安装（如果是 ROS2 环境）
+if(ENABLE_ROS2)
+    ament_package()
+endif()

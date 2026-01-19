@@ -17,6 +17,10 @@
 #include <functional>
 #include <atomic>
 
+#ifdef ENABLE_ROS2
+#include "media_plane/ros2_image_source.hpp"
+#endif
+
 namespace qyh::mediaplane {
 
 // 前向声明
@@ -30,11 +34,16 @@ class SignalingServer;
 struct VideoSource {
     std::string name;
     std::string device;
-    std::string type;  // v4l2, nvarguscamerasrc, test
+    std::string topic;  // ROS2 话题（用于 ros2 类型）
+    std::string type;   // v4l2, nvarguscamerasrc, test, ros2
     bool enabled;
     
     GstElement* element = nullptr;
     GstElement* tee = nullptr;  // 用于多路输出
+    
+#ifdef ENABLE_ROS2
+    std::shared_ptr<ROS2ImageSource> ros2_source;  // ROS2 图像源
+#endif
 };
 
 /**
@@ -149,6 +158,13 @@ private:
      */
     GstElement* create_video_source_element(const VideoSource* source);
     
+#ifdef ENABLE_ROS2
+    /**
+     * @brief 创建 ROS2 图像源
+     */
+    std::shared_ptr<ROS2ImageSource> create_ros2_source(const VideoSource& source);
+#endif
+    
     /**
      * @brief 处理 GStreamer 总线消息
      */
@@ -170,6 +186,11 @@ private:
     std::unordered_map<std::string, std::shared_ptr<WebRTCPeer>> peers_;
     std::unordered_map<std::string, std::string> peer_sources_;  // peer_id -> source_name
     mutable std::mutex peers_mutex_;
+    
+#ifdef ENABLE_ROS2
+    std::unordered_map<std::string, std::shared_ptr<ROS2ImageSource>> ros2_sources_;  // topic -> source
+    mutable std::mutex ros2_sources_mutex_;
+#endif
     
     GMainLoop* main_loop_ = nullptr;
     std::thread gst_thread_;

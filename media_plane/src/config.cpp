@@ -49,6 +49,7 @@ bool Config::load_from_file(const std::string& path) {
                     VideoSourceConfig vs;
                     vs.name = src["name"].as<std::string>();
                     vs.device = src["device"].as<std::string>("");
+                    vs.topic = src["topic"].as<std::string>("");   // ROS2 话题
                     vs.type = src["type"].as<std::string>("v4l2");
                     vs.enabled = src["enabled"].as<bool>(true);
                     video.sources.push_back(vs);
@@ -67,6 +68,14 @@ bool Config::load_from_file(const std::string& path) {
                 if (e["bitrate"]) encoding.bitrate = e["bitrate"].as<int>();
                 if (e["keyframe_interval"]) encoding.keyframe_interval = e["keyframe_interval"].as<int>();
             }
+        }
+        
+        // ROS2 配置
+        if (config["ros2"]) {
+            auto r = config["ros2"];
+            if (r["enabled"]) ros2.enabled = r["enabled"].as<bool>();
+            if (r["domain_id"]) ros2.domain_id = r["domain_id"].as<int>();
+            if (r["discovery_interval"]) ros2.discovery_interval = r["discovery_interval"].as<int>();
         }
         
         // WebRTC 配置
