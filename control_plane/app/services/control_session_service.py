@@ -8,8 +8,8 @@ import logging
 from datetime import datetime
 from typing import Optional, List
 
-from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.control_session import ControlSession
 
@@ -24,8 +24,8 @@ class ControlSessionService:
     """
     
     @staticmethod
-    def create_session(
-        db: Session,
+    async def create_session(
+        db: AsyncSession,
         user_id: int,
         username: str,
         session_type: str,
@@ -49,15 +49,15 @@ class ControlSessionService:
             started_at=datetime.utcnow(),
         )
         db.add(session)
-        db.commit()
-        db.refresh(session)
+        await db.commit()
+        await db.refresh(session)
         
         logger.info(f"Control session created: {session.id} for user {username}")
         return session
     
     @staticmethod
-    def end_session(
-        db: Session,
+    async def end_session(
+        db: AsyncSession,
         user_id: int,
         end_reason: str = "released",
     ) -> Optional[ControlSession]:
@@ -73,16 +73,19 @@ class ControlSessionService:
             结束的会话记录，如果没有活跃会话则返回 None
         """
         # 查找该用户未结束的会话
-        session = db.query(ControlSession).filter(
+        stmt = select(ControlSession).filter(
             ControlSession.user_id == user_id,
             ControlSession.ended_at.is_(None)
-        ).order_by(desc(ControlSession.started_at)).first()
+        ).order_by(desc(ControlSession.started_at))
+        
+        result = await db.execute(stmt)
+        session = result.scalars().first()
         
         if session:
             session.ended_at = datetime.utcnow()
             session.end_reason = end_reason
-            db.commit()
-            db.refresh(session)
+            await db.commit()
+            await db.refresh(session)
             
             duration = session.duration_seconds
             logger.info(
@@ -94,8 +97,8 @@ class ControlSessionService:
         return None
     
     @staticmethod
-    def end_all_active_sessions(
-        db: Session,
+    async def end_all_active_sessions(
+        db: AsyncSession,
         end_reason: str = "forced",
     ) -> int:
         """
@@ -113,9 +116,11 @@ class ControlSessionService:
         now = datetime.utcnow()
         
         # 查找所有未结束的会话
-        active_sessions = db.query(ControlSession).filter(
+        stmt = select(ControlSession).filter(
             ControlSession.ended_at.is_(None)
-        ).all()
+        )
+        result = await db.execute(stmt)
+        active_sessions = result.scalars().all()
         
         count = 0
         for session in active_sessions:
@@ -124,14 +129,14 @@ class ControlSessionService:
             count += 1
         
         if count > 0:
-            db.commit()
+            await db.commit()
             logger.info(f"Ended {count} active control sessions, reason={end_reason}")
         
         return count
     
     @staticmethod
-    def get_active_session(
-        db: Session,
+    async def get_active_session(
+        db: AsyncSession,
         user_id: int,
     ) -> Optional[ControlSession]:
         """
@@ -144,14 +149,17 @@ class ControlSessionService:
         Returns:
             活跃的会话记录，如果没有则返回 None
         """
-        return db.query(ControlSession).filter(
+        stmt = select(ControlSession).filter(
             ControlSession.user_id == user_id,
             ControlSession.ended_at.is_(None)
-        ).order_by(desc(ControlSession.started_at)).first()
+        ).order_by(desc(ControlSession.started_at))
+        
+        result = await db.execute(stmt)
+        return result.scalars().first()
     
     @staticmethod
-    def get_history(
-        db: Session,
+    async def get_history(
+        db: AsyncSession,
         user_id: Optional[int] = None,
         limit: int = 50,
         offset: int = 0,
@@ -168,18 +176,21 @@ class ControlSessionService:
         Returns:
             会话记录列表
         """
-        query = db.query(ControlSession)
+        stmt = select(ControlSession)
         
         if user_id is not None:
-            query = query.filter(ControlSession.user_id == user_id)
+            stmt = stmt.filter(ControlSession.user_id == user_id)
         
-        return query.order_by(
+        stmt = stmt.order_by(
             desc(ControlSession.started_at)
-        ).offset(offset).limit(limit).all()
+        ).offset(offset).limit(limit)
+        
+        result = await db.execute(stmt)
+        return result.scalars().all()
     
     @staticmethod
-    def get_statistics(
-        db: Session,
+    async def get_statistics(
+        db: AsyncSession,
         days: int = 7,
     ) -> dict:
         """
@@ -198,37 +209,47 @@ class ControlSessionService:
         cutoff = datetime.utcnow() - timedelta(days=days)
         
         # 总会话数
-        total = db.query(func.count(ControlSession.id)).scalar() or 0
+        stmt_total = select(func.count(ControlSession.id))
+        result_total = await db.execute(stmt_total)
+        total = result_total.scalar() or 0
         
         # 指定时间段内的会话数
-        recent = db.query(func.count(ControlSession.id)).filter(
+        stmt_recent = select(func.count(ControlSession.id)).filter(
             ControlSession.started_at >= cutoff
-        ).scalar() or 0
+        )
+        result_recent = await db.execute(stmt_recent)
+        recent = result_recent.scalar() or 0
         
         # 按用户统计
-        by_user = db.query(
+        stmt_by_user = select(
             ControlSession.username,
             func.count(ControlSession.id).label("count")
         ).filter(
             ControlSession.started_at >= cutoff
-        ).group_by(ControlSession.username).all()
+        ).group_by(ControlSession.username)
+        result_by_user = await db.execute(stmt_by_user)
+        by_user = result_by_user.all()
         
         # 按会话类型统计
-        by_type = db.query(
+        stmt_by_type = select(
             ControlSession.session_type,
             func.count(ControlSession.id).label("count")
         ).filter(
             ControlSession.started_at >= cutoff
-        ).group_by(ControlSession.session_type).all()
+        ).group_by(ControlSession.session_type)
+        result_by_type = await db.execute(stmt_by_type)
+        by_type = result_by_type.all()
         
         # 按结束原因统计
-        by_reason = db.query(
+        stmt_by_reason = select(
             ControlSession.end_reason,
             func.count(ControlSession.id).label("count")
         ).filter(
             ControlSession.started_at >= cutoff,
             ControlSession.end_reason.isnot(None)
-        ).group_by(ControlSession.end_reason).all()
+        ).group_by(ControlSession.end_reason)
+        result_by_reason = await db.execute(stmt_by_reason)
+        by_reason = result_by_reason.all()
         
         return {
             "total_sessions": total,
@@ -241,20 +262,20 @@ class ControlSessionService:
 
 
 # 便捷函数
-def create_control_session(
-    db: Session,
+async def create_control_session(
+    db: AsyncSession,
     user_id: int,
     username: str,
     session_type: str,
 ) -> ControlSession:
     """创建控制权会话"""
-    return ControlSessionService.create_session(db, user_id, username, session_type)
+    return await ControlSessionService.create_session(db, user_id, username, session_type)
 
 
-def end_control_session(
-    db: Session,
+async def end_control_session(
+    db: AsyncSession,
     user_id: int,
     end_reason: str = "released",
 ) -> Optional[ControlSession]:
     """结束控制权会话"""
-    return ControlSessionService.end_session(db, user_id, end_reason)
+    return await ControlSessionService.end_session(db, user_id, end_reason)

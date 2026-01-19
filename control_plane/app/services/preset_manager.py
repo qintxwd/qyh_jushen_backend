@@ -15,6 +15,7 @@ from threading import Lock
 import logging
 
 from app.schemas.preset import PresetType, PresetInfo
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +47,25 @@ class PresetManager:
         初始化预设管理器
         
         Args:
-            storage_path: 存储路径，默认为 ~/qyh-robot-system/persistent/preset/
+            storage_path: 存储路径，默认为 configured PERSISTENT_DIR/preset/
         """
+        if storage_path:
+            self.storage_path = Path(storage_path)
+        else:
+            self.storage_path = Path(settings.persistent_dir_expanded) / "preset"
+            
+        if not self.storage_path.exists():
+            try:
+                self.storage_path.mkdir(parents=True, exist_ok=True)
+                logger.info(f"Created preset storage directory: {self.storage_path}")
+            except Exception as e:
+                logger.error(f"Failed to create preset storage directory: {e}")
+                
+        self._cache: Dict[PresetType, List[Dict]] = {}
+        self._lock = Lock()
+        
+        # 加载所有预设
+        self._load_all()
         if storage_path is None:
             home = Path.home()
             storage_path = home / "qyh-robot-system" / "persistent" / "preset"

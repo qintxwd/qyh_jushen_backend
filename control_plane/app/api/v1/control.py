@@ -4,10 +4,10 @@ QYH Jushen Control Plane - 控制权管理 API
 实现机器人控制权的获取、释放、续约等功能
 """
 from fastapi import APIRouter, Depends, Request
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_current_operator, get_current_admin
-from app.database import get_db
+from app.database import get_async_db
 from app.models.user import User
 from app.core.control_lock import control_lock
 from app.schemas.response import ApiResponse, success_response, error_response, ErrorCodes
@@ -17,7 +17,7 @@ from app.schemas.control import (
     ControlStatus,
     ForceReleaseRequest,
 )
-from app.services.audit_service import audit_log_sync
+from app.services.audit_service import AuditService
 from app.services.control_session_service import (
     create_control_session,
     end_control_session,
@@ -32,7 +32,7 @@ async def acquire_control(
     request: AcquireControlRequest,
     http_request: Request,
     current_user: User = Depends(get_current_operator),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """
     获取机器人控制权
@@ -50,7 +50,7 @@ async def acquire_control(
         holder = control_lock.get_holder()
         
         # 持久化：创建控制权会话记录
-        create_control_session(
+        await create_control_session(
             db=db,
             user_id=current_user.id,
             username=current_user.username,
@@ -58,7 +58,7 @@ async def acquire_control(
         )
         
         # 记录审计日志
-        audit_log_sync(
+        await AuditService.log(
             db=db,
             action="control_acquire",
             resource="control",
@@ -83,7 +83,7 @@ async def acquire_control(
 async def release_control(
     http_request: Request,
     current_user: User = Depends(get_current_operator),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """
     释放控制权
@@ -92,10 +92,10 @@ async def release_control(
     
     if success:
         # 持久化：结束控制权会话
-        end_control_session(db, current_user.id, "released")
+        await end_control_session(db, current_user.id, "released")
         
         # 记录审计日志
-        audit_log_sync(
+        await AuditService.log(
             db=db,
             action="control_release",
             resource="control",
@@ -165,7 +165,7 @@ async def force_release_control(
     request: ForceReleaseRequest,
     http_request: Request,
     current_user: User = Depends(get_current_admin),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """
     强制释放控制权（仅管理员）
@@ -174,10 +174,10 @@ async def force_release_control(
     
     if old_holder:
         # 持久化：结束被强制释放用户的会话
-        end_control_session(db, old_holder["user_id"], f"forced:{request.reason}")
+        await end_control_session(db, old_holder["user_id"], f"forced:{request.reason}")
         
         # 记录审计日志
-        audit_log_sync(
+        await AuditService.log(
             db=db,
             action="control_force_release",
             resource="control",
@@ -205,7 +205,7 @@ async def get_control_history(
     limit: int = 50,
     offset: int = 0,
     current_user: User = Depends(get_current_operator),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """
     获取控制权会话历史
@@ -223,7 +223,7 @@ async def get_control_history(
     if current_user.role != "admin":
         user_id = current_user.id
     
-    sessions = ControlSessionService.get_history(db, user_id, limit, offset)
+    sessions = await ControlSessionService.get_history(db, user_id, limit, offset)
     
     return success_response(
         data={
@@ -251,12 +251,12 @@ async def get_control_history(
 async def get_control_statistics(
     days: int = 7,
     current_user: User = Depends(get_current_admin),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """
     获取控制权统计信息（仅管理员）
     """
-    stats = ControlSessionService.get_statistics(db, days)
+    stats = await ControlSessionService.get_statistics(db, days)
     
     return success_response(
         data=stats,

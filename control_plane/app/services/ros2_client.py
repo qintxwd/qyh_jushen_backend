@@ -21,7 +21,7 @@ import logging
 import time
 import math
 import threading
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, List
 from dataclasses import dataclass, field
 from enum import IntEnum
 
@@ -34,6 +34,7 @@ rclpy = None
 
 try:
     import rclpy
+    from rclpy.executors import MultiThreadedExecutor
     # from rclpy.node import Node
     ROS2_AVAILABLE = True
     logger.info("ROS2 (rclpy) is available")
@@ -138,6 +139,8 @@ class ROS2ServiceClient:
             raise RuntimeError("ROS2 (rclpy) not available")
         
         self._node = None
+        self._executor = None
+        self._spin_thread = None
         self._service_clients = {}
 
         # 订阅状态缓存
@@ -152,6 +155,10 @@ class ROS2ServiceClient:
         self._latest_robot_status: Optional[Dict[str, Any]] = None
         self._latest_odom: Optional[Dict[str, Any]] = None
         self._state_lock = threading.Lock()
+
+        # 缓存 joint_states 的索引映射，避免每次 get_robot_state 都解析
+        # 结构: { "left_arm": [indice1, ...], "head": [...], "hash": hash(tuple(names)) }
+        self._joint_indices_cache = {}
         
         self._initialized = True
     
@@ -171,6 +178,14 @@ class ROS2ServiceClient:
             
             self._node = rclpy.create_node('control_plane_client')
             
+            # 使用多线程执行器
+            self._executor = MultiThreadedExecutor()
+            self._executor.add_node(self._node)
+
+            # 启动后台 Spin 线程
+            self._spin_thread = threading.Thread(target=self._spin_background, daemon=True)
+            self._spin_thread.start()
+
             # 创建服务客户端
             await self._create_service_clients()
 
@@ -183,6 +198,19 @@ class ROS2ServiceClient:
         except Exception as e:
             logger.error(f"Failed to initialize ROS2 client: {e}")
             return False
+
+    def _spin_background(self):
+        """后台持续 Spin，处理订阅消息"""
+        if not self._executor:
+            return
+        
+        try:
+            # 这里的 spin 会阻塞，直到 executor shutdown
+            self._executor.spin()
+        except Exception as e:
+            # shutdown 时可能会抛出异常，忽略即可
+            if rclpy.ok():
+                logger.error(f"ROS2 executor spin failed: {e}")
     
     async def _create_service_clients(self):
         """创建所有服务客户端"""
@@ -367,19 +395,20 @@ class ROS2ServiceClient:
                 10
             )
 
-            logger.info(
-                "ROS2 subscriptions created: /joint_states, "
-                "/left_arm/joint_states, "
-                "/right_arm/joint_states, "
-                "/head/joint_states, "
-                "/lift/state, /waist/state, "
-                "/left/gripper_state, "
-                "/right/gripper_state, "
-                "/standard_robot_node/standard_robot_status, /odom"
-            )
+            logger.info("ROS2 subscriptions created: /joint_states, ...")
 
         except ImportError as e:
             logger.warning(f"ROS2 topic types not available: {e}")
+
+    async def _wait_for_future(self, future, timeout=5.0):
+        """等待 ROS2 Future 完成 (非阻塞)"""
+        start_time = time.time()
+        while not future.done():
+            if time.time() - start_time > timeout:
+                future.cancel()
+                return None
+            await asyncio.sleep(0.01)
+        return future.result()
 
     def _on_joint_state(self, msg):
         data = {
@@ -521,16 +550,18 @@ class ROS2ServiceClient:
         if self._node is None:
             return None
 
-        try:
-            rclpy.spin_once(self._node, timeout_sec=0.0)
-        except Exception:
-            pass
+        # [REFACTORED] 不再需要主动 spin_once，后台线程在持续 spin
+        # try:
+        #     rclpy.spin_once(self._node, timeout_sec=0.0)
+        # except Exception:
+        #     pass
 
         # 复制缓存
         with self._state_lock:
             latest_joint_state = self._latest_joint_state
             latest_left_arm_joint_state = self._latest_left_arm_joint_state
             latest_right_arm_joint_state = self._latest_right_arm_joint_state
+            # ... copies refs ...
             latest_head_joint_state = self._latest_head_joint_state
             latest_lift_state = self._latest_lift_state
             latest_waist_state = self._latest_waist_state
@@ -561,98 +592,106 @@ class ROS2ServiceClient:
             positions = latest_joint_state.get("position", [])
             velocities = latest_joint_state.get("velocity", [])
             efforts = latest_joint_state.get("effort", [])
+            
+            # [OPTIMIZED] 缓存关节名称分类索引，避免每帧重复字符串匹配
+            names_tuple = tuple(names)
+            cache_entry = self._joint_indices_cache.get("joint_idx")
+            
+            if cache_entry is None or cache_entry["names"] != names_tuple:
+                # 重新构建缓存
+                idx_map = {}
+                left_arm_indices = []
+                right_arm_indices = []
+                head_indices = []
+                lift_indices = []
+                waist_indices = []
+                left_gripper_idx = -1
+                right_gripper_idx = -1
 
-            joint_map = {}
-            for idx, name in enumerate(names):
-                joint_map[name] = {
-                    "name": name,
-                    "position": (
-                        positions[idx] if idx < len(positions) else 0.0
-                    ),
-                    "velocity": (
-                        velocities[idx] if idx < len(velocities) else 0.0
-                    ),
-                    "effort": efforts[idx] if idx < len(efforts) else 0.0,
+                for i, n in enumerate(names):
+                    if "gripper" in n:
+                        if "left" in n or n.startswith("l_"):
+                            left_gripper_idx = i
+                        elif "right" in n or n.startswith("r_"):
+                            right_gripper_idx = i
+                    elif "head" in n:
+                        head_indices.append(i)
+                    elif "lift" in n:
+                        lift_indices.append(i)
+                    elif "waist" in n:
+                        waist_indices.append(i)
+                    elif "left" in n or n.startswith("l_") or n.startswith("l-"):
+                        left_arm_indices.append(i)
+                    elif "right" in n or n.startswith("r_") or n.startswith("r-"):
+                        right_arm_indices.append(i)
+                
+                cache_entry = {
+                    "names": names_tuple,
+                    "left_arm": left_arm_indices,
+                    "right_arm": right_arm_indices,
+                    "head": head_indices,
+                    "lift": lift_indices,
+                    "waist": waist_indices,
+                    "left_gripper": left_gripper_idx,
+                    "right_gripper": right_gripper_idx,
                 }
+                self._joint_indices_cache["joint_idx"] = cache_entry
 
-            def select_names(predicate):
-                return [n for n in names if predicate(n)]
+            # 使用缓存的索引直接提取数据
+            def get_joints(indices):
+                res = []
+                for i in indices:
+                    res.append({
+                        "name": names[i],
+                        "position": positions[i] if i < len(positions) else 0.0,
+                        "velocity": velocities[i] if i < len(velocities) else 0.0,
+                        "effort": efforts[i] if i < len(efforts) else 0.0,
+                    })
+                return res
 
-            left_gripper_names = select_names(
-                lambda n: "gripper" in n
-                and ("left" in n or n.startswith("l_"))
-            )
-            right_gripper_names = select_names(
-                lambda n: "gripper" in n
-                and ("right" in n or n.startswith("r_"))
-            )
-
-            head_names = select_names(lambda n: "head" in n)
-            lift_names = select_names(lambda n: "lift" in n)
-            waist_names = select_names(lambda n: "waist" in n)
-
-            def is_left_arm(n: str) -> bool:
-                if "left" in n or n.startswith("l_") or n.startswith("l-"):
-                    return (
-                        "gripper" not in n
-                        and "head" not in n
-                        and "lift" not in n
-                        and "waist" not in n
-                    )
-                return False
-
-            def is_right_arm(n: str) -> bool:
-                if "right" in n or n.startswith("r_") or n.startswith("r-"):
-                    return (
-                        "gripper" not in n
-                        and "head" not in n
-                        and "lift" not in n
-                        and "waist" not in n
-                    )
-                return False
-
-            left_arm_names = select_names(is_left_arm)
-            right_arm_names = select_names(is_right_arm)
-
-            if left_arm_names:
+            if cache_entry["left_arm"]:
                 state["left_arm"] = {
-                    "joints": [joint_map[n] for n in left_arm_names],
-                    "joint_count": len(left_arm_names),
+                    "joints": get_joints(cache_entry["left_arm"]),
+                    "joint_count": len(cache_entry["left_arm"]),
                 }
-            if right_arm_names:
+            if cache_entry["right_arm"]:
                 state["right_arm"] = {
-                    "joints": [joint_map[n] for n in right_arm_names],
-                    "joint_count": len(right_arm_names),
+                    "joints": get_joints(cache_entry["right_arm"]),
+                    "joint_count": len(cache_entry["right_arm"]),
                 }
-            if head_names:
+            if cache_entry["head"]:
                 state["head"] = {
-                    "joints": [joint_map[n] for n in head_names],
-                    "joint_count": len(head_names),
+                    "joints": get_joints(cache_entry["head"]),
+                    "joint_count": len(cache_entry["head"]),
                 }
-            if lift_names:
+            if cache_entry["lift"]:
                 state["lift"] = {
-                    "joints": [joint_map[n] for n in lift_names],
-                    "joint_count": len(lift_names),
+                    "joints": get_joints(cache_entry["lift"]),
+                    "joint_count": len(cache_entry["lift"]),
                 }
-            if waist_names:
+            if cache_entry["waist"]:
                 state["waist"] = {
-                    "joints": [joint_map[n] for n in waist_names],
-                    "joint_count": len(waist_names),
+                    "joints": get_joints(cache_entry["waist"]),
+                    "joint_count": len(cache_entry["waist"]),
                 }
-
-            if left_gripper_names:
-                j = joint_map[left_gripper_names[0]]
+            
+            if cache_entry["left_gripper"] != -1:
+                i = cache_entry["left_gripper"]
+                p = positions[i] if i < len(positions) else 0.0
+                e = efforts[i] if i < len(efforts) else 0.0
                 state["left_gripper"] = {
-                    "position": j["position"],
-                    "force": j["effort"],
-                    "is_grasping": j["effort"] > 0.1,
+                    "position": p,
+                    "force": e,
+                    "is_grasping": e > 0.1,
                 }
-            if right_gripper_names:
-                j = joint_map[right_gripper_names[0]]
+            if cache_entry["right_gripper"] != -1:
+                i = cache_entry["right_gripper"]
+                p = positions[i] if i < len(positions) else 0.0
+                e = efforts[i] if i < len(efforts) else 0.0
                 state["right_gripper"] = {
-                    "position": j["position"],
-                    "force": j["effort"],
-                    "is_grasping": j["effort"] > 0.1,
+                    "position": p,
+                    "force": e,
+                    "is_grasping": e > 0.1,
                 }
 
         # 头部关节状态（专用话题）
@@ -808,6 +847,16 @@ class ROS2ServiceClient:
     
     async def shutdown(self):
         """关闭 ROS2 节点"""
+        # 关闭执行器
+        if self._executor:
+            self._executor.shutdown()
+            self._executor = None
+        
+        # 等待后台线程退出
+        if self._spin_thread and self._spin_thread.is_alive():
+            self._spin_thread.join(timeout=1.0)
+            self._spin_thread = None
+
         if self._node is not None:
             self._node.destroy_node()
             self._node = None
@@ -855,17 +904,9 @@ class ROS2ServiceClient:
             request.topics = topics
             
             future = client.call_async(request)
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: rclpy.spin_until_future_complete(
-                    self._node,
-                    future,
-                    timeout_sec=5.0,
-                ),
-            )
-            
-            if future.done():
-                result = future.result()
+            result = await self._wait_for_future(future, timeout=5.0)
+
+            if result is not None:
                 return ServiceResponse(
                     success=result.success,
                     message=result.message,
@@ -898,17 +939,9 @@ class ROS2ServiceClient:
             request = StopRecording.Request()
             
             future = client.call_async(request)
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: rclpy.spin_until_future_complete(
-                    self._node,
-                    future,
-                    timeout_sec=10.0,
-                ),
-            )
-            
-            if future.done():
-                result = future.result()
+            result = await self._wait_for_future(future, timeout=10.0)
+
+            if result is not None:
                 return ServiceResponse(
                     success=result.success,
                     message=result.message,
@@ -944,12 +977,9 @@ class ROS2ServiceClient:
             request = GetRecordingStatus.Request()
             
             future = client.call_async(request)
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda: rclpy.spin_until_future_complete(self._node, future, timeout_sec=2.0)
-            )
+            result = await self._wait_for_future(future, timeout=2.0)
             
-            if future.done():
-                result = future.result()
+            if result is not None:
                 return RecordingStatus(
                     is_recording=result.is_recording,
                     action_name=result.action_name,
@@ -996,12 +1026,9 @@ class ROS2ServiceClient:
             request.debug_mode = debug_mode
             
             future = client.call_async(request)
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda: rclpy.spin_until_future_complete(self._node, future, timeout_sec=5.0)
-            )
-            
-            if future.done():
-                result = future.result()
+            result = await self._wait_for_future(future, timeout=5.0)
+
+            if result is not None:
                 return ServiceResponse(
                     success=result.success,
                     message=result.message,
@@ -1030,12 +1057,9 @@ class ROS2ServiceClient:
             request.task_id = task_id
             
             future = client.call_async(request)
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda: rclpy.spin_until_future_complete(self._node, future, timeout_sec=5.0)
-            )
+            result = await self._wait_for_future(future, timeout=5.0)
             
-            if future.done():
-                result = future.result()
+            if result is not None:
                 return ServiceResponse(result.success, result.message)
             else:
                 return ServiceResponse(False, "服务调用超时")
@@ -1060,12 +1084,9 @@ class ROS2ServiceClient:
             request.task_id = task_id
             
             future = client.call_async(request)
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda: rclpy.spin_until_future_complete(self._node, future, timeout_sec=5.0)
-            )
+            result = await self._wait_for_future(future, timeout=5.0)
             
-            if future.done():
-                result = future.result()
+            if result is not None:
                 return ServiceResponse(result.success, result.message)
             else:
                 return ServiceResponse(False, "服务调用超时")
@@ -1090,12 +1111,9 @@ class ROS2ServiceClient:
             request.task_id = task_id
             
             future = client.call_async(request)
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda: rclpy.spin_until_future_complete(self._node, future, timeout_sec=5.0)
-            )
+            result = await self._wait_for_future(future, timeout=5.0)
             
-            if future.done():
-                result = future.result()
+            if result is not None:
                 return ServiceResponse(result.success, result.message)
             else:
                 return ServiceResponse(False, "服务调用超时")
@@ -1125,12 +1143,9 @@ class ROS2ServiceClient:
             request = Trigger.Request()
             
             future = client.call_async(request)
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda: rclpy.spin_until_future_complete(self._node, future, timeout_sec=5.0)
-            )
+            result = await self._wait_for_future(future, timeout=5.0)
             
-            if future.done():
-                result = future.result()
+            if result is not None:
                 return ServiceResponse(result.success, result.message)
             else:
                 return ServiceResponse(False, "服务调用超时")
@@ -1194,12 +1209,9 @@ class ROS2ServiceClient:
             
             future = client.call_async(request)
             timeout = 30.0 if is_block else 5.0
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda: rclpy.spin_until_future_complete(self._node, future, timeout_sec=timeout)
-            )
+            result = await self._wait_for_future(future, timeout=timeout)
             
-            if future.done():
-                result = future.result()
+            if result is not None:
                 return ServiceResponse(result.success, result.message)
             else:
                 return ServiceResponse(False, "服务调用超时")
@@ -1242,9 +1254,7 @@ class ROS2ServiceClient:
             speed_request.hold = False
             
             future = client.call_async(speed_request)
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda: rclpy.spin_until_future_complete(self._node, future, timeout_sec=2.0)
-            )
+            await self._wait_for_future(future, timeout=2.0)
             
             # 再执行运动
             move_request = LiftControl.Request()
@@ -1253,12 +1263,9 @@ class ROS2ServiceClient:
             move_request.hold = False
             
             future = client.call_async(move_request)
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda: rclpy.spin_until_future_complete(self._node, future, timeout_sec=30.0)
-            )
+            result = await self._wait_for_future(future, timeout=30.0)
             
-            if future.done():
-                result = future.result()
+            if result is not None:
                 return ServiceResponse(result.success, result.message)
             else:
                 return ServiceResponse(False, "服务调用超时")
@@ -1301,9 +1308,7 @@ class ROS2ServiceClient:
             speed_request.hold = False
             
             future = client.call_async(speed_request)
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda: rclpy.spin_until_future_complete(self._node, future, timeout_sec=2.0)
-            )
+            await self._wait_for_future(future, timeout=2.0)
             
             # 再执行运动
             move_request = WaistControl.Request()
@@ -1312,12 +1317,9 @@ class ROS2ServiceClient:
             move_request.hold = False
             
             future = client.call_async(move_request)
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda: rclpy.spin_until_future_complete(self._node, future, timeout_sec=30.0)
-            )
+            result = await self._wait_for_future(future, timeout=30.0)
             
-            if future.done():
-                result = future.result()
+            if result is not None:
                 return ServiceResponse(result.success, result.message)
             else:
                 return ServiceResponse(False, "服务调用超时")
@@ -1364,12 +1366,9 @@ class ROS2ServiceClient:
             request.force = force
             
             future = client.call_async(request)
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda: rclpy.spin_until_future_complete(self._node, future, timeout_sec=5.0)
-            )
-            
-            if future.done():
-                result = future.result()
+            result = await self._wait_for_future(future, timeout=5.0)
+
+            if result is not None:
                 return ServiceResponse(result.success, result.message)
             else:
                 return ServiceResponse(False, "服务调用超时")
@@ -1404,12 +1403,9 @@ class ROS2ServiceClient:
             request.data = enable
             
             future = client.call_async(request)
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda: rclpy.spin_until_future_complete(self._node, future, timeout_sec=2.0)
-            )
+            result = await self._wait_for_future(future, timeout=2.0)
             
-            if future.done():
-                result = future.result()
+            if result is not None:
                 return ServiceResponse(result.success, result.message)
             else:
                 return ServiceResponse(False, "服务调用超时")

@@ -28,6 +28,17 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     
+    # ==================== 持久化存储 ====================
+    PERSISTENT_DIR: str = "~/qyh-robot-system/persistent"
+    
+    @property
+    def persistent_dir_expanded(self) -> str:
+        """展开持久化目录中的 ~ 路径"""
+        path = self.PERSISTENT_DIR
+        if path.startswith("~"):
+            return os.path.expanduser(path)
+        return path
+
     # ==================== 数据库 ====================
     DATABASE_URL: str = "sqlite:///~/qyh-robot-system/persistent/web/web.db"
     
