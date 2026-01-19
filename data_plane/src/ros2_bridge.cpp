@@ -107,13 +107,13 @@ bool ROS2Bridge::init() {
         
         // 机器人综合状态 (包含电池、急停等)
         robot_status_sub_ = node_->create_subscription<qyh_standard_robot_msgs::msg::StandardRobotStatus>(
-            "/standard_robot_status", state_qos,
+            "/standard_robot_node/standard_robot_status", state_qos,
             std::bind(&ROS2Bridge::standard_robot_status_callback, this, std::placeholders::_1)
         );
 
         // JAKA Robot State (Arm High-level Status)
         jaka_state_sub_ = node_->create_subscription<qyh_jaka_control_msgs::msg::RobotState>(
-            "/robot_state", state_qos,
+            "/jaka/robot_state", state_qos,
             std::bind(&ROS2Bridge::jaka_robot_state_callback, this, std::placeholders::_1)
         );
         

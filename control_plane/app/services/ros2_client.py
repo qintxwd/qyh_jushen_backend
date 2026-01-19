@@ -355,7 +355,7 @@ class ROS2ServiceClient:
 
             self._node.create_subscription(
                 StandardRobotStatus,
-                '/standard_robot_status',
+                '/standard_robot_node/standard_robot_status',
                 self._on_standard_robot_status,
                 10
             )
@@ -375,7 +375,7 @@ class ROS2ServiceClient:
                 "/lift/state, /waist/state, "
                 "/left/gripper_state, "
                 "/right/gripper_state, "
-                "/standard_robot_status, /odom"
+                "/standard_robot_node/standard_robot_status, /odom"
             )
 
         except ImportError as e:
