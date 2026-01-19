@@ -77,22 +77,35 @@ bool WebRTCPeer::add_video_source(const std::string& /*source_name*/,
     }
     
     // 创建编码管道
-    // videosrc -> videoconvert -> encoder -> rtph264pay -> webrtcbin
+    // videosrc -> nvvidconv/videoconvert -> encoder -> rtph264pay -> webrtcbin
     
-    GstElement* convert = gst_element_factory_make("videoconvert", nullptr);
+    GstElement* convert = nullptr;
     GstElement* encoder = nullptr;
     GstElement* payloader = nullptr;
     
-    // 根据配置选择编码器
+    // 根据配置选择编码器和转换器
     if (config_.jetson.use_nvenc) {
-        // Jetson 硬件编码
+        // Jetson 硬件编码：使用 VIC 硬件加速色彩转换
+        // nvvidconv 利用 Video Image Compositor 独立硬件引擎
+        // 性能比 videoconvert 快 10-20 倍，且不占用 CPU
+        convert = gst_element_factory_make("nvvidconv", nullptr);
+        if (!convert) {
+            std::cerr << "Warning: nvvidconv not available, falling back to videoconvert" << std::endl;
+            convert = gst_element_factory_make("videoconvert", nullptr);
+        }
+        
         encoder = gst_element_factory_make("nvv4l2h264enc", nullptr);
         if (encoder) {
             g_object_set(encoder, 
                          "bitrate", config_.encoding.bitrate * 1000,
                          "preset-level", 1,  // UltraFast
+                         "iframeinterval", config_.encoding.keyframe_interval,  // 关键帧间隔
+                         "insert-sps-pps", TRUE,  // 关键：WebRTC 需要每个关键帧都带 SPS/PPS
                          nullptr);
         }
+    } else {
+        // CPU 软编码：使用传统 videoconvert
+        convert = gst_element_factory_make("videoconvert", nullptr);
     }
     
     if (!encoder) {
@@ -103,8 +116,14 @@ bool WebRTCPeer::add_video_source(const std::string& /*source_name*/,
                          "bitrate", config_.encoding.bitrate,
                          "tune", 0x04,  // zerolatency
                          "speed-preset", 1,  // ultrafast
+                         "key-int-max", config_.encoding.keyframe_interval,  // 关键帧间隔
                          nullptr);
         }
+    }
+    
+    if (!convert) {
+        std::cerr << "Failed to create video converter" << std::endl;
+        return false;
     }
     
     if (!encoder) {
@@ -117,6 +136,9 @@ bool WebRTCPeer::add_video_source(const std::string& /*source_name*/,
         std::cerr << "Failed to create payloader" << std::endl;
         return false;
     }
+    
+    // 配置 Payloader：每秒发送一次配置，防止丢包花屏
+    g_object_set(payloader, "config-interval", 1, nullptr);
     
     // 添加到管道
     gst_bin_add_many(GST_BIN(pipeline_), src_element, convert, encoder, payloader, nullptr);
