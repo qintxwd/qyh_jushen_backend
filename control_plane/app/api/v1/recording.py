@@ -284,10 +284,9 @@ async def call_ros2_get_topics() -> List[str]:
     Returns:
         List[str]: 话题列表
     """
-    client = get_ros2_client()
-    if not client._initialized:
-        await client.initialize()
-    return client.get_topic_list()
+    # TODO: 实现实际的 ros2 topic list 调用
+    # 目前返回默认话题
+    return get_default_topics()
 
 
 # ============================================================================
@@ -462,11 +461,27 @@ async def discard_recording(
 
 @router.get("/status", response_model=ApiResponse, summary="获取录制状态")
 async def get_recording_status(
-    state: RecordingState = Depends(get_recording_state),
+    # state: RecordingState = Depends(get_recording_state), # 改为直接查 ROS2
     current_user: User = Depends(get_current_user),
 ):
     """获取当前录制状态"""
-    status = state.get_status()
+    # 优先从 ROS2 获取真实状态
+    ros2_status = await call_ros2_get_recording_status()
+    
+    # 构造响应
+    status_str = "recording" if ros2_status.is_recording else "idle"
+    
+    status = RecordingStatus(
+        is_recording=ros2_status.is_recording,
+        status=status_str,
+        action_name=ros2_status.action_name,
+        user_name="",  # ROS2 可能不返回用户，这没关系
+        version="",
+        duration_seconds=ros2_status.duration_sec,
+        bag_path=ros2_status.bag_path,
+        topics=ros2_status.topics,
+    )
+    
     return success_response(
         data=status.model_dump(),
         message="获取录制状态成功"
@@ -533,10 +548,10 @@ async def get_available_topics(
 ):
     """获取当前可用的 ROS2 话题列表"""
     topics = await call_ros2_get_topics()
-    message = "获取话题列表成功" if topics else "当前无法从 ROS2 获取话题列表"
+    
     return success_response(
         data={"topics": topics},
-        message=message
+        message="获取话题列表成功"
     )
 
 

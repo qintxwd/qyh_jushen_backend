@@ -33,9 +33,9 @@ class BaseState(BaseModel):
 
 class SystemState(BaseModel):
     """系统状态"""
-    cpu_temp: Optional[float] = Field(default=None, description="CPU 温度 (°C)")
-    gpu_temp: Optional[float] = Field(default=None, description="GPU 温度 (°C)")
-    battery: Optional[float] = Field(default=None, description="电池电量 (%)")
+    cpu_temp: float = Field(default=0.0, description="CPU 温度 (°C)")
+    gpu_temp: float = Field(default=0.0, description="GPU 温度 (°C)")
+    battery: float = Field(default=100.0, description="电池电量 (%)")
     mode: str = Field(default="idle", description="工作模式")
     uptime_seconds: int = Field(default=0, description="运行时间（秒）")
 

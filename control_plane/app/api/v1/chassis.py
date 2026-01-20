@@ -3,24 +3,19 @@ QYH Jushen Control Plane - 底盘配置 API
 
 提供底盘配置的持久化管理（速度级别、音量、避障策略等）
 
-注意：实时底盘控制（速度命令、急停等）必须通过 Data Plane WebSocket 进行，
-    本模块仅提供低频配置与状态查询。
+注意：实时底盘控制（速度命令、急停等）应通过 Data Plane WebSocket 进行，
+      以获得最低延迟。本模块的控制接口仅作为 HTTP 后备方案。
 """
 import json
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.dependencies import get_current_operator, get_current_user
 from app.models.user import User
-from app.schemas.response import (
-    ApiResponse,
-    success_response,
-    error_response,
-    ErrorCodes,
-)
+from app.schemas.response import ApiResponse, success_response, error_response, ErrorCodes
 from app.services.ros2_client import get_ros2_client
 
 router = APIRouter()
@@ -32,12 +27,7 @@ def _get_chassis_config_file() -> Path:
     """获取底盘配置文件路径"""
     # 配置文件位于 workspace_root/persistent/web/chassis_config.json
     import os
-    workspace_root = Path(
-        os.environ.get(
-            'QYH_WORKSPACE_ROOT',
-            Path.home() / 'qyh-robot-system',
-        )
-    )
+    workspace_root = Path(os.environ.get('QYH_WORKSPACE_ROOT', Path.home() / 'qyh-robot-system'))
     config_dir = workspace_root / "persistent" / "web"
     config_dir.mkdir(parents=True, exist_ok=True)
     return config_dir / "chassis_config.json"
@@ -205,11 +195,11 @@ async def reset_chassis_config(
     )
 
 
-# ==================== 底盘状态 API ====================
-#
+# ==================== 底盘状态与控制 API ====================
+# 
 # 重要设计说明：
 # - 状态获取：从 ROS2 订阅缓存读取真实数据
-# - 实时控制：必须通过 Data Plane WebSocket
+# - 实时控制：应优先通过 Data Plane WebSocket，HTTP 仅作后备
 # - 配置管理：持久化存储 + ROS2 服务同步
 
 
@@ -248,37 +238,25 @@ async def get_chassis_status(
     # 构建响应数据
     response_data = {
         "connected": True,
-        "system_status": (
-            status_data.get("system_status") if status_data else None
-        ),
+        "system_status": status_data.get("system_status", 0) if status_data else 0,
         "system_status_text": _get_system_status_text(
-            status_data.get("system_status") if status_data else None
+            status_data.get("system_status", 0) if status_data else 0
         ),
-        "location_status": (
-            status_data.get("location_status") if status_data else None
-        ),
+        "location_status": status_data.get("location_status", 0) if status_data else 0,
         "location_status_text": _get_location_status_text(
-            status_data.get("location_status") if status_data else None
+            status_data.get("location_status", 0) if status_data else 0
         ),
-        "operation_status": (
-            status_data.get("operation_status") if status_data else None
-        ),
+        "operation_status": status_data.get("operation_status", 0) if status_data else 0,
         "operation_status_text": _get_operation_status_text(
-            status_data.get("operation_status") if status_data else None
+            status_data.get("operation_status", 0) if status_data else 0
         ),
     }
     
     # 位姿信息
     if odom_data and odom_data.get("pose"):
         pose = odom_data["pose"]
-        pos = (
-            pose.position if hasattr(pose, 'position')
-            else pose.get("position", {})
-        )
-        ori = (
-            pose.orientation if hasattr(pose, 'orientation')
-            else pose.get("orientation", {})
-        )
+        pos = pose.position if hasattr(pose, 'position') else pose.get("position", {})
+        ori = pose.orientation if hasattr(pose, 'orientation') else pose.get("orientation", {})
         
         # 提取位置
         x = getattr(pos, 'x', pos.get('x', 0)) if pos else 0
@@ -294,76 +272,43 @@ async def get_chassis_status(
             "x": x,
             "y": y,
             "yaw": yaw,
-            "confidence": (
-                status_data.get("location_confidence")
-                if status_data else None
-            ),
+            "confidence": 1.0  # TODO: 从定位状态获取置信度
         }
     
     # 速度信息
     if odom_data and odom_data.get("twist"):
         twist = odom_data["twist"]
-        linear = (
-            twist.linear if hasattr(twist, 'linear')
-            else twist.get("linear", {})
-        )
-        angular = (
-            twist.angular if hasattr(twist, 'angular')
-            else twist.get("angular", {})
-        )
+        linear = twist.linear if hasattr(twist, 'linear') else twist.get("linear", {})
+        angular = twist.angular if hasattr(twist, 'angular') else twist.get("angular", {})
         
         response_data["velocity"] = {
-            "linear_x": (
-                getattr(linear, 'x', linear.get('x', 0))
-                if linear else 0
-            ),
-            "linear_y": (
-                getattr(linear, 'y', linear.get('y', 0))
-                if linear else 0
-            ),
-            "angular_z": (
-                getattr(angular, 'z', angular.get('z', 0))
-                if angular else 0
-            ),
+            "linear_x": getattr(linear, 'x', linear.get('x', 0)) if linear else 0,
+            "linear_y": getattr(linear, 'y', linear.get('y', 0)) if linear else 0,
+            "angular_z": getattr(angular, 'z', angular.get('z', 0)) if angular else 0,
         }
     
     # 电池信息
     if status_data:
-        is_charging = status_data.get("is_charging")
         response_data["battery"] = {
-            "percentage": status_data.get("battery_remaining_percentage"),
-            "voltage": status_data.get("battery_voltage"),
-            "current": status_data.get("battery_current"),
-            "status_text": (
-                "充电中" if is_charging is True
-                else "放电中" if is_charging is False
-                else "未知"
-            ),
+            "percentage": status_data.get("battery_remaining_percentage", 0),
+            "voltage": 0,  # TODO: 需要从其他话题获取
+            "current": 0,
+            "status_text": "充电中" if status_data.get("is_charging") else "放电中",
         }
         
         # 标志位
-        is_emergency_stopped = status_data.get("is_emergency_stopped")
-        operation_status = status_data.get("operation_status")
         response_data["flags"] = {
-            "is_emergency_stopped": is_emergency_stopped,
-            "is_emergency_recoverable": (
-                status_data.get("is_emergency_recoverable")
-            ),
-            "is_brake_released": (
-                (not is_emergency_stopped)
-                if is_emergency_stopped is not None else None
-            ),
-            "is_charging": is_charging,
-            "is_low_power_mode": status_data.get("is_low_power_mode"),
-            "obstacle_slowdown": status_data.get("obstacle_slowdown"),
-            "obstacle_paused": status_data.get("obstacle_paused"),
-            "can_run_motion_task": status_data.get("can_run_motion_task"),
-            "is_auto_mode": (
-                (operation_status == 1)
-                if operation_status is not None else None
-            ),
-            "is_loaded": status_data.get("is_loaded"),
-            "has_wifi": status_data.get("has_wifi"),
+            "is_emergency_stopped": status_data.get("is_emergency_stopped", False),
+            "is_emergency_recoverable": True,  # TODO: 从硬件状态获取
+            "is_brake_released": not status_data.get("is_emergency_stopped", False),
+            "is_charging": status_data.get("is_charging", False),
+            "is_low_power_mode": False,
+            "obstacle_slowdown": False,
+            "obstacle_paused": False,
+            "can_run_motion_task": True,
+            "is_auto_mode": status_data.get("operation_status", 0) == 1,
+            "is_loaded": False,
+            "has_wifi": True,
         }
     
     return success_response(
@@ -372,7 +317,7 @@ async def get_chassis_status(
     )
 
 
-def _get_system_status_text(status: int | None) -> str:
+def _get_system_status_text(status: int) -> str:
     """系统状态码转文本"""
     status_map = {
         0: "未知",
@@ -383,7 +328,7 @@ def _get_system_status_text(status: int | None) -> str:
     return status_map.get(status, "未知")
 
 
-def _get_location_status_text(status: int | None) -> str:
+def _get_location_status_text(status: int) -> str:
     """定位状态码转文本"""
     status_map = {
         0: "未定位",
@@ -393,7 +338,7 @@ def _get_location_status_text(status: int | None) -> str:
     return status_map.get(status, "未知")
 
 
-def _get_operation_status_text(status: int | None) -> str:
+def _get_operation_status_text(status: int) -> str:
     """运行状态码转文本"""
     status_map = {
         0: "空闲",
@@ -415,12 +360,7 @@ async def get_stations(
     """
     import os
     
-    workspace_root = Path(
-        os.environ.get(
-            'QYH_WORKSPACE_ROOT',
-            Path.home() / 'qyh-robot-system',
-        )
-    )
+    workspace_root = Path(os.environ.get('QYH_WORKSPACE_ROOT', Path.home() / 'qyh-robot-system'))
     current_map_file = workspace_root / "maps" / "current_map.txt"
     
     current_map = "standard"
@@ -459,15 +399,15 @@ async def get_stations(
 
 
 # ==================== 注意 ====================
-#
+# 
 # 底盘实时控制接口（速度命令、急停、导航）已移至 Data Plane WebSocket
 # 参见: data_plane/README.md
-#
+# 
 # WebSocket 消息类型:
 #   - CHASSIS_VELOCITY: 发送速度命令
 #   - EMERGENCY_STOP: 紧急停止
 #   - NAVIGATE_TO_POSE: 导航到坐标
 #   - NAVIGATE_TO_STATION: 导航到站点
-#
+# 
 # 此设计是为了保证实时控制的低延迟和高可靠性
 

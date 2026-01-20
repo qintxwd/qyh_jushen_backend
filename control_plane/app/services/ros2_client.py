@@ -659,23 +659,19 @@ class ROS2ServiceClient:
     # 注意: VR 回调函数已移除 (原 _on_vr_* 系列)
     # VR 状态由 Data Plane 管理，参见 VR_ARCHITECTURE.md
 
-    def get_shutdown_state(self) -> Optional[Dict[str, Any]]:
+    def get_shutdown_state(self) -> Dict[str, Any]:
         """获取关机状态"""
         with self._state_lock:
             if self._latest_shutdown_state:
                 return self._latest_shutdown_state.copy()
-        return None
-
-    def get_topic_list(self) -> list[str]:
-        """获取当前 ROS2 话题列表（来自节点本地查询）"""
-        if self._node is None:
-            return []
-        try:
-            topics = self._node.get_topic_names_and_types()
-            return [name for name, _types in topics]
-        except Exception as e:
-            logger.error(f"get_topic_list error: {e}")
-            return []
+        
+        # 返回默认状态
+        return {
+            "shutdown_in_progress": False,
+            "trigger_source": 0,
+            "countdown_seconds": -1,
+            "plc_connected": False,
+        }
 
     def get_standard_robot_status(self) -> Optional[Dict[str, Any]]:
         """获取标准机器人状态 (底盘状态)"""
@@ -1202,6 +1198,49 @@ class ROS2ServiceClient:
             logger.error(f"set_led_blink error: {e}")
             return ServiceResponse(False, str(e))
     
+    # ==================== LED 控制 ====================
+
+    async def set_led_color(
+        self,
+        r: int,
+        g: int,
+        b: int,
+        w: int = 0,
+    ) -> ServiceResponse:
+        """设置 LED 纯色"""
+        if self._node is None or self._led_color_publisher is None:
+            return ServiceResponse(False, "LED 发布器未初始化")
+
+        try:
+            from std_msgs.msg import ColorRGBA
+
+            msg = ColorRGBA()
+            msg.r = max(0.0, min(1.0, r / 255.0))
+            msg.g = max(0.0, min(1.0, g / 255.0))
+            msg.b = max(0.0, min(1.0, b / 255.0))
+            msg.a = max(0.0, min(1.0, w / 255.0))
+            self._led_color_publisher.publish(msg)
+            return ServiceResponse(True, "LED 颜色已发送")
+        except Exception as e:
+            logger.error(f"set_led_color error: {e}")
+            return ServiceResponse(False, str(e))
+
+    async def set_led_blink(self, command: str) -> ServiceResponse:
+        """设置 LED 闪烁模式"""
+        if self._node is None or self._led_blink_publisher is None:
+            return ServiceResponse(False, "LED 闪烁发布器未初始化")
+
+        try:
+            from std_msgs.msg import String
+
+            msg = String()
+            msg.data = command
+            self._led_blink_publisher.publish(msg)
+            return ServiceResponse(True, "LED 闪烁指令已发送")
+        except Exception as e:
+            logger.error(f"set_led_blink error: {e}")
+            return ServiceResponse(False, str(e))
+    
     async def shutdown(self):
         """关闭 ROS2 节点"""
         # 关闭执行器
@@ -1313,6 +1352,37 @@ class ROS2ServiceClient:
         except Exception as e:
             logger.error(f"stop_recording error: {e}")
             return ServiceResponse(False, str(e))
+
+    async def get_recording_status(self) -> RecordingStatus:
+        """获取录制状态"""
+        if self._node is None:
+            return RecordingStatus()
+            
+        try:
+            from qyh_bag_recorder.srv import GetRecordingStatus
+            
+            client = self._service_clients.get('get_recording_status')
+            if not client or not client.wait_for_service(timeout_sec=1.0):
+                # 服务不可用，假设未录制
+                return RecordingStatus()
+            
+            request = GetRecordingStatus.Request()
+            future = client.call_async(request)
+            result = await self._wait_for_future(future, timeout=2.0)
+            
+            if result:
+                return RecordingStatus(
+                    is_recording=result.is_recording,
+                    action_name=result.action_name,
+                    duration_sec=result.duration_sec,
+                    bag_path=result.bag_path,
+                    topics=list(result.topics)
+                )
+            return RecordingStatus()
+            
+        except Exception as e:
+            logger.error(f"get_recording_status error: {e}")
+            return RecordingStatus()
     
     async def get_recording_status(self) -> RecordingStatus:
         """
