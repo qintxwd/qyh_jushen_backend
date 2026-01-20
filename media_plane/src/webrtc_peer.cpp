@@ -96,7 +96,13 @@ bool WebRTCPeer::create_peer_bin() {
         }
     } else if (codec == "vp8") {
         // VP8 仅提供软件编码兜底
-        convert = gst_element_factory_make("videoconvert", nullptr);
+        // 如果上游是 NVMM (use_nvenc=true)，需要 nvvidconv 将内存从 GPU 下载到 CPU
+        if (config_.jetson.use_nvenc) {
+            convert = gst_element_factory_make("nvvidconv", nullptr);
+        } else {
+            convert = gst_element_factory_make("videoconvert", nullptr);
+        }
+        
         encoder = gst_element_factory_make("vp8enc", nullptr);
         if (encoder) {
             g_object_set(encoder,
