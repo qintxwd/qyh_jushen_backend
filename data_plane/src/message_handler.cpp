@@ -300,7 +300,7 @@ void MessageHandler::handle_vr_control(std::shared_ptr<Session> session,
         VRSystemState vr_state;
         
         // 设置时间戳
-        set_timestamp(vr_state.mutable_header()->mutable_timestamp());
+        set_timestamp(vr_state.mutable_header()->mutable_stamp());
         vr_state.mutable_header()->set_frame_id("vr_system");
         
         // VR 连接状态
@@ -456,7 +456,7 @@ void MessageHandler::handle_emergency_stop(std::shared_ptr<Session> session,
         set_timestamp(notification.mutable_timestamp());
         
         auto* estop = notification.mutable_emergency_stop();
-        set_timestamp(estop->mutable_header()->mutable_timestamp());
+        set_timestamp(estop->mutable_header()->mutable_stamp());
         estop->set_active(true);
         estop->set_source("websocket");
         estop->set_reason("User triggered emergency stop");

@@ -212,16 +212,16 @@ bool StateCache::is_stale(std::chrono::milliseconds max_age) const {
 
 void StateCache::clear() {
     std::lock_guard<std::mutex> lock(mutex_);
-    robot_state_.clear();
-    joint_state_.clear();
-    arm_state_.clear();
-    left_arm_state_.clear();
-    right_arm_state_.clear();
-    chassis_state_.clear();
-    lift_state_.clear();
-    waist_state_.clear();
-    head_pan_state_.clear();
-    head_tilt_state_.clear();
+    robot_state_.reset();
+    joint_state_.reset();
+    arm_state_.reset();
+    left_arm_state_.reset();
+    right_arm_state_.reset();
+    chassis_state_.reset();
+    lift_state_.reset();
+    waist_state_.reset();
+    head_pan_state_.reset();
+    head_tilt_state_.reset();
     gripper_states_.clear();
     vr_system_state_.clear();
 }

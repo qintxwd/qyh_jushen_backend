@@ -67,16 +67,6 @@ public:
     void broadcast_to_subscribers(const std::string& topic, 
                                   std::shared_ptr<const std::vector<uint8_t>> data);
 
-    /**
-     * @brief 广播消息到所有会话 (零拷贝)
-     */
-    void broadcast(std::shared_ptr<const std::vector<uint8_t>> data);
-
-    /**
-     * @brief 广播到特定话题的订阅者 (零拷贝)
-     */
-    void broadcast_to_subscribers(const std::string& topic, 
-                                  std::shared_ptr<const std::vector<uint8_t>> data);
 
     /**
      * @brief 广播消息到所有会话 (兼容)

@@ -13,6 +13,7 @@
 #include <cstring>
 #include <sstream>
 #include <vector>
+#include <regex>
 #include <chrono>
 
 namespace qyh::dataplane {
