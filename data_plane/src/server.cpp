@@ -109,13 +109,15 @@ void Server::on_accept(beast::error_code ec, tcp::socket socket) {
             socket.close();
         } else {
             // 创建新会话
+            beast::error_code ep_ec;
+            auto remote = socket.remote_endpoint(ep_ec);
+            std::string remote_str = ep_ec ? "unknown" : remote.address().to_string();
             auto session = std::make_shared<Session>(std::move(socket), *this, handler_);
             if (control_sync_) {
                 session->set_control_sync(control_sync_);
             }
             session->start();
-            LOG_INFO("New connection from " 
-                      << socket.remote_endpoint().address().to_string());
+            LOG_INFO("New connection from " << remote_str);
         }
     }
     
