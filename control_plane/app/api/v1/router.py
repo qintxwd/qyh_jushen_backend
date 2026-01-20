@@ -1,11 +1,18 @@
 """
 QYH Jushen Control Plane - API v1 路由聚合
+
+接口职责分离:
+- Control Plane (FastAPI):  配置管理、认证、任务/预设CRUD、审计日志
+- Data Plane (WebSocket):   实时状态推送、速度命令、急停、心跳
+- Media Plane (WebRTC):     视频流
+
+急停和实时控制接口已移至 Data Plane WebSocket，此处不再提供 HTTP 接口
 """
 from fastapi import APIRouter
 
 from app.api.v1 import (
     auth, system, control, mode, tasks, presets, recording,
-    actions, robot, audit, emergency, chassis, led, vr
+    actions, robot, audit, chassis, led, vr
 )
 
 api_router = APIRouter()
@@ -40,13 +47,10 @@ api_router.include_router(robot.router, prefix="/robot", tags=["机器人"])
 # 审计日志
 api_router.include_router(audit.router, prefix="/audit", tags=["审计日志"])
 
-# 紧急停止
-api_router.include_router(emergency.router, prefix="/emergency", tags=["紧急停止"])
-
-# 底盘配置
+# 底盘配置 (控制命令走 WebSocket)
 api_router.include_router(chassis.router, prefix="/chassis", tags=["底盘配置"])
 
-# LED灯带控制
+# LED灯带控制 (低频配置操作)
 api_router.include_router(led.router, prefix="/led", tags=["LED控制"])
 
 # VR遥操作状态

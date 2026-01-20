@@ -398,150 +398,16 @@ async def get_stations(
     )
 
 
-# ==================== 底盘控制 (HTTP 后备接口) ====================
+# ==================== 注意 ====================
 # 
-# 重要：这些接口通过 ROS2 服务调用实现，会有一定延迟。
-# 对于实时性要求高的控制（如速度命令），请使用 Data Plane WebSocket。
-
-
-@router.post("/velocity", response_model=ApiResponse)
-async def send_velocity(
-    cmd: dict,
-    current_user: User = Depends(get_current_operator),
-):
-    """
-    发送速度命令 (HTTP 后备接口)
-    
-    警告：此接口有网络延迟，建议使用 Data Plane WebSocket 发送速度命令
-    """
-    ros2_client = get_ros2_client()
-    
-    linear_x = cmd.get("linear_x", 0)
-    linear_y = cmd.get("linear_y", 0)
-    angular_z = cmd.get("angular_z", 0)
-    
-    try:
-        await ros2_client.publish_cmd_vel(linear_x, linear_y, angular_z)
-        return success_response(message="速度指令已发送")
-    except Exception as e:
-        return error_response(
-            code=ErrorCodes.ROS2_SERVICE_ERROR,
-            message=f"发送速度指令失败: {str(e)}"
-        )
-
-
-@router.post("/stop", response_model=ApiResponse)
-async def stop_chassis(
-    current_user: User = Depends(get_current_operator),
-):
-    """停止底盘运动"""
-    ros2_client = get_ros2_client()
-    
-    try:
-        await ros2_client.publish_cmd_vel(0, 0, 0)
-        return success_response(message="已停止")
-    except Exception as e:
-        return error_response(
-            code=ErrorCodes.ROS2_SERVICE_ERROR,
-            message=f"停止失败: {str(e)}"
-        )
-
-
-@router.post("/emergency_stop", response_model=ApiResponse)
-async def emergency_stop(
-    current_user: User = Depends(get_current_operator),
-):
-    """
-    紧急停止 (HTTP 后备接口)
-    
-    警告：建议使用 Data Plane WebSocket 发送紧急停止以获得最低延迟
-    """
-    ros2_client = get_ros2_client()
-    
-    try:
-        await ros2_client.publish_emergency_stop()
-        return success_response(message="急停已触发")
-    except Exception as e:
-        return error_response(
-            code=ErrorCodes.ROS2_SERVICE_ERROR,
-            message=f"急停失败: {str(e)}"
-        )
-
-
-@router.post("/release_emergency_stop", response_model=ApiResponse)
-async def release_emergency_stop(
-    current_user: User = Depends(get_current_operator),
-):
-    """解除紧急停止"""
-    ros2_client = get_ros2_client()
-    
-    try:
-        await ros2_client.release_emergency_stop()
-        return success_response(message="急停已解除")
-    except Exception as e:
-        return error_response(
-            code=ErrorCodes.ROS2_SERVICE_ERROR,
-            message=f"解除急停失败: {str(e)}"
-        )
-
-
-@router.post("/navigate/coordinate", response_model=ApiResponse)
-async def navigate_coordinate(
-    target: dict,
-    current_user: User = Depends(get_current_operator),
-):
-    """导航到指定坐标"""
-    ros2_client = get_ros2_client()
-    
-    x = target.get("x", 0)
-    y = target.get("y", 0)
-    yaw = target.get("yaw", 0)
-    
-    try:
-        result = await ros2_client.navigate_to_pose(x, y, yaw)
-        if result.success:
-            return success_response(message="导航指令已发送")
-        else:
-            return error_response(
-                code=ErrorCodes.ROS2_SERVICE_ERROR,
-                message=f"导航失败: {result.message}"
-            )
-    except Exception as e:
-        return error_response(
-            code=ErrorCodes.ROS2_SERVICE_ERROR,
-            message=f"导航失败: {str(e)}"
-        )
-
-
-@router.post("/navigate/site", response_model=ApiResponse)
-async def navigate_site(
-    target: dict,
-    current_user: User = Depends(get_current_operator),
-):
-    """导航到站点"""
-    site_id = target.get("site_id")
-    if site_id is None:
-        return error_response(
-            code=ErrorCodes.VALIDATION_ERROR,
-            message="缺少 site_id 参数"
-        )
-    
-    # 从站点列表获取坐标
-    # TODO: 调用 ROS2 站点导航服务
-    ros2_client = get_ros2_client()
-    
-    try:
-        result = await ros2_client.navigate_to_station(site_id)
-        if result.success:
-            return success_response(message="站点导航指令已发送")
-        else:
-            return error_response(
-                code=ErrorCodes.ROS2_SERVICE_ERROR,
-                message=f"站点导航失败: {result.message}"
-            )
-    except Exception as e:
-        return error_response(
-            code=ErrorCodes.ROS2_SERVICE_ERROR,
-            message=f"站点导航失败: {str(e)}"
-        )
+# 底盘实时控制接口（速度命令、急停、导航）已移至 Data Plane WebSocket
+# 参见: data_plane/README.md
+# 
+# WebSocket 消息类型:
+#   - CHASSIS_VELOCITY: 发送速度命令
+#   - EMERGENCY_STOP: 紧急停止
+#   - NAVIGATE_TO_POSE: 导航到坐标
+#   - NAVIGATE_TO_STATION: 导航到站点
+# 
+# 此设计是为了保证实时控制的低延迟和高可靠性
 

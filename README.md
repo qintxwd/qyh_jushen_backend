@@ -42,6 +42,64 @@ qyh_jushen_backend/
     └── install.sh             # 安装脚本
 ```
 
+## ⚠️ 接口职责严格分离（核心设计原则）
+
+**本项目采用三平面架构，每种协议有严格的职责边界，禁止混用！**
+
+### 协议分配规则
+
+| 协议 | 频率 | 延迟要求 | 适用场景 |
+|------|------|----------|----------|
+| **HTTP (FastAPI)** | <5Hz | 100-500ms | 配置管理、CRUD、认证 |
+| **WebSocket** | 30-100Hz | <20ms | 实时控制、状态推送、心跳 |
+| **WebRTC** | 30fps | <100ms | 视频流 |
+
+### ✅ 必须走 Control Plane (HTTP/FastAPI) 的接口
+
+| 功能分类 | 接口 |
+|----------|------|
+| **认证** | 登录、登出、Token 刷新 |
+| **控制权管理** | 获取、释放、续约控制权 |
+| **模式切换** | 切换工作模式 (idle/teleop/auto) |
+| **任务 CRUD** | 任务创建、编辑、删除、列表 |
+| **预设 CRUD** | 预设创建、编辑、删除、应用 |
+| **录制控制** | 启动/停止录制 |
+| **配置管理** | 底盘配置、LED 颜色、系统配置 |
+| **信息查询** | 机器人信息、站点列表、审计日志 |
+| **系统管理** | 关机、重启 |
+
+### ✅ 必须走 Data Plane (WebSocket) 的接口
+
+| 功能分类 | 消息类型 | 频率 |
+|----------|----------|------|
+| **底盘速度** | `CHASSIS_VELOCITY` | 50Hz |
+| **急停** | `EMERGENCY_STOP` | 事件触发 |
+| **关节控制** | `JOINT_COMMAND` | 50-100Hz |
+| **夹爪控制** | `GRIPPER_COMMAND` | 事件触发 |
+| **导航命令** | `NAVIGATE_TO_POSE` | 事件触发 |
+| **心跳** | `HEARTBEAT` | >5Hz (每200ms) |
+| **状态推送** | `ROBOT_STATE`, `CHASSIS_STATE` | 30-100Hz |
+| **VR 遥操作** | `VR_CONTROL_INTENT` | 50-90Hz |
+
+### ✅ 必须走 Media Plane (WebRTC) 的接口
+
+| 功能 |
+|------|
+| 视频流传输 |
+| 音频流传输 (可选) |
+
+### ❌ 禁止的设计
+
+```
+❌ 在 FastAPI 中提供速度命令接口      → 延迟太高
+❌ 在 FastAPI 中提供急停接口          → 延迟不可接受
+❌ 在 FastAPI 中提供关节控制接口      → 延迟太高
+❌ 通过 HTTP 轮询获取实时状态         → 效率低、延迟高
+❌ 通过 HTTP 传输视频帧              → 性能灾难
+```
+
+---
+
 ## 架构说明
 
 ### 三平面分离
@@ -136,13 +194,14 @@ sudo systemctl start qyh-control-plane qyh-data-plane qyh-media-plane
 ## 重要约束
 
 1. **Watchdog 超时**: 客户端必须每 200ms 发送心跳，否则触发紧急停止
-2. **紧急停止**: 支持多种触发方式
+2. **紧急停止**: 
    - Watchdog 自动触发（心跳超时）
-   - WebSocket 消息 `MSG_EMERGENCY_STOP`（最低延迟）
-   - HTTP API `POST /api/v1/emergency/stop`（后备方案）
+   - WebSocket 消息 `EMERGENCY_STOP`（推荐方式，延迟最低）
+   - ~~HTTP API~~ **已删除**，急停必须走 WebSocket
 3. **控制锁**: 同一时间只有一个客户端可以控制机器人
 4. **模式状态机**: 模式切换需遵循状态机规则
 5. **视频不走 HTTP**: 视频必须通过 WebRTC 传输
+6. **实时控制不走 HTTP**: 速度命令、关节控制必须走 WebSocket
 
 ## 配置文件
 

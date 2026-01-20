@@ -2,23 +2,70 @@
 
 机器人后端服务的控制平面，使用 FastAPI 构建。负责处理低频管理请求（<5Hz），如认证、配置、任务、预设等。
 
-## 架构概述
+## ⚠️ 重要：接口职责严格分离
+
+本项目采用三平面架构，**每种接口类型有严格的职责边界，禁止混用**：
 
 ### 三平面架构
 
-本项目采用三平面架构设计：
+| 平面 | 语言 | 端口 | 频率 | 职责 |
+|------|------|------|------|------|
+| **Control Plane** | Python/FastAPI | 8000 | <5Hz | 低频管理 API（本模块） |
+| **Data Plane** | C++/WebSocket | 8765 | 30-100Hz | 高频实时控制数据流 |
+| **Media Plane** | C++/GStreamer+WebRTC | 8888 | 30fps | 视频流传输 |
 
-| 平面 | 语言 | 端口 | 职责 |
-|------|------|------|------|
-| **Control Plane** | Python/FastAPI | 8000 | 低频管理 API（本模块） |
-| **Data Plane** | C++/WebSocket | 8765 | 高频控制数据流（关节控制、遥操作） |
-| **Media Plane** | C++/GStreamer+WebRTC | 8888 | 视频流传输 |
+### 🟢 Control Plane (HTTP/FastAPI) 接口职责
 
-### 为什么分离？
+**适用场景：低频管理操作、需要事务性和审计的操作**
 
-- **Control Plane**: 处理认证、配置、任务编排等低频请求，Python 开发效率高
-- **Data Plane**: 50Hz+ 的关节控制需要低延迟，C++ 性能更好
-- **Media Plane**: 视频编解码需要 GStreamer 原生支持，WebRTC 需要 C++ 实现
+| 模块 | 接口 | 说明 |
+|------|------|------|
+| 认证 | `/auth/login`, `/auth/logout`, `/auth/refresh` | 登录认证 |
+| 控制权 | `/control/acquire`, `/release`, `/renew` | 控制权管理（非实时控制本身） |
+| 模式 | `/mode/switch`, `/mode/current` | 工作模式切换 |
+| 任务 | `/tasks/*` CRUD | 任务创建、编辑、删除 |
+| 预设 | `/presets/*` CRUD | 预设创建、编辑、删除 |
+| 录制 | `/recording/start`, `/stop` | 录制控制（启停） |
+| 底盘 | `/chassis/config`, `/chassis/stations` | 底盘配置读写、站点列表 |
+| LED | `/led/color`, `/led/blink` | LED 颜色设置（低频操作） |
+| 系统 | `/system/config`, `/robot/info`, `/robot/shutdown` | 系统配置、机器人信息、关机 |
+| 审计 | `/audit/*` | 操作日志查询 |
+
+### 🔴 禁止在 Control Plane 实现的接口
+
+以下接口 **必须通过 Data Plane WebSocket 实现**，禁止在 FastAPI 中提供：
+
+| 功能 | 原因 | WebSocket 消息类型 |
+|------|------|------|
+| 速度命令 | 需要 50Hz+ 实时性 | `CHASSIS_VELOCITY` |
+| 急停触发 | 延迟必须最低 | `EMERGENCY_STOP` |
+| 关节控制 | 需要 50Hz+ 实时性 | `JOINT_COMMAND` |
+| 夹爪控制 | 需要低延迟 | `GRIPPER_COMMAND` |
+| 心跳 | 需要持续连接检测 | `HEARTBEAT` |
+| 实时状态推送 | 高频数据流 | `ROBOT_STATE`, `CHASSIS_STATE` |
+| 导航命令 | 需要低延迟响应 | `NAVIGATE_TO_POSE` |
+
+### 🔵 Media Plane (WebRTC) 接口职责
+
+| 功能 | 说明 |
+|------|------|
+| 视频流 | 机器人摄像头视频推送 |
+| 音频流 | 双向语音通话（可选） |
+
+## 为什么严格分离？
+
+```
+❌ 错误设计：前端通过 HTTP 发送速度命令
+   问题：HTTP 请求-响应延迟 50-200ms，无法满足实时控制
+
+✅ 正确设计：前端通过 WebSocket 发送速度命令
+   优点：持久连接，延迟 <10ms，支持双向通信
+```
+
+**规则**：
+1. 凡是需要 >10Hz 频率的操作，必须走 WebSocket
+2. 凡是需要 <20ms 延迟的操作（如急停），必须走 WebSocket
+3. 只有低频的管理操作（CRUD、配置、认证）才走 HTTP
 
 ## 目录结构
 
