@@ -83,7 +83,13 @@ public:
     void close();
     
     /**
-     * @brief 发送消息
+     * @brief 发送消息 (零拷贝)
+     * @param data 共享的消息数据指针
+     */
+    void send(std::shared_ptr<const std::vector<uint8_t>> data);
+
+    /**
+     * @brief 发送消息 (兼容接口)
      * @param data 消息数据
      */
     void send(const std::vector<uint8_t>& data);
@@ -240,7 +246,8 @@ private:
     
     beast::flat_buffer read_buffer_;
     
-    std::queue<std::vector<uint8_t>> write_queue_;
+    // 写队列 (改用 shared_ptr 支持零拷贝)
+    std::queue<std::shared_ptr<const std::vector<uint8_t>>> write_queue_;
     std::mutex write_mutex_;
     bool writing_ = false;
     

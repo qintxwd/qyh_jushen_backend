@@ -125,7 +125,9 @@ void Server::on_accept(beast::error_code ec, tcp::socket socket) {
     }
 }
 
-void Server::broadcast(const std::vector<uint8_t>& data) {
+void Server::broadcast(std::shared_ptr<const std::vector<uint8_t>> data) {
+    if (!data) return;
+    
     // Copy-on-Write: 拷贝 session 列表，减小锁粒度
     std::vector<std::shared_ptr<Session>> sessions_copy;
     {
@@ -145,8 +147,15 @@ void Server::broadcast(const std::vector<uint8_t>& data) {
     }
 }
 
+void Server::broadcast(const std::vector<uint8_t>& data) {
+    auto shared_data = std::make_shared<std::vector<uint8_t>>(data);
+    broadcast(shared_data);
+}
+
 void Server::broadcast_to_subscribers(const std::string& topic,
-                                       const std::vector<uint8_t>& data) {
+                                       std::shared_ptr<const std::vector<uint8_t>> data) {
+    if (!data) return;
+
     // Copy-on-Write: 拷贝订阅该 topic 的 session 列表
     std::vector<std::shared_ptr<Session>> subscribers;
     {
@@ -162,6 +171,12 @@ void Server::broadcast_to_subscribers(const std::string& topic,
     for (auto& session : subscribers) {
         session->send(data);
     }
+}
+
+void Server::broadcast_to_subscribers(const std::string& topic,
+                                       const std::vector<uint8_t>& data) {
+    auto shared_data = std::make_shared<std::vector<uint8_t>>(data);
+    broadcast_to_subscribers(topic, shared_data);
 }
 
 void Server::add_session(const std::string& session_id, 

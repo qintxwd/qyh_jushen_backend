@@ -57,13 +57,35 @@ public:
     void stop();
     
     /**
-     * @brief 广播消息到所有会话
+     * @brief 广播消息到所有会话 (零拷贝)
+     */
+    void broadcast(std::shared_ptr<const std::vector<uint8_t>> data);
+
+    /**
+     * @brief 广播到特定话题的订阅者 (零拷贝)
+     */
+    void broadcast_to_subscribers(const std::string& topic, 
+                                  std::shared_ptr<const std::vector<uint8_t>> data);
+
+    /**
+     * @brief 广播消息到所有会话 (零拷贝)
+     */
+    void broadcast(std::shared_ptr<const std::vector<uint8_t>> data);
+
+    /**
+     * @brief 广播到特定话题的订阅者 (零拷贝)
+     */
+    void broadcast_to_subscribers(const std::string& topic, 
+                                  std::shared_ptr<const std::vector<uint8_t>> data);
+
+    /**
+     * @brief 广播消息到所有会话 (兼容)
      * @param data 消息数据
      */
     void broadcast(const std::vector<uint8_t>& data);
     
     /**
-     * @brief 广播到特定话题的订阅者
+     * @brief 广播到特定话题的订阅者 (兼容)
      * @param topic 话题名称
      * @param data 消息数据
      */

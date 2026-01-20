@@ -1,8 +1,9 @@
 [Unit]
 Description=QYH Robot Data Plane (WebSocket/ROS2)
 Documentation=https://github.com/qyh-robot/backend
-After=network.target ros2-daemon.service
-Requires=ros2-daemon.service
+After=network.target network-online.target
+# ROS2 daemon is handled by middleware, not a system service usually.
+# If you have a dedicated DDS discovery server, add it here.
 
 [Service]
 Type=simple
@@ -11,12 +12,8 @@ Group=robot
 WorkingDirectory=/opt/qyh-robot/data_plane
 EnvironmentFile=/etc/qyh-robot/environment
 
-# ROS2 环境
-Environment=ROS_DOMAIN_ID=0
-Environment=RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-
-ExecStart=/opt/qyh-robot/data_plane/bin/data_plane_server \
-    /etc/qyh-robot/data_plane/config.yaml
+# 使用 entrypoint 加载 ROS2 环境
+ExecStart=/opt/qyh-robot/ros_entrypoint.sh /opt/qyh-robot/data_plane/bin/data_plane_server /etc/qyh-robot/data_plane/config.yaml
 
 Restart=always
 RestartSec=3

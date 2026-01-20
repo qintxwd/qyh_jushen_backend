@@ -11,151 +11,161 @@ namespace qyh::dataplane {
 
 // ==================== 综合状态 ====================
 
-void StateCache::update_robot_state(const std::vector<uint8_t>& data) {
+void StateCache::update_robot_state(std::shared_ptr<const std::vector<uint8_t>> data) {
     std::lock_guard<std::mutex> lock(mutex_);
     robot_state_ = data;
     last_update_time_ = std::chrono::steady_clock::now();
 }
 
-std::optional<std::vector<uint8_t>> StateCache::get_robot_state() const {
+void StateCache::update_robot_state(const std::vector<uint8_t>& data) {
+    update_robot_state(std::make_shared<std::vector<uint8_t>>(data));
+}
+
+std::shared_ptr<const std::vector<uint8_t>> StateCache::get_robot_state() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (robot_state_.empty()) {
-        return std::nullopt;
-    }
     return robot_state_;
 }
 
 // ==================== 关节状态 ====================
 
-void StateCache::update_joint_state(const std::vector<uint8_t>& data) {
+void StateCache::update_joint_state(std::shared_ptr<const std::vector<uint8_t>> data) {
     std::lock_guard<std::mutex> lock(mutex_);
     joint_state_ = data;
     last_update_time_ = std::chrono::steady_clock::now();
 }
 
-std::optional<std::vector<uint8_t>> StateCache::get_joint_state() const {
+void StateCache::update_joint_state(const std::vector<uint8_t>& data) {
+    update_joint_state(std::make_shared<std::vector<uint8_t>>(data));
+}
+
+std::shared_ptr<const std::vector<uint8_t>> StateCache::get_joint_state() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (joint_state_.empty()) {
-        return std::nullopt;
-    }
     return joint_state_;
 }
 
 // ==================== 机械臂状态 ====================
 
-void StateCache::update_arm_state(const std::vector<uint8_t>& data) {
+void StateCache::update_arm_state(std::shared_ptr<const std::vector<uint8_t>> data) {
     std::lock_guard<std::mutex> lock(mutex_);
     arm_state_ = data;
     last_update_time_ = std::chrono::steady_clock::now();
 }
 
-std::optional<std::vector<uint8_t>> StateCache::get_arm_state() const {
+void StateCache::update_arm_state(const std::vector<uint8_t>& data) {
+    update_arm_state(std::make_shared<std::vector<uint8_t>>(data));
+}
+
+std::shared_ptr<const std::vector<uint8_t>> StateCache::get_arm_state() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (arm_state_.empty()) {
-        return std::nullopt;
-    }
     return arm_state_;
 }
 
-void StateCache::update_left_arm_state(const std::vector<uint8_t>& data) {
+void StateCache::update_left_arm_state(std::shared_ptr<const std::vector<uint8_t>> data) {
     std::lock_guard<std::mutex> lock(mutex_);
     left_arm_state_ = data;
     last_update_time_ = std::chrono::steady_clock::now();
 }
 
-std::optional<std::vector<uint8_t>> StateCache::get_left_arm_state() const {
+void StateCache::update_left_arm_state(const std::vector<uint8_t>& data) {
+    update_left_arm_state(std::make_shared<std::vector<uint8_t>>(data));
+}
+
+std::shared_ptr<const std::vector<uint8_t>> StateCache::get_left_arm_state() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (left_arm_state_.empty()) {
-        return std::nullopt;
-    }
     return left_arm_state_;
 }
 
-void StateCache::update_right_arm_state(const std::vector<uint8_t>& data) {
+void StateCache::update_right_arm_state(std::shared_ptr<const std::vector<uint8_t>> data) {
     std::lock_guard<std::mutex> lock(mutex_);
     right_arm_state_ = data;
     last_update_time_ = std::chrono::steady_clock::now();
 }
 
-std::optional<std::vector<uint8_t>> StateCache::get_right_arm_state() const {
+void StateCache::update_right_arm_state(const std::vector<uint8_t>& data) {
+    update_right_arm_state(std::make_shared<std::vector<uint8_t>>(data));
+}
+
+std::shared_ptr<const std::vector<uint8_t>> StateCache::get_right_arm_state() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (right_arm_state_.empty()) {
-        return std::nullopt;
-    }
     return right_arm_state_;
 }
 
 // ==================== 底盘状态 ====================
 
-void StateCache::update_chassis_state(const std::vector<uint8_t>& data) {
+void StateCache::update_chassis_state(std::shared_ptr<const std::vector<uint8_t>> data) {
     std::lock_guard<std::mutex> lock(mutex_);
     chassis_state_ = data;
     last_update_time_ = std::chrono::steady_clock::now();
 }
 
-std::optional<std::vector<uint8_t>> StateCache::get_chassis_state() const {
+void StateCache::update_chassis_state(const std::vector<uint8_t>& data) {
+    update_chassis_state(std::make_shared<std::vector<uint8_t>>(data));
+}
+
+std::shared_ptr<const std::vector<uint8_t>> StateCache::get_chassis_state() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (chassis_state_.empty()) {
-        return std::nullopt;
-    }
     return chassis_state_;
 }
 
 // ==================== 执行器状态 ====================
 
-void StateCache::update_lift_state(const std::vector<uint8_t>& data) {
+void StateCache::update_lift_state(std::shared_ptr<const std::vector<uint8_t>> data) {
     std::lock_guard<std::mutex> lock(mutex_);
     lift_state_ = data;
     last_update_time_ = std::chrono::steady_clock::now();
 }
 
-std::optional<std::vector<uint8_t>> StateCache::get_lift_state() const {
+void StateCache::update_lift_state(const std::vector<uint8_t>& data) {
+    update_lift_state(std::make_shared<std::vector<uint8_t>>(data));
+}
+
+std::shared_ptr<const std::vector<uint8_t>> StateCache::get_lift_state() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (lift_state_.empty()) {
-        return std::nullopt;
-    }
     return lift_state_;
 }
 
-void StateCache::update_waist_state(const std::vector<uint8_t>& data) {
+void StateCache::update_waist_state(std::shared_ptr<const std::vector<uint8_t>> data) {
     std::lock_guard<std::mutex> lock(mutex_);
     waist_state_ = data;
     last_update_time_ = std::chrono::steady_clock::now();
 }
 
-std::optional<std::vector<uint8_t>> StateCache::get_waist_state() const {
+void StateCache::update_waist_state(const std::vector<uint8_t>& data) {
+    update_waist_state(std::make_shared<std::vector<uint8_t>>(data));
+}
+
+std::shared_ptr<const std::vector<uint8_t>> StateCache::get_waist_state() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (waist_state_.empty()) {
-        return std::nullopt;
-    }
     return waist_state_;
 }
 
-void StateCache::update_head_pan_state(const std::vector<uint8_t>& data) {
+void StateCache::update_head_pan_state(std::shared_ptr<const std::vector<uint8_t>> data) {
     std::lock_guard<std::mutex> lock(mutex_);
     head_pan_state_ = data;
     last_update_time_ = std::chrono::steady_clock::now();
 }
 
-std::optional<std::vector<uint8_t>> StateCache::get_head_pan_state() const {
+void StateCache::update_head_pan_state(const std::vector<uint8_t>& data) {
+    update_head_pan_state(std::make_shared<std::vector<uint8_t>>(data));
+}
+
+std::shared_ptr<const std::vector<uint8_t>> StateCache::get_head_pan_state() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (head_pan_state_.empty()) {
-        return std::nullopt;
-    }
     return head_pan_state_;
 }
 
-void StateCache::update_head_tilt_state(const std::vector<uint8_t>& data) {
+void StateCache::update_head_tilt_state(std::shared_ptr<const std::vector<uint8_t>> data) {
     std::lock_guard<std::mutex> lock(mutex_);
     head_tilt_state_ = data;
     last_update_time_ = std::chrono::steady_clock::now();
 }
 
-std::optional<std::vector<uint8_t>> StateCache::get_head_tilt_state() const {
+void StateCache::update_head_tilt_state(const std::vector<uint8_t>& data) {
+    update_head_tilt_state(std::make_shared<std::vector<uint8_t>>(data));
+}
+
+std::shared_ptr<const std::vector<uint8_t>> StateCache::get_head_tilt_state() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (head_tilt_state_.empty()) {
-        return std::nullopt;
-    }
     return head_tilt_state_;
 }
 

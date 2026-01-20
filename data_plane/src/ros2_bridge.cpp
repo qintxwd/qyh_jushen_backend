@@ -720,9 +720,9 @@ void ROS2Bridge::broadcast_state(const std::string& topic_name,
     ws_msg.mutable_timestamp()->set_seconds(seconds);
     ws_msg.mutable_timestamp()->set_nanos(static_cast<int32_t>(nanos));
     
-    // 序列化完整消息
-    std::vector<uint8_t> data(ws_msg.ByteSizeLong());
-    ws_msg.SerializeToArray(data.data(), static_cast<int>(data.size()));
+    // 零拷贝序列化
+    auto data = std::make_shared<std::vector<uint8_t>>(ws_msg.ByteSizeLong());
+    ws_msg.SerializeToArray(data->data(), static_cast<int>(data->size()));
     
     // 广播给订阅了该话题的客户端
     server_->broadcast_to_subscribers(topic_name, data);
