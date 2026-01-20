@@ -2,17 +2,21 @@
 QYH Jushen Control Plane - 底盘配置 API
 
 提供底盘配置的持久化管理（速度级别、音量、避障策略等）
+
+注意：实时底盘控制（速度命令、急停等）应通过 Data Plane WebSocket 进行，
+      以获得最低延迟。本模块的控制接口仅作为 HTTP 后备方案。
 """
 import json
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.dependencies import get_current_operator, get_current_user
 from app.models.user import User
 from app.schemas.response import ApiResponse, success_response, error_response, ErrorCodes
+from app.services.ros2_client import get_ros2_client
 
 router = APIRouter()
 
@@ -191,72 +195,353 @@ async def reset_chassis_config(
     )
 
 
-# ==================== 底盘控制 API (Placeholder) ====================
-# 这些接口目前仅作占位，以防止前端 404
-# 实际控制逻辑应连接到 Data Plane 或 ROS2
+# ==================== 底盘状态与控制 API ====================
+# 
+# 重要设计说明：
+# - 状态获取：从 ROS2 订阅缓存读取真实数据
+# - 实时控制：应优先通过 Data Plane WebSocket，HTTP 仅作后备
+# - 配置管理：持久化存储 + ROS2 服务同步
+
 
 @router.get("/status", response_model=ApiResponse)
-async def get_chassis_status():
-    """获取底盘状态 (Mock)"""
-    return success_response(
-        data={
-            "connected": True,
-            "system_status": 1,
-            "system_status_text": "Normal",
-            "battery": {
-                "percentage": 85,
-                "voltage": 24.5,
-                "current": 1.2,
-                "status_text": "Discharging",
+async def get_chassis_status(
+    current_user: User = Depends(get_current_user),
+):
+    """
+    获取底盘状态快照 (HTTP 接口)
+    
+    ⚠️ 使用场景：
+    - 页面初始化时获取一次完整状态
+    - WebSocket 未连接时的后备方案
+    
+    ❌ 不要用于高频轮询！请使用 Data Plane WebSocket 订阅 chassis_state
+    
+    数据来源：ROS2 话题订阅缓存
+    """
+    ros2_client = get_ros2_client()
+    
+    # 从 ROS2 缓存获取状态
+    status_data = ros2_client.get_standard_robot_status()
+    odom_data = ros2_client.get_odom()
+    
+    if not status_data and not odom_data:
+        return success_response(
+            data={
+                "connected": False,
+                "system_status": 0,
+                "system_status_text": "未连接",
+                "message": "ROS2 底盘状态未接收到数据，请确认底盘节点已启动"
             },
-            "pose": {"x": 0, "y": 0, "yaw": 0},
-            "velocity": {"linear_x": 0, "linear_y": 0, "angular_z": 0},
-            "flags": {"is_emergency_stopped": False}
-        },
+            message="底盘未连接"
+        )
+    
+    # 构建响应数据
+    response_data = {
+        "connected": True,
+        "system_status": status_data.get("system_status", 0) if status_data else 0,
+        "system_status_text": _get_system_status_text(
+            status_data.get("system_status", 0) if status_data else 0
+        ),
+        "location_status": status_data.get("location_status", 0) if status_data else 0,
+        "location_status_text": _get_location_status_text(
+            status_data.get("location_status", 0) if status_data else 0
+        ),
+        "operation_status": status_data.get("operation_status", 0) if status_data else 0,
+        "operation_status_text": _get_operation_status_text(
+            status_data.get("operation_status", 0) if status_data else 0
+        ),
+    }
+    
+    # 位姿信息
+    if odom_data and odom_data.get("pose"):
+        pose = odom_data["pose"]
+        pos = pose.position if hasattr(pose, 'position') else pose.get("position", {})
+        ori = pose.orientation if hasattr(pose, 'orientation') else pose.get("orientation", {})
+        
+        # 提取位置
+        x = getattr(pos, 'x', pos.get('x', 0)) if pos else 0
+        y = getattr(pos, 'y', pos.get('y', 0)) if pos else 0
+        
+        # 四元数转航向角
+        qz = getattr(ori, 'z', ori.get('z', 0)) if ori else 0
+        qw = getattr(ori, 'w', ori.get('w', 1)) if ori else 1
+        import math
+        yaw = math.atan2(2.0 * qw * qz, 1.0 - 2.0 * qz * qz)
+        
+        response_data["pose"] = {
+            "x": x,
+            "y": y,
+            "yaw": yaw,
+            "confidence": 1.0  # TODO: 从定位状态获取置信度
+        }
+    
+    # 速度信息
+    if odom_data and odom_data.get("twist"):
+        twist = odom_data["twist"]
+        linear = twist.linear if hasattr(twist, 'linear') else twist.get("linear", {})
+        angular = twist.angular if hasattr(twist, 'angular') else twist.get("angular", {})
+        
+        response_data["velocity"] = {
+            "linear_x": getattr(linear, 'x', linear.get('x', 0)) if linear else 0,
+            "linear_y": getattr(linear, 'y', linear.get('y', 0)) if linear else 0,
+            "angular_z": getattr(angular, 'z', angular.get('z', 0)) if angular else 0,
+        }
+    
+    # 电池信息
+    if status_data:
+        response_data["battery"] = {
+            "percentage": status_data.get("battery_remaining_percentage", 0),
+            "voltage": 0,  # TODO: 需要从其他话题获取
+            "current": 0,
+            "status_text": "充电中" if status_data.get("is_charging") else "放电中",
+        }
+        
+        # 标志位
+        response_data["flags"] = {
+            "is_emergency_stopped": status_data.get("is_emergency_stopped", False),
+            "is_emergency_recoverable": True,  # TODO: 从硬件状态获取
+            "is_brake_released": not status_data.get("is_emergency_stopped", False),
+            "is_charging": status_data.get("is_charging", False),
+            "is_low_power_mode": False,
+            "obstacle_slowdown": False,
+            "obstacle_paused": False,
+            "can_run_motion_task": True,
+            "is_auto_mode": status_data.get("operation_status", 0) == 1,
+            "is_loaded": False,
+            "has_wifi": True,
+        }
+    
+    return success_response(
+        data=response_data,
         message="获取状态成功"
     )
 
+
+def _get_system_status_text(status: int) -> str:
+    """系统状态码转文本"""
+    status_map = {
+        0: "未知",
+        1: "正常",
+        2: "警告",
+        3: "错误",
+    }
+    return status_map.get(status, "未知")
+
+
+def _get_location_status_text(status: int) -> str:
+    """定位状态码转文本"""
+    status_map = {
+        0: "未定位",
+        1: "定位中",
+        2: "已定位",
+    }
+    return status_map.get(status, "未知")
+
+
+def _get_operation_status_text(status: int) -> str:
+    """运行状态码转文本"""
+    status_map = {
+        0: "空闲",
+        1: "自动",
+        2: "手动",
+        3: "急停",
+    }
+    return status_map.get(status, "未知")
+
+
 @router.get("/stations", response_model=ApiResponse)
-async def get_stations():
-    """获取站点列表 (Mock)"""
+async def get_stations(
+    current_user: User = Depends(get_current_user),
+):
+    """
+    获取站点列表
+    
+    从地图配置文件读取站点数据
+    """
+    import os
+    
+    workspace_root = Path(os.environ.get('QYH_WORKSPACE_ROOT', Path.home() / 'qyh-robot-system'))
+    current_map_file = workspace_root / "maps" / "current_map.txt"
+    
+    current_map = "standard"
+    if current_map_file.exists():
+        try:
+            current_map = current_map_file.read_text().strip()
+        except Exception:
+            pass
+    
+    map_json = workspace_root / "maps" / current_map / f"{current_map}.json"
+    stations = []
+    
+    if map_json.exists():
+        try:
+            with open(map_json, 'r', encoding='utf-8') as f:
+                map_data = json.load(f)
+                raw_stations = map_data.get("stations", [])
+                for s in raw_stations:
+                    stations.append({
+                        "id": s.get("id", 0),
+                        "name": s.get("name", ""),
+                        "x": s.get("pos.x", s.get("x", 0)),
+                        "y": s.get("pos.y", s.get("y", 0)),
+                        "yaw": s.get("pos.yaw", s.get("yaw", 0)),
+                    })
+        except Exception as e:
+            return error_response(
+                code=ErrorCodes.INTERNAL_ERROR,
+                message=f"读取站点数据失败: {str(e)}"
+            )
+    
     return success_response(
-        data={"stations": []},
+        data={"stations": stations},
         message="获取站点成功"
     )
 
+
+# ==================== 底盘控制 (HTTP 后备接口) ====================
+# 
+# 重要：这些接口通过 ROS2 服务调用实现，会有一定延迟。
+# 对于实时性要求高的控制（如速度命令），请使用 Data Plane WebSocket。
+
+
 @router.post("/velocity", response_model=ApiResponse)
-async def send_velocity(cmd: dict):
-    return success_response(message="速度指令已发送 (Mock)")
+async def send_velocity(
+    cmd: dict,
+    current_user: User = Depends(get_current_operator),
+):
+    """
+    发送速度命令 (HTTP 后备接口)
+    
+    警告：此接口有网络延迟，建议使用 Data Plane WebSocket 发送速度命令
+    """
+    ros2_client = get_ros2_client()
+    
+    linear_x = cmd.get("linear_x", 0)
+    linear_y = cmd.get("linear_y", 0)
+    angular_z = cmd.get("angular_z", 0)
+    
+    try:
+        await ros2_client.publish_cmd_vel(linear_x, linear_y, angular_z)
+        return success_response(message="速度指令已发送")
+    except Exception as e:
+        return error_response(
+            code=ErrorCodes.ROS2_SERVICE_ERROR,
+            message=f"发送速度指令失败: {str(e)}"
+        )
+
 
 @router.post("/stop", response_model=ApiResponse)
-async def stop_chassis():
-    return success_response(message="已停止 (Mock)")
+async def stop_chassis(
+    current_user: User = Depends(get_current_operator),
+):
+    """停止底盘运动"""
+    ros2_client = get_ros2_client()
+    
+    try:
+        await ros2_client.publish_cmd_vel(0, 0, 0)
+        return success_response(message="已停止")
+    except Exception as e:
+        return error_response(
+            code=ErrorCodes.ROS2_SERVICE_ERROR,
+            message=f"停止失败: {str(e)}"
+        )
 
-@router.post("/manual/start", response_model=ApiResponse)
-async def start_manual():
-    return success_response(message="进入手动模式 (Mock)")
-
-@router.post("/manual/stop", response_model=ApiResponse)
-async def stop_manual():
-    return success_response(message="退出手动模式 (Mock)")
-
-@router.post("/manual/command", response_model=ApiResponse)
-async def manual_command(cmd: dict):
-    return success_response(message="手动指令已发送 (Mock)")
 
 @router.post("/emergency_stop", response_model=ApiResponse)
-async def emergency_stop():
-    return success_response(message="已急停 (Mock)")
+async def emergency_stop(
+    current_user: User = Depends(get_current_operator),
+):
+    """
+    紧急停止 (HTTP 后备接口)
+    
+    警告：建议使用 Data Plane WebSocket 发送紧急停止以获得最低延迟
+    """
+    ros2_client = get_ros2_client()
+    
+    try:
+        await ros2_client.publish_emergency_stop()
+        return success_response(message="急停已触发")
+    except Exception as e:
+        return error_response(
+            code=ErrorCodes.ROS2_SERVICE_ERROR,
+            message=f"急停失败: {str(e)}"
+        )
+
 
 @router.post("/release_emergency_stop", response_model=ApiResponse)
-async def release_emergency_stop():
-    return success_response(message="已解除急停 (Mock)")
+async def release_emergency_stop(
+    current_user: User = Depends(get_current_operator),
+):
+    """解除紧急停止"""
+    ros2_client = get_ros2_client()
+    
+    try:
+        await ros2_client.release_emergency_stop()
+        return success_response(message="急停已解除")
+    except Exception as e:
+        return error_response(
+            code=ErrorCodes.ROS2_SERVICE_ERROR,
+            message=f"解除急停失败: {str(e)}"
+        )
+
 
 @router.post("/navigate/coordinate", response_model=ApiResponse)
-async def navigate_coordinate(target: dict):
-    return success_response(message="导航指令已发送 (Mock)")
+async def navigate_coordinate(
+    target: dict,
+    current_user: User = Depends(get_current_operator),
+):
+    """导航到指定坐标"""
+    ros2_client = get_ros2_client()
+    
+    x = target.get("x", 0)
+    y = target.get("y", 0)
+    yaw = target.get("yaw", 0)
+    
+    try:
+        result = await ros2_client.navigate_to_pose(x, y, yaw)
+        if result.success:
+            return success_response(message="导航指令已发送")
+        else:
+            return error_response(
+                code=ErrorCodes.ROS2_SERVICE_ERROR,
+                message=f"导航失败: {result.message}"
+            )
+    except Exception as e:
+        return error_response(
+            code=ErrorCodes.ROS2_SERVICE_ERROR,
+            message=f"导航失败: {str(e)}"
+        )
+
 
 @router.post("/navigate/site", response_model=ApiResponse)
-async def navigate_site(target: dict):
-    return success_response(message="站点导航指令已发送 (Mock)")
+async def navigate_site(
+    target: dict,
+    current_user: User = Depends(get_current_operator),
+):
+    """导航到站点"""
+    site_id = target.get("site_id")
+    if site_id is None:
+        return error_response(
+            code=ErrorCodes.VALIDATION_ERROR,
+            message="缺少 site_id 参数"
+        )
+    
+    # 从站点列表获取坐标
+    # TODO: 调用 ROS2 站点导航服务
+    ros2_client = get_ros2_client()
+    
+    try:
+        result = await ros2_client.navigate_to_station(site_id)
+        if result.success:
+            return success_response(message="站点导航指令已发送")
+        else:
+            return error_response(
+                code=ErrorCodes.ROS2_SERVICE_ERROR,
+                message=f"站点导航失败: {result.message}"
+            )
+    except Exception as e:
+        return error_response(
+            code=ErrorCodes.ROS2_SERVICE_ERROR,
+            message=f"站点导航失败: {str(e)}"
+        )
 

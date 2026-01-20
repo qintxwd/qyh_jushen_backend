@@ -673,6 +673,60 @@ class ROS2ServiceClient:
             "plc_connected": False,
         }
 
+    def get_standard_robot_status(self) -> Optional[Dict[str, Any]]:
+        """获取标准机器人状态 (底盘状态)"""
+        with self._state_lock:
+            if self._latest_robot_status:
+                return self._latest_robot_status.copy()
+        return None
+
+    def get_odom(self) -> Optional[Dict[str, Any]]:
+        """获取里程计数据 (位姿和速度)"""
+        with self._state_lock:
+            if self._latest_odom:
+                return self._latest_odom.copy()
+        return None
+
+    async def publish_cmd_vel(
+        self, linear_x: float, linear_y: float, angular_z: float
+    ) -> None:
+        """发布速度命令到 /cmd_vel"""
+        if not self._emergency_stop_publisher:
+            raise RuntimeError("cmd_vel publisher not initialized")
+        
+        try:
+            from geometry_msgs.msg import Twist
+            msg = Twist()
+            msg.linear.x = float(linear_x)
+            msg.linear.y = float(linear_y)
+            msg.linear.z = 0.0
+            msg.angular.x = 0.0
+            msg.angular.y = 0.0
+            msg.angular.z = float(angular_z)
+            self._emergency_stop_publisher.publish(msg)
+        except Exception as e:
+            logger.error(f"publish_cmd_vel error: {e}")
+            raise
+
+    async def navigate_to_pose(
+        self, x: float, y: float, yaw: float
+    ) -> ServiceResponse:
+        """导航到指定位姿"""
+        # TODO: 实现 Nav2 导航接口
+        # 目前返回不支持
+        return ServiceResponse(
+            success=False,
+            message="导航服务尚未实现，请使用底盘原生导航接口"
+        )
+
+    async def navigate_to_station(self, station_id: int) -> ServiceResponse:
+        """导航到站点"""
+        # TODO: 实现站点导航接口
+        return ServiceResponse(
+            success=False,
+            message="站点导航服务尚未实现，请使用底盘原生导航接口"
+        )
+
     # 注意: get_vr_state() 已移除
     # VR 状态由 Data Plane 管理，查询接口见 /api/v1/vr/status
     # 实时 VR 位姿请订阅 Data Plane 的 VRSystemState 话题
