@@ -18,7 +18,9 @@ from app.dependencies import get_current_user
 from app.models.user import User
 from app.schemas.response import ApiResponse, success_response, error_response, ErrorCodes
 from app.services.ros2_client import get_ros2_client, ROS2ServiceClient
-from app.services.audit_service import AuditService, get_audit_service
+from app.services.audit_service import AuditService
+from app.database import get_async_db
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -51,7 +53,7 @@ router = APIRouter()
 )
 async def emergency_stop(
     current_user: User = Depends(get_current_user),
-    audit_service: AuditService = Depends(get_audit_service),
+    db: AsyncSession = Depends(get_async_db),
 ) -> ApiResponse:
     """执行紧急停止"""
     try:
@@ -67,10 +69,10 @@ async def emergency_stop(
         actuators_stopped = await ros2_client.stop_all_actuators()
         
         # 4. 记录审计日志
-        await audit_service.log_action(
-            user_id=current_user.id,
+        await AuditService.log(
+            db=db,
             action="emergency_stop",
-            resource_type="system",
+            resource="system",
             resource_id="global",
             details={
                 "chassis_stopped": chassis_stopped,
@@ -79,6 +81,7 @@ async def emergency_stop(
                 "timestamp": datetime.utcnow().isoformat(),
                 "source": "http_api",
             },
+            user=current_user,
         )
         
         logger.warning(

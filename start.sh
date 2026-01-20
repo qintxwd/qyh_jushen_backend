@@ -1,128 +1,170 @@
 #!/bin/bash
 
-# QYH Jushen Web 后端启动脚本 (Control Plane + Data Plane + Media Plane)
+# ==============================================================================
+# QYH Robot Backend Startup Script
+# ==============================================================================
 
-# 读取 ROS_DOMAIN_ID
-ROS_DOMAIN_ID_FILE="$HOME/qyh-robot-system/persistent/ros/ROS_DOMAIN_ID"
-if [ -f "$ROS_DOMAIN_ID_FILE" ]; then
-    export ROS_DOMAIN_ID=$(cat "$ROS_DOMAIN_ID_FILE")
-else
-    export ROS_DOMAIN_ID=0
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORK_DIR="$SCRIPT_DIR"
+STOP_REQUESTED=0
+ROBOT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Source ROS2 environment
+if [ -f "/opt/ros/humble/setup.bash" ]; then
+    source /opt/ros/humble/setup.bash
+    echo "✅ 已加载 ROS2 Humble"
 fi
+
+# Source custom workspace (for qyh_lift_msgs etc.)
+ROS2_WS="$ROBOT_ROOT/qyh_jushen_ws/install/setup.bash"
+if [ -f "$ROS2_WS" ]; then
+    source "$ROS2_WS"
+    echo "✅ 已加载 ROS2 工作空间: $ROS2_WS"
+else
+    echo "⚠️  未找到 ROS2 工作空间: $ROS2_WS"
+fi
+
+export ROS_DOMAIN_ID=0
 echo "🔧 ROS_DOMAIN_ID = $ROS_DOMAIN_ID"
 
-# Source 全局配置（GLOBAL_ROBOT_NAME, GLOBAL_ROBOT_VERSION）
-CONFIG_FILE="$HOME/qyh-robot-system/qyh_jushen_ws/config.bash"
-if [ -f "$CONFIG_FILE" ]; then
-    source "$CONFIG_FILE"
-    echo "✅ 已加载全局配置: ROBOT_NAME=$GLOBAL_ROBOT_NAME, VERSION=$GLOBAL_ROBOT_VERSION"
-else
-    echo "⚠️  未找到配置文件: $CONFIG_FILE，使用默认值"
-    export GLOBAL_ROBOT_NAME=general
-    export GLOBAL_ROBOT_VERSION=1.0
-fi
-
-# Source ROS2 环境
-source /opt/ros/humble/setup.bash
-
-# Source 工作空间（包含 qyh_lift_msgs 等自定义消息）
-WS_SETUP="$HOME/qyh-robot-system/qyh_jushen_ws/install/setup.bash"
-if [ -f "$WS_SETUP" ]; then
-    source "$WS_SETUP"
-    echo "✅ 已加载 ROS2 工作空间"
-else
-    echo "⚠️  未找到工作空间: $WS_SETUP"
-fi
-
-# 切换到后端目录
-cd "$(dirname "$0")"
-
-# 检查是否有一个已经在运行的占用8000端口的进程，如果有则杀掉它
-PORT=8000
-if lsof -i:$PORT -t >/dev/null ; then
-    PID=$(lsof -i:$PORT -t)
-    echo "⚠️  端口 $PORT 已被占用，正在终止进程 $PID ..."
-    kill -9 $PID
-    echo "✅ 已终止进程 $PID"
-fi
-
-# 激活虚拟环境
-if [ -f "venv/bin/activate" ]; then
-    source venv/bin/activate
-else
-    echo "⚠️  未找到虚拟环境 venv，尝试直接运行..."
-fi
-
-# 杀死所有子进程的函数
+# Cleanup function
 cleanup() {
+    STOP_REQUESTED=1
     echo ""
-    echo "⚠️  收到终止信号，正在关闭所有服务..."
+    echo "⚠️  正在关闭所有服务..."
     
-    # 杀掉 Python 后端
-    if [ ! -z "$PID_CONTROL" ]; then
-        echo "Killing Control Plane (PID $PID_CONTROL)..."
-        kill $PID_CONTROL 2>/dev/null
-    fi
-
-    # 杀掉 Data Plane
-    if [ ! -z "$PID_DATA" ]; then
-        echo "Killing Data Plane (PID $PID_DATA)..."
-        kill $PID_DATA 2>/dev/null
-    fi
-
-    # 杀掉 Media Plane
-    if [ ! -z "$PID_MEDIA" ]; then
-        echo "Killing Media Plane (PID $PID_MEDIA)..."
-        kill $PID_MEDIA 2>/dev/null
+    # Kill in reverse order
+    if [ ! -z "$MEDIA_PID" ] && kill -0 $MEDIA_PID 2>/dev/null; then
+        echo "Killing Media Plane (PID $MEDIA_PID)..."
+        kill $MEDIA_PID 2>/dev/null || true
     fi
     
+    if [ ! -z "$DATA_PID" ] && kill -0 $DATA_PID 2>/dev/null; then
+        echo "Killing Data Plane (PID $DATA_PID)..."
+        kill $DATA_PID 2>/dev/null || true
+    fi
+    
+    if [ ! -z "$CONTROL_PID" ] && kill -0 $CONTROL_PID 2>/dev/null; then
+        echo "Killing Control Plane (PID $CONTROL_PID)..."
+        kill $CONTROL_PID 2>/dev/null || true
+    fi
+    
+    wait 2>/dev/null
     echo "✅ 所有服务已关闭"
-    exit
 }
 
-# 捕获 SIGINT (Ctrl+C)
-trap cleanup SIGINT
+# Trap signals
+trap cleanup SIGINT SIGTERM EXIT
+
+echo "✅ 已加载全局配置: ROBOT_NAME=general, VERSION=1.0"
+
+# Detect venv
+VENV_PYTHON="$WORK_DIR/venv/bin/python"
+if [ ! -f "$VENV_PYTHON" ]; then
+    echo "⚠️  未找到虚拟环境 venv，尝试直接运行..."
+    PYTHON_CMD="python3"
+else
+    PYTHON_CMD="$VENV_PYTHON"
+fi
 
 echo "🚀 启动后端服务器组件..."
 
-# 1. 启动 Control Plane (Python)
-echo "  -> Starting Control Plane (Port $PORT)..."
-if [ -d "arm64/control_plane" ]; then
-    (cd arm64/control_plane && python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT > ../../control_plane.log 2>&1) &
-    PID_CONTROL=$!
-    echo "     PID: $PID_CONTROL"
-else
-    echo "⚠️  未找到 Control Plane 部署 (请先执行 ./build_all.sh)"
-    # 尝试原地运行作为 fallback
-    if [ -d "control_plane/app" ]; then
-         echo "     Trying to run in-place..."
-         python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT > control_plane.log 2>&1 &
-         PID_CONTROL=$!
-    fi
-fi
+# 1. Start Control Plane
+echo "  -> Starting Control Plane (Port 8000)..."
+cd "$WORK_DIR/arm64/control_plane"
+$PYTHON_CMD -m uvicorn app.main:app --host 0.0.0.0 --port 8000 >> "$WORK_DIR/control_plane.log" 2>&1 &
+CONTROL_PID=$!
+echo "     PID: $CONTROL_PID"
+cd "$WORK_DIR"
 
-# 2. 启动 Data Plane (C++)
-if [ -f "arm64/data_plane/data_plane_server" ]; then
-    echo "  -> Starting Data Plane..."
-    (cd arm64/data_plane && ./data_plane_server > ../../data_plane.log 2>&1) &
-    PID_DATA=$!
-    echo "     PID: $PID_DATA"
-else
-    echo "⚠️  未找到 Data Plane 可执行文件 (请先执行 ./build_all.sh)"
-fi
+# Wait for Control Plane to start
+sleep 3
 
-# 3. 启动 Media Plane (C++)
-if [ -f "arm64/media_plane/media_plane_server" ]; then
-    echo "  -> Starting Media Plane..."
-    (cd arm64/media_plane && ./media_plane_server > ../../media_plane.log 2>&1) &
-    PID_MEDIA=$!
-    echo "     PID: $PID_MEDIA"
-else
-    echo "⚠️  未找到 Media Plane 可执行文件 (请先执行 ./build_all.sh)"
+# Check if Control Plane is still running
+if ! kill -0 $CONTROL_PID 2>/dev/null; then
+    echo "     ❌ Control Plane 启动失败！查看 control_plane.log"
+    cat control_plane.log
+    exit 1
 fi
+echo "     ✅ Control Plane 已启动"
 
-echo "✅ 所有服务已启动。查看日志: control_plane.log, data_plane.log, media_plane.log"
+# 2. Start Data Plane
+echo "  -> Starting Data Plane..."
+DATA_CONFIG="$WORK_DIR/arm64/data_plane/config/config.yaml"
+if [ ! -f "$DATA_CONFIG" ]; then
+    DATA_CONFIG="$WORK_DIR/data_plane/config/config.yaml"
+fi
+echo "     Config: $DATA_CONFIG"
+
+cd "$WORK_DIR/arm64/data_plane"
+if [ -f "./data_plane_server" ]; then
+    ./data_plane_server "$DATA_CONFIG" >> "$WORK_DIR/data_plane.log" 2>&1 &
+    DATA_PID=$!
+    echo "     PID: $DATA_PID"
+else
+    echo "     ❌ 错误: 未找到 data_plane_server，请先运行 ./build_all.sh"
+    exit 1
+fi
+cd "$WORK_DIR"
+
+sleep 1
+if ! kill -0 $DATA_PID 2>/dev/null; then
+    echo "     ❌ Data Plane 启动失败！查看 data_plane.log"
+    exit 1
+fi
+echo "     ✅ Data Plane 已启动"
+
+# 3. Start Media Plane
+echo "  -> Starting Media Plane..."
+MEDIA_CONFIG="$WORK_DIR/arm64/media_plane/config/config.yaml"
+if [ ! -f "$MEDIA_CONFIG" ]; then
+     MEDIA_CONFIG="$WORK_DIR/media_plane/config/config.yaml"
+fi
+echo "     Config: $MEDIA_CONFIG"
+
+cd "$WORK_DIR/arm64/media_plane"
+if [ -f "./media_plane_server" ]; then
+    ./media_plane_server "$MEDIA_CONFIG" >> "$WORK_DIR/media_plane.log" 2>&1 &
+    MEDIA_PID=$!
+    echo "     PID: $MEDIA_PID"
+else
+    echo "     ❌ 错误: 未找到 media_plane_server，请先运行 ./build_all.sh"
+    exit 1
+fi
+cd "$WORK_DIR"
+
+sleep 1
+if ! kill -0 $MEDIA_PID 2>/dev/null; then
+    echo "     ❌ Media Plane 启动失败！查看 media_plane.log"
+    exit 1
+fi
+echo "     ✅ Media Plane 已启动"
+
+echo ""
+echo "✅ 所有服务已启动！"
+echo "   - Control Plane: http://localhost:8000"
+echo "   - Data Plane:    ws://localhost:8765"
+echo "   - Media Plane:   ws://localhost:8888"
+echo ""
+echo "查看日志: control_plane.log, data_plane.log, media_plane.log"
 echo "按 Ctrl+C 停止所有服务"
 
-# 等待任一进程退出
-wait $PID_CONTROL $PID_DATA $PID_MEDIA
+# Monitor processes and exit if any stops
+while true; do
+    sleep 1
+    if [ "$STOP_REQUESTED" -eq 1 ]; then
+        exit 0
+    fi
+    if ! kill -0 $CONTROL_PID 2>/dev/null; then
+        echo "⚠️  检测到 Control Plane 退出，正在关闭所有服务..."
+        exit 1
+    fi
+    if ! kill -0 $DATA_PID 2>/dev/null; then
+        echo "⚠️  检测到 Data Plane 退出，正在关闭所有服务..."
+        exit 1
+    fi
+    if ! kill -0 $MEDIA_PID 2>/dev/null; then
+        echo "⚠️  检测到 Media Plane 退出，正在关闭所有服务..."
+        exit 1
+    fi
+done

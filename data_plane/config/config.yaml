@@ -48,7 +48,7 @@ state_publish:
 
 control_sync:
   # Control Plane 基础地址
-  control_plane_url: "http://localhost:8000"
+  control_plane_url: "http://127.0.0.1:8000"
   # 同步间隔（毫秒）
   sync_interval_ms: 1000
   # 请求超时（毫秒）
