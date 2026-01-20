@@ -411,3 +411,214 @@ async def get_stations(
 # 
 # 此设计是为了保证实时控制的低延迟和高可靠性
 
+
+# ==================== 导航控制 API ====================
+# 
+# HTTP 导航接口用于发起导航任务，适合非实时场景。
+# 取消/暂停等频繁操作应通过 WebSocket 进行。
+
+
+class NavigateToPoseRequest(BaseModel):
+    """导航到坐标点请求"""
+    x: float = Field(..., description="目标 X 坐标 (米)")
+    y: float = Field(..., description="目标 Y 坐标 (米)")
+    yaw: float = Field(default=0.0, description="目标航向角 (弧度)")
+    speed_factor: float = Field(
+        default=1.0,
+        ge=0.1,
+        le=1.0,
+        description="速度因子 (0.1-1.0)"
+    )
+
+
+class NavigateToStationRequest(BaseModel):
+    """导航到站点请求"""
+    station_id: Optional[int] = Field(default=None, description="站点 ID")
+    station_name: Optional[str] = Field(default=None, description="站点名称")
+    speed_factor: float = Field(
+        default=1.0,
+        ge=0.1,
+        le=1.0,
+        description="速度因子 (0.1-1.0)"
+    )
+
+
+@router.post("/navigate/pose", response_model=ApiResponse)
+async def navigate_to_pose(
+    request: NavigateToPoseRequest,
+    current_user: User = Depends(get_current_operator),
+):
+    """
+    发起导航到坐标点
+    
+    需要操作员权限。
+    
+    ⚠️ 推荐场景：
+    - 从任务系统或上层调度发起的导航
+    - 页面上点击地图发起导航
+    
+    💡 如需取消或暂停导航，请使用 WebSocket 通道发送 MSG_NAVIGATION_CANCEL
+    """
+    ros2_client = get_ros2_client()
+    
+    try:
+        result = await ros2_client.navigate_to_pose(
+            x=request.x,
+            y=request.y,
+            yaw=request.yaw,
+            speed_factor=request.speed_factor
+        )
+        
+        if result.success:
+            return success_response(
+                data={
+                    "task_id": result.task_id,
+                    "target": {
+                        "x": request.x,
+                        "y": request.y,
+                        "yaw": request.yaw,
+                    },
+                },
+                message="导航任务已发起"
+            )
+        else:
+            return error_response(
+                code=ErrorCodes.OPERATION_FAILED,
+                message=f"导航发起失败: {result.message}"
+            )
+    except Exception as e:
+        return error_response(
+            code=ErrorCodes.ROS2_ERROR,
+            message=f"ROS2 服务调用失败: {str(e)}"
+        )
+
+
+@router.post("/navigate/station", response_model=ApiResponse)
+async def navigate_to_station(
+    request: NavigateToStationRequest,
+    current_user: User = Depends(get_current_operator),
+):
+    """
+    发起导航到站点
+    
+    需要操作员权限。可通过站点 ID 或名称指定目标。
+    
+    ⚠️ 推荐场景：
+    - 任务系统调度
+    - 前端站点列表点击导航
+    """
+    # 验证参数
+    if request.station_id is None and request.station_name is None:
+        return error_response(
+            code=ErrorCodes.INVALID_PARAMS,
+            message="必须提供 station_id 或 station_name"
+        )
+    
+    # 查找站点坐标
+    import os
+    workspace_root = Path(os.environ.get('QYH_WORKSPACE_ROOT', Path.home() / 'qyh-robot-system'))
+    current_map_file = workspace_root / "maps" / "current_map.txt"
+    
+    current_map = "standard"
+    if current_map_file.exists():
+        try:
+            current_map = current_map_file.read_text().strip()
+        except Exception:
+            pass
+    
+    map_json = workspace_root / "maps" / current_map / f"{current_map}.json"
+    
+    target_station = None
+    if map_json.exists():
+        try:
+            with open(map_json, 'r', encoding='utf-8') as f:
+                map_data = json.load(f)
+                for s in map_data.get("stations", []):
+                    if request.station_id is not None and s.get("id") == request.station_id:
+                        target_station = s
+                        break
+                    if request.station_name is not None and s.get("name") == request.station_name:
+                        target_station = s
+                        break
+        except Exception as e:
+            return error_response(
+                code=ErrorCodes.INTERNAL_ERROR,
+                message=f"读取站点数据失败: {str(e)}"
+            )
+    
+    if not target_station:
+        return error_response(
+            code=ErrorCodes.RESOURCE_NOT_FOUND,
+            message="未找到指定站点"
+        )
+    
+    # 提取坐标
+    x = target_station.get("pos.x", target_station.get("x", 0))
+    y = target_station.get("pos.y", target_station.get("y", 0))
+    yaw = target_station.get("pos.yaw", target_station.get("yaw", 0))
+    
+    ros2_client = get_ros2_client()
+    
+    try:
+        result = await ros2_client.navigate_to_pose(
+            x=x,
+            y=y,
+            yaw=yaw,
+            speed_factor=request.speed_factor
+        )
+        
+        if result.success:
+            return success_response(
+                data={
+                    "task_id": result.task_id,
+                    "station": {
+                        "id": target_station.get("id"),
+                        "name": target_station.get("name"),
+                    },
+                    "target": {"x": x, "y": y, "yaw": yaw},
+                },
+                message=f"导航到站点 {target_station.get('name', '未命名')} 已发起"
+            )
+        else:
+            return error_response(
+                code=ErrorCodes.OPERATION_FAILED,
+                message=f"导航发起失败: {result.message}"
+            )
+    except Exception as e:
+        return error_response(
+            code=ErrorCodes.ROS2_ERROR,
+            message=f"ROS2 服务调用失败: {str(e)}"
+        )
+
+
+@router.post("/navigate/cancel", response_model=ApiResponse)
+async def cancel_navigation(
+    current_user: User = Depends(get_current_operator),
+):
+    """
+    取消当前导航任务 (HTTP 后备接口)
+    
+    ⚠️ 推荐使用 WebSocket 通道发送 MSG_NAVIGATION_CANCEL 以获得更低延迟。
+    此 HTTP 接口作为后备方案。
+    """
+    ros2_client = get_ros2_client()
+    
+    try:
+        result = await ros2_client.cancel_navigation()
+        
+        if result.success:
+            return success_response(
+                data={"cancelled": True},
+                message="导航任务已取消"
+            )
+        else:
+            return error_response(
+                code=ErrorCodes.OPERATION_FAILED,
+                message=f"取消导航失败: {result.message}"
+            )
+    except Exception as e:
+        return error_response(
+            code=ErrorCodes.ROS2_ERROR,
+            message=f"ROS2 服务调用失败: {str(e)}"
+        )
+

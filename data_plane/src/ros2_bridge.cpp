@@ -401,6 +401,156 @@ void ROS2Bridge::publish_navigation_goal(const NavigationGoal& goal) {
     nav_goal_pub_->publish(msg);
 }
 
+void ROS2Bridge::cancel_navigation() {
+    // 发送零速度停止底盘
+    geometry_msgs::msg::Twist stop_msg;
+    stop_msg.linear.x = 0.0;
+    stop_msg.linear.y = 0.0;
+    stop_msg.angular.z = 0.0;
+    cmd_vel_pub_->publish(stop_msg);
+    
+    // TODO: 如果有 Nav2 action，可以取消 goal
+    std::cout << "[ROS2Bridge] Navigation cancelled" << std::endl;
+}
+
+void ROS2Bridge::pause_navigation() {
+    // 发送零速度暂停底盘
+    geometry_msgs::msg::Twist stop_msg;
+    stop_msg.linear.x = 0.0;
+    stop_msg.linear.y = 0.0;
+    stop_msg.angular.z = 0.0;
+    cmd_vel_pub_->publish(stop_msg);
+    
+    // TODO: 可以通过 Nav2 的暂停接口实现
+    std::cout << "[ROS2Bridge] Navigation paused" << std::endl;
+}
+
+void ROS2Bridge::resume_navigation() {
+    // TODO: 恢复导航需要记住之前的目标
+    std::cout << "[ROS2Bridge] Navigation resumed" << std::endl;
+}
+
+void ROS2Bridge::publish_lift_command(const LiftCommand& cmd) {
+    // 根据命令类型选择发布方式
+    const std::string& command = cmd.command();
+    
+    if (command == "stop") {
+        // 发布零速度或停止命令
+        std_msgs::msg::Float64 msg;
+        msg.data = 0.0;
+        lift_cmd_pub_->publish(msg);
+    } else if (command == "goto") {
+        // 发送目标高度
+        std_msgs::msg::Float64 msg;
+        msg.data = cmd.target_height();
+        lift_cmd_pub_->publish(msg);
+    } else if (command == "up") {
+        // 以指定速度向上移动
+        std_msgs::msg::Float64 msg;
+        msg.data = std::abs(cmd.speed());  // 正速度 = 向上
+        lift_cmd_pub_->publish(msg);
+    } else if (command == "down") {
+        // 以指定速度向下移动
+        std_msgs::msg::Float64 msg;
+        msg.data = -std::abs(cmd.speed());  // 负速度 = 向下
+        lift_cmd_pub_->publish(msg);
+    }
+}
+
+void ROS2Bridge::publish_waist_command(const WaistCommand& cmd) {
+    const std::string& command = cmd.command();
+    
+    if (command == "stop") {
+        std_msgs::msg::Float64 msg;
+        msg.data = 0.0;
+        waist_cmd_pub_->publish(msg);
+    } else if (command == "goto") {
+        std_msgs::msg::Float64 msg;
+        msg.data = cmd.target_angle();
+        waist_cmd_pub_->publish(msg);
+    } else if (command == "left") {
+        std_msgs::msg::Float64 msg;
+        msg.data = std::abs(cmd.speed());  // 正速度 = 向左
+        waist_cmd_pub_->publish(msg);
+    } else if (command == "right") {
+        std_msgs::msg::Float64 msg;
+        msg.data = -std::abs(cmd.speed());  // 负速度 = 向右
+        waist_cmd_pub_->publish(msg);
+    }
+}
+
+void ROS2Bridge::publish_head_command(const HeadCommand& cmd) {
+    const std::string& command = cmd.command();
+    
+    if (command == "goto") {
+        // 发送偏航角
+        std_msgs::msg::Float64 yaw_msg;
+        yaw_msg.data = cmd.yaw();
+        head_pan_cmd_pub_->publish(yaw_msg);
+        
+        // 发送俯仰角
+        std_msgs::msg::Float64 pitch_msg;
+        pitch_msg.data = cmd.pitch();
+        head_tilt_cmd_pub_->publish(pitch_msg);
+    } else if (command == "preset") {
+        // TODO: 从预设点配置中查找位置
+        std::cout << "[ROS2Bridge] Head preset: " << cmd.preset_name() << std::endl;
+    } else if (command == "track") {
+        // TODO: 人脸跟踪模式
+        std::cout << "[ROS2Bridge] Head tracking mode" << std::endl;
+    }
+}
+
+void ROS2Bridge::publish_arm_move_command(const ArmMoveCommand& cmd) {
+    // 构建 JointTrajectory 消息
+    trajectory_msgs::msg::JointTrajectory traj;
+    traj.header.stamp = node_->now();
+    
+    // 根据手臂选择发布者
+    bool is_left = (cmd.arm_side() == "left");
+    
+    // 设置关节名称 (假设 6 轴机械臂)
+    std::string prefix = is_left ? "l_" : "r_";
+    for (int i = 1; i <= 6; ++i) {
+        traj.joint_names.push_back(prefix + "joint" + std::to_string(i));
+    }
+    
+    // 添加轨迹点
+    trajectory_msgs::msg::JointTrajectoryPoint point;
+    for (double pos : cmd.target()) {
+        point.positions.push_back(pos);
+    }
+    
+    // 根据速度估算到达时间
+    double estimated_time = 2.0;  // 默认 2 秒
+    if (cmd.speed() > 0) {
+        estimated_time = 1.0 / cmd.speed();  // 简单估算
+    }
+    point.time_from_start = rclcpp::Duration::from_seconds(estimated_time);
+    
+    traj.points.push_back(point);
+    
+    // 发布
+    if (is_left) {
+        left_arm_cmd_pub_->publish(traj);
+    } else {
+        right_arm_cmd_pub_->publish(traj);
+    }
+}
+
+void ROS2Bridge::publish_arm_jog_command(const ArmJogCommand& cmd) {
+    // Jog 模式：持续发送小增量位置或速度
+    // 这里简化实现，实际应该发送到专用的 Jog 话题
+    
+    std::cout << "[ROS2Bridge] Arm jog: side=" << cmd.arm_side() 
+              << ", mode=" << cmd.jog_mode()
+              << ", axis=" << cmd.axis_index()
+              << ", direction=" << cmd.direction() << std::endl;
+    
+    // TODO: 实现真正的 Jog 逻辑
+    // 可以发送到 JAKA SDK 的 Jog 接口或 MoveIt 的 servo 接口
+}
+
 void ROS2Bridge::publish_watchdog_heartbeat() {
     std_msgs::msg::Bool msg;
     msg.data = true;

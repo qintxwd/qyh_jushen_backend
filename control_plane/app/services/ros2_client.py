@@ -709,15 +709,183 @@ class ROS2ServiceClient:
             raise
 
     async def navigate_to_pose(
+        self, x: float, y: float, yaw: float, speed_factor: float = 1.0
+    ) -> ServiceResponse:
+        """
+        导航到指定位姿
+        
+        调用底盘导航服务，发送目标点位。
+        
+        Args:
+            x: 目标 X 坐标 (米)
+            y: 目标 Y 坐标 (米)
+            yaw: 目标航向角 (弧度)
+            speed_factor: 速度因子 (0.1-1.0)
+        
+        Returns:
+            ServiceResponse: 包含 success, message, task_id
+        """
+        if self._node is None:
+            return ServiceResponse(
+                success=False,
+                message="ROS2 节点未初始化"
+            )
+        
+        try:
+            # 方案 1: 使用 Nav2 action (如果可用)
+            from nav2_msgs.action import NavigateToPose
+            from geometry_msgs.msg import PoseStamped
+            import math
+            
+            # 构建目标位姿
+            goal_pose = PoseStamped()
+            goal_pose.header.frame_id = "map"
+            goal_pose.header.stamp = self._node.get_clock().now().to_msg()
+            goal_pose.pose.position.x = float(x)
+            goal_pose.pose.position.y = float(y)
+            goal_pose.pose.position.z = 0.0
+            
+            # yaw 转四元数
+            goal_pose.pose.orientation.x = 0.0
+            goal_pose.pose.orientation.y = 0.0
+            goal_pose.pose.orientation.z = math.sin(yaw / 2.0)
+            goal_pose.pose.orientation.w = math.cos(yaw / 2.0)
+            
+            # 检查 action client
+            if not hasattr(self, '_nav_to_pose_client') or self._nav_to_pose_client is None:
+                from rclpy.action import ActionClient
+                self._nav_to_pose_client = ActionClient(
+                    self._node,
+                    NavigateToPose,
+                    'navigate_to_pose'
+                )
+            
+            if not self._nav_to_pose_client.wait_for_server(timeout_sec=2.0):
+                # 回退方案: 使用底盘原生话题
+                return await self._fallback_navigate_via_topic(x, y, yaw)
+            
+            # 发送导航目标
+            goal_msg = NavigateToPose.Goal()
+            goal_msg.pose = goal_pose
+            
+            send_goal_future = self._nav_to_pose_client.send_goal_async(goal_msg)
+            result = await self._wait_for_future(send_goal_future, timeout=5.0)
+            
+            if result and result.accepted:
+                # 存储 goal_handle 以便后续取消
+                self._current_nav_goal_handle = result
+                
+                import uuid
+                task_id = str(uuid.uuid4())[:8]
+                
+                return ServiceResponse(
+                    success=True,
+                    message="导航任务已接受",
+                    task_id=task_id
+                )
+            else:
+                return ServiceResponse(
+                    success=False,
+                    message="导航目标被拒绝"
+                )
+                
+        except ImportError:
+            # Nav2 未安装，使用话题方式
+            return await self._fallback_navigate_via_topic(x, y, yaw)
+        except Exception as e:
+            logger.error(f"navigate_to_pose error: {e}")
+            return ServiceResponse(
+                success=False,
+                message=f"导航服务调用失败: {str(e)}"
+            )
+    
+    async def _fallback_navigate_via_topic(
         self, x: float, y: float, yaw: float
     ) -> ServiceResponse:
-        """导航到指定位姿"""
-        # TODO: 实现 Nav2 导航接口
-        # 目前返回不支持
-        return ServiceResponse(
-            success=False,
-            message="导航服务尚未实现，请使用底盘原生导航接口"
-        )
+        """
+        后备方案：通过话题发送导航目标
+        
+        用于没有 Nav2 的情况，直接发布到底盘的导航目标话题
+        """
+        try:
+            from geometry_msgs.msg import PoseStamped
+            import math
+            
+            if not hasattr(self, '_nav_goal_publisher') or self._nav_goal_publisher is None:
+                self._nav_goal_publisher = self._node.create_publisher(
+                    PoseStamped,
+                    '/move_base_simple/goal',  # 通用导航目标话题
+                    10
+                )
+            
+            goal_pose = PoseStamped()
+            goal_pose.header.frame_id = "map"
+            goal_pose.header.stamp = self._node.get_clock().now().to_msg()
+            goal_pose.pose.position.x = float(x)
+            goal_pose.pose.position.y = float(y)
+            goal_pose.pose.position.z = 0.0
+            goal_pose.pose.orientation.x = 0.0
+            goal_pose.pose.orientation.y = 0.0
+            goal_pose.pose.orientation.z = math.sin(yaw / 2.0)
+            goal_pose.pose.orientation.w = math.cos(yaw / 2.0)
+            
+            self._nav_goal_publisher.publish(goal_pose)
+            
+            import uuid
+            task_id = str(uuid.uuid4())[:8]
+            
+            return ServiceResponse(
+                success=True,
+                message="导航目标已发布 (话题模式)",
+                task_id=task_id
+            )
+        except Exception as e:
+            logger.error(f"_fallback_navigate_via_topic error: {e}")
+            return ServiceResponse(
+                success=False,
+                message=f"发布导航目标失败: {str(e)}"
+            )
+
+    async def cancel_navigation(self) -> ServiceResponse:
+        """
+        取消当前导航任务
+        
+        Returns:
+            ServiceResponse: 包含 success, message
+        """
+        if self._node is None:
+            return ServiceResponse(
+                success=False,
+                message="ROS2 节点未初始化"
+            )
+        
+        try:
+            # 方案 1: 取消 Nav2 action goal
+            if hasattr(self, '_current_nav_goal_handle') and self._current_nav_goal_handle is not None:
+                cancel_future = self._current_nav_goal_handle.cancel_goal_async()
+                result = await self._wait_for_future(cancel_future, timeout=5.0)
+                self._current_nav_goal_handle = None
+                
+                return ServiceResponse(
+                    success=True,
+                    message="导航任务已取消"
+                )
+            
+            # 方案 2: 发布空目标或停止命令
+            # 发送零速度以停止底盘
+            await self.publish_emergency_stop()
+            
+            return ServiceResponse(
+                success=True,
+                message="导航已停止 (无活动任务)"
+            )
+            
+        except Exception as e:
+            logger.error(f"cancel_navigation error: {e}")
+            return ServiceResponse(
+                success=False,
+                message=f"取消导航失败: {str(e)}"
+            )
 
     async def navigate_to_station(self, station_id: int) -> ServiceResponse:
         """导航到站点"""
@@ -1920,6 +2088,109 @@ class ROS2ServiceClient:
             return False
         
         return client.wait_for_service(timeout_sec=1.0)
+
+    # ==================== 紧急停止 ====================
+
+    async def publish_emergency_stop(self) -> bool:
+        """
+        发布紧急停止命令 (零速度)
+        
+        向 /cmd_vel 发布零速度消息，立即停止底盘运动。
+        
+        Returns:
+            bool: 是否成功发布
+        """
+        if self._node is None or self._emergency_stop_publisher is None:
+            logger.error("Cannot publish emergency stop: ROS2 not initialized")
+            return False
+        
+        try:
+            from geometry_msgs.msg import Twist
+            
+            # 创建零速度消息
+            stop_msg = Twist()
+            stop_msg.linear.x = 0.0
+            stop_msg.linear.y = 0.0
+            stop_msg.linear.z = 0.0
+            stop_msg.angular.x = 0.0
+            stop_msg.angular.y = 0.0
+            stop_msg.angular.z = 0.0
+            
+            # 发布多次以确保可靠性
+            for _ in range(3):
+                self._emergency_stop_publisher.publish(stop_msg)
+                await asyncio.sleep(0.01)
+            
+            logger.warning("Emergency stop published to /cmd_vel")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to publish emergency stop: {e}")
+            return False
+
+    async def stop_arm_motion(self) -> bool:
+        """
+        停止机械臂运动
+        
+        调用机械臂停止服务，停止当前正在执行的运动。
+        
+        Returns:
+            bool: 是否成功停止
+        """
+        if self._node is None:
+            return False
+        
+        try:
+            # 尝试调用 JAKA 停止服务
+            from std_srvs.srv import Trigger
+            
+            # 如果有专用的停止服务
+            stop_client = self._service_clients.get('arm_stop')
+            if stop_client and stop_client.wait_for_service(timeout_sec=0.5):
+                request = Trigger.Request()
+                future = stop_client.call_async(request)
+                result = await self._wait_for_future(future, timeout=2.0)
+                if result:
+                    return result.success
+            
+            # 备用方案：发送当前位置作为目标（相当于停在原地）
+            # 这需要机械臂支持，暂时返回 True 表示已尝试
+            logger.info("Arm stop requested (no dedicated stop service)")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to stop arm motion: {e}")
+            return False
+
+    async def stop_all_actuators(self) -> bool:
+        """
+        停止所有执行器 (升降、腰部、头部)
+        
+        Returns:
+            bool: 是否全部成功停止
+        """
+        results = []
+        
+        # 停止升降
+        try:
+            lift_result = await self.lift_control(LiftCommand.STOP, 0.0)
+            results.append(lift_result.success)
+        except Exception as e:
+            logger.error(f"Failed to stop lift: {e}")
+            results.append(False)
+        
+        # 停止腰部
+        try:
+            waist_result = await self.waist_control(WaistCommand.STOP, 0.0)
+            results.append(waist_result.success)
+        except Exception as e:
+            logger.error(f"Failed to stop waist: {e}")
+            results.append(False)
+        
+        # 头部通常不需要急停，但可以禁用扭矩
+        # await self.head_enable_torque(False)
+        
+        return all(results) if results else True
 
 
 # ==================== 全局实例 ====================

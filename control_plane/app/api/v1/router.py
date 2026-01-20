@@ -2,17 +2,17 @@
 QYH Jushen Control Plane - API v1 路由聚合
 
 接口职责分离:
-- Control Plane (FastAPI):  配置管理、认证、任务/预设CRUD、审计日志
-- Data Plane (WebSocket):   实时状态推送、速度命令、急停、心跳
+- Control Plane (FastAPI):  配置管理、认证、任务/预设CRUD、审计日志、紧急停止(备用)
+- Data Plane (WebSocket):   实时状态推送、速度命令、急停(主通道)、心跳
 - Media Plane (WebRTC):     视频流
 
-急停和实时控制接口已移至 Data Plane WebSocket，此处不再提供 HTTP 接口
+紧急停止: HTTP 接口作为 WebSocket 的备用通道，满足安全冗余要求
 """
 from fastapi import APIRouter
 
 from app.api.v1 import (
     auth, system, control, mode, tasks, presets, recording,
-    actions, robot, audit, chassis, led, vr
+    actions, robot, audit, chassis, led, vr, emergency, camera
 )
 
 api_router = APIRouter()
@@ -25,6 +25,9 @@ api_router.include_router(system.router, prefix="/system", tags=["系统配置"]
 
 # 控制权管理
 api_router.include_router(control.router, prefix="/control", tags=["控制权"])
+
+# 紧急停止 (HTTP 备用通道)
+api_router.include_router(emergency.router, prefix="/emergency", tags=["紧急停止"])
 
 # 模式管理
 api_router.include_router(mode.router, prefix="/mode", tags=["工作模式"])
@@ -55,4 +58,7 @@ api_router.include_router(led.router, prefix="/led", tags=["LED控制"])
 
 # VR遥操作状态
 api_router.include_router(vr.router, prefix="/vr", tags=["VR遥操作"])
+
+# 摄像头列表 (视频流走 WebRTC)
+api_router.include_router(camera.router, prefix="/camera", tags=["摄像头"])
 

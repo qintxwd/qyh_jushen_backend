@@ -76,16 +76,18 @@ public:
      */
     bool has_active_sessions() const;
     
+    /**
+     * @brief 手动触发紧急停止
+     * 
+     * 供 MessageHandler 在接收到 MSG_EMERGENCY_STOP 消息时调用
+     */
+    void trigger_emergency_stop();
+    
 private:
     /**
      * @brief 监控线程
      */
     void monitor_thread();
-    
-    /**
-     * @brief 触发紧急停止
-     */
-    void trigger_emergency_stop();
     
 private:
     const Config& config_;

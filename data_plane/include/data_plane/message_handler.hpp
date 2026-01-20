@@ -120,6 +120,34 @@ private:
     void handle_navigation_goal(std::shared_ptr<Session> session,
                                 const WebSocketMessage& msg);
     
+    /** @brief 处理紧急停止 */
+    void handle_emergency_stop(std::shared_ptr<Session> session,
+                               const WebSocketMessage& msg);
+    
+    /** @brief 处理导航控制 (取消/暂停/恢复) */
+    void handle_navigation_control(std::shared_ptr<Session> session,
+                                   const WebSocketMessage& msg);
+    
+    /** @brief 处理升降控制 */
+    void handle_lift_command(std::shared_ptr<Session> session,
+                             const WebSocketMessage& msg);
+    
+    /** @brief 处理腰部控制 */
+    void handle_waist_command(std::shared_ptr<Session> session,
+                              const WebSocketMessage& msg);
+    
+    /** @brief 处理头部控制 */
+    void handle_head_command(std::shared_ptr<Session> session,
+                             const WebSocketMessage& msg);
+    
+    /** @brief 处理机械臂运动命令 (MoveJ/MoveL) */
+    void handle_arm_move(std::shared_ptr<Session> session,
+                         const WebSocketMessage& msg);
+    
+    /** @brief 处理机械臂点动命令 (Jog) */
+    void handle_arm_jog(std::shared_ptr<Session> session,
+                        const WebSocketMessage& msg);
+    
     // ==================== 响应发送函数 ====================
     
     /** @brief 发送错误响应 */

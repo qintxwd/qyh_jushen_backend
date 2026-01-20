@@ -55,6 +55,62 @@ message NavigationGoal {
     bool is_localization_only = 3;      // 仅定位，不导航
 }
 
+// 导航取消/暂停/恢复
+message NavigationControl {
+    Header header = 1;
+    string action = 2;                  // "cancel", "pause", "resume"
+}
+
+// ==================== 执行器控制 ====================
+
+// 升降控制命令
+message LiftCommand {
+    Header header = 1;
+    string command = 2;                 // "goto", "up", "down", "stop"
+    double target_height = 3;           // 目标高度 (米), 仅 "goto" 时有效
+    double speed = 4;                   // 速度 (米/秒)
+}
+
+// 腰部控制命令
+message WaistCommand {
+    Header header = 1;
+    string command = 2;                 // "goto", "left", "right", "stop"
+    double target_angle = 3;            // 目标角度 (弧度), 仅 "goto" 时有效
+    double speed = 4;                   // 角速度 (弧度/秒)
+}
+
+// 头部控制命令
+message HeadCommand {
+    Header header = 1;
+    string command = 2;                 // "goto", "preset", "track"
+    double yaw = 3;                     // 偏航角 (弧度)
+    double pitch = 4;                   // 俯仰角 (弧度)
+    string preset_name = 5;             // 预设点名称
+    double speed = 6;                   // 速度因子 (0.0-1.0)
+}
+
+// ==================== 机械臂高级控制 ====================
+
+// 机械臂运动命令 (MoveJ/MoveL)
+message ArmMoveCommand {
+    Header header = 1;
+    string arm_side = 2;                // "left" 或 "right"
+    string motion_type = 3;             // "movej" (关节空间) 或 "movel" (笛卡尔空间)
+    repeated double target = 4;         // 目标：关节角度或末端位姿 [x,y,z,rx,ry,rz]
+    double speed = 5;                   // 速度 (rad/s 或 m/s)
+    double acceleration = 6;            // 加速度
+    double blend_radius = 7;            // 平滑半径
+}
+
+// 机械臂点动命令 (Jog)
+message ArmJogCommand {
+    Header header = 1;
+    string arm_side = 2;                // "left" 或 "right"
+    string jog_mode = 3;                // "joint" (关节空间) 或 "cartesian" (笛卡尔空间)
+    int32 axis_index = 4;               // 轴索引 (0-5)
+    double direction = 5;               // 方向和速度 (-1.0 到 1.0)
+}
+
 // ==================== 机械臂控制 ====================
 
 // 关节位置命令

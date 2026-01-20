@@ -31,6 +31,14 @@ enum MessageType {
     MSG_END_EFFECTOR_CMD = 259;
     MSG_GRIPPER_COMMAND = 260;
     MSG_NAVIGATION_GOAL = 261;
+    MSG_NAVIGATION_CANCEL = 262;
+    MSG_NAVIGATION_PAUSE = 263;
+    MSG_NAVIGATION_RESUME = 264;
+    MSG_LIFT_COMMAND = 265;
+    MSG_WAIST_COMMAND = 266;
+    MSG_HEAD_COMMAND = 267;
+    MSG_ARM_MOVE = 268;
+    MSG_ARM_JOG = 269;
     
     // 状态推送 (0x0200 - 0x02FF)
     MSG_ROBOT_STATE = 512;
@@ -83,6 +91,12 @@ message WebSocketMessage {
         EndEffectorCommand end_effector_cmd = 103;
         GripperCommand gripper_command = 104;
         NavigationGoal navigation_goal = 105;
+        NavigationControl navigation_control = 106;
+        LiftCommand lift_command = 107;
+        WaistCommand waist_command = 108;
+        HeadCommand head_command = 109;
+        ArmMoveCommand arm_move = 110;
+        ArmJogCommand arm_jog = 111;
         
         // 状态
         RobotState robot_state = 200;

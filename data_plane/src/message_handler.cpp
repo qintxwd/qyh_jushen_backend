@@ -100,6 +100,36 @@ void MessageHandler::handle_message(std::shared_ptr<Session> session,
             handle_navigation_goal(session, msg);
             break;
             
+        case qyh::dataplane::MSG_EMERGENCY_STOP:
+            handle_emergency_stop(session, msg);
+            break;
+        
+        case qyh::dataplane::MSG_NAVIGATION_CANCEL:
+        case qyh::dataplane::MSG_NAVIGATION_PAUSE:
+        case qyh::dataplane::MSG_NAVIGATION_RESUME:
+            handle_navigation_control(session, msg);
+            break;
+        
+        case qyh::dataplane::MSG_LIFT_COMMAND:
+            handle_lift_command(session, msg);
+            break;
+        
+        case qyh::dataplane::MSG_WAIST_COMMAND:
+            handle_waist_command(session, msg);
+            break;
+        
+        case qyh::dataplane::MSG_HEAD_COMMAND:
+            handle_head_command(session, msg);
+            break;
+        
+        case qyh::dataplane::MSG_ARM_MOVE:
+            handle_arm_move(session, msg);
+            break;
+        
+        case qyh::dataplane::MSG_ARM_JOG:
+            handle_arm_jog(session, msg);
+            break;
+            
         default:
             std::cerr << "[MessageHandler] Unknown message type: " 
                       << static_cast<int>(msg.type()) << std::endl;
@@ -401,6 +431,44 @@ void MessageHandler::handle_navigation_goal(std::shared_ptr<Session> session,
     }
 }
 
+void MessageHandler::handle_emergency_stop(std::shared_ptr<Session> session,
+                                            const WebSocketMessage& msg) {
+    // 紧急停止不需要控制权检查，安全优先
+    // 任何认证用户都可以触发急停
+    
+    std::cout << "[MessageHandler] Emergency stop triggered by session " 
+              << session->session_id() << std::endl;
+    
+    // 1. 立即发布零速度到底盘
+    if (ros2_bridge_) {
+        ros2_bridge_->publish_cmd_vel(0.0, 0.0, 0.0);
+    }
+    
+    // 2. 触发看门狗的紧急停止逻辑 (会发布到 /emergency_stop 话题)
+    if (watchdog_) {
+        watchdog_->trigger_emergency_stop();
+    }
+    
+    // 3. 构建并广播急停通知给所有订阅者
+    if (server_) {
+        WebSocketMessage notification;
+        notification.set_type(MSG_EMERGENCY_STOP);
+        set_timestamp(notification.mutable_timestamp());
+        
+        auto* estop = notification.mutable_emergency_stop();
+        set_timestamp(estop->mutable_header()->mutable_timestamp());
+        estop->set_active(true);
+        estop->set_source("websocket");
+        estop->set_reason("User triggered emergency stop");
+        
+        std::vector<uint8_t> data(notification.ByteSizeLong());
+        notification.SerializeToArray(data.data(), static_cast<int>(data.size()));
+        
+        // 广播给所有连接的客户端 (不仅仅是订阅者)
+        server_->broadcast(data);
+    }
+}
+
 void MessageHandler::send_error(std::shared_ptr<Session> session,
                                  int32_t code,
                                  const std::string& message) {
@@ -466,6 +534,129 @@ void MessageHandler::set_timestamp(qyh::dataplane::Timestamp* timestamp) {
     
     timestamp->set_seconds(seconds);
     timestamp->set_nanos(static_cast<int32_t>(nanos));
+}
+
+// ==================== 新增消息处理函数 ====================
+
+void MessageHandler::handle_navigation_control(std::shared_ptr<Session> session,
+                                                const WebSocketMessage& msg) {
+    if (!session->has_control_permission()) {
+        send_error(session, 403, "No control permission");
+        return;
+    }
+    
+    if (!msg.has_navigation_control()) {
+        send_error(session, 400, "Missing navigation_control payload");
+        return;
+    }
+    
+    const auto& ctrl = msg.navigation_control();
+    const std::string& action = ctrl.action();
+    
+    std::cout << "[MessageHandler] Navigation control: " << action 
+              << " from session " << session->session_id() << std::endl;
+    
+    if (ros2_bridge_) {
+        if (action == "cancel") {
+            ros2_bridge_->cancel_navigation();
+        } else if (action == "pause") {
+            ros2_bridge_->pause_navigation();
+        } else if (action == "resume") {
+            ros2_bridge_->resume_navigation();
+        } else {
+            send_error(session, 400, "Unknown navigation action: " + action);
+        }
+    }
+}
+
+void MessageHandler::handle_lift_command(std::shared_ptr<Session> session,
+                                          const WebSocketMessage& msg) {
+    if (!session->has_control_permission()) {
+        send_error(session, 403, "No control permission");
+        return;
+    }
+    
+    if (!msg.has_lift_command()) {
+        send_error(session, 400, "Missing lift_command payload");
+        return;
+    }
+    
+    if (ros2_bridge_) {
+        const auto& cmd = msg.lift_command();
+        ros2_bridge_->publish_lift_command(cmd);
+    }
+}
+
+void MessageHandler::handle_waist_command(std::shared_ptr<Session> session,
+                                           const WebSocketMessage& msg) {
+    if (!session->has_control_permission()) {
+        send_error(session, 403, "No control permission");
+        return;
+    }
+    
+    if (!msg.has_waist_command()) {
+        send_error(session, 400, "Missing waist_command payload");
+        return;
+    }
+    
+    if (ros2_bridge_) {
+        const auto& cmd = msg.waist_command();
+        ros2_bridge_->publish_waist_command(cmd);
+    }
+}
+
+void MessageHandler::handle_head_command(std::shared_ptr<Session> session,
+                                          const WebSocketMessage& msg) {
+    if (!session->has_control_permission()) {
+        send_error(session, 403, "No control permission");
+        return;
+    }
+    
+    if (!msg.has_head_command()) {
+        send_error(session, 400, "Missing head_command payload");
+        return;
+    }
+    
+    if (ros2_bridge_) {
+        const auto& cmd = msg.head_command();
+        ros2_bridge_->publish_head_command(cmd);
+    }
+}
+
+void MessageHandler::handle_arm_move(std::shared_ptr<Session> session,
+                                      const WebSocketMessage& msg) {
+    if (!session->has_control_permission()) {
+        send_error(session, 403, "No control permission");
+        return;
+    }
+    
+    if (!msg.has_arm_move()) {
+        send_error(session, 400, "Missing arm_move payload");
+        return;
+    }
+    
+    if (ros2_bridge_) {
+        const auto& cmd = msg.arm_move();
+        ros2_bridge_->publish_arm_move_command(cmd);
+    }
+}
+
+void MessageHandler::handle_arm_jog(std::shared_ptr<Session> session,
+                                     const WebSocketMessage& msg) {
+    if (!session->has_control_permission()) {
+        send_error(session, 403, "No control permission");
+        return;
+    }
+    
+    if (!msg.has_arm_jog()) {
+        send_error(session, 400, "Missing arm_jog payload");
+        return;
+    }
+    
+    if (ros2_bridge_) {
+        const auto& cmd = msg.arm_jog();
+        ros2_bridge_->publish_arm_jog_command(cmd);
+    }
 }
 
 } // namespace qyh::dataplane

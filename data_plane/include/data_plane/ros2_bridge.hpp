@@ -40,6 +40,11 @@ namespace qyh::dataplane {
     class EndEffectorCommand;
     class GripperCommand;
     class NavigationGoal;
+    class LiftCommand;
+    class WaistCommand;
+    class HeadCommand;
+    class ArmMoveCommand;
+    class ArmJogCommand;
 }
 
 namespace qyh::dataplane {
@@ -118,6 +123,46 @@ public:
      * @brief 发布导航目标
      */
     void publish_navigation_goal(const NavigationGoal& goal);
+    
+    /**
+     * @brief 取消导航
+     */
+    void cancel_navigation();
+    
+    /**
+     * @brief 暂停导航
+     */
+    void pause_navigation();
+    
+    /**
+     * @brief 恢复导航
+     */
+    void resume_navigation();
+    
+    /**
+     * @brief 发布升降控制命令
+     */
+    void publish_lift_command(const LiftCommand& cmd);
+    
+    /**
+     * @brief 发布腰部控制命令
+     */
+    void publish_waist_command(const WaistCommand& cmd);
+    
+    /**
+     * @brief 发布头部控制命令
+     */
+    void publish_head_command(const HeadCommand& cmd);
+    
+    /**
+     * @brief 发布机械臂运动命令 (MoveJ/MoveL)
+     */
+    void publish_arm_move_command(const ArmMoveCommand& cmd);
+    
+    /**
+     * @brief 发布机械臂点动命令 (Jog)
+     */
+    void publish_arm_jog_command(const ArmJogCommand& cmd);
     
     /**
      * @brief 发布 Watchdog 心跳
