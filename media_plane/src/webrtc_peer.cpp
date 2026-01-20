@@ -60,24 +60,25 @@ bool WebRTCPeer::create_peer_bin() {
     GstElement* encoder = nullptr;
     GstElement* payloader = nullptr;
 
-    if (config_.jetson.use_nvenc) {
-        // Jetson 硬件编码路径
-        // 上游已经输出 NV12(NVMM)，无需重复 nvvidconv/capsfilter
-        encoder = gst_element_factory_make("nvv4l2h264enc", nullptr);
-        if (encoder) {
-            g_object_set(encoder,
-                         "bitrate", static_cast<guint>(config_.encoding.bitrate * 1000),
-                         "control-rate", 1,
-                         "preset-level", 1,
-                         "iframeinterval", config_.encoding.keyframe_interval,
-                         "insert-sps-pps", TRUE,
-                         nullptr);
-        }
-    } else {
-        // CPU 软编码路径
-        convert = gst_element_factory_make("videoconvert", nullptr);
+    const std::string codec = config_.encoding.codec;
 
-        if (config_.encoding.codec == "h264") {
+    if (codec == "h264") {
+        if (config_.jetson.use_nvenc) {
+            // Jetson 硬件编码路径
+            // 上游已经输出 NV12(NVMM)，无需重复 nvvidconv/capsfilter
+            encoder = gst_element_factory_make("nvv4l2h264enc", nullptr);
+            if (encoder) {
+                g_object_set(encoder,
+                             "bitrate", static_cast<guint>(config_.encoding.bitrate * 1000),
+                             "control-rate", 1,
+                             "preset-level", 1,
+                             "iframeinterval", config_.encoding.keyframe_interval,
+                             "insert-sps-pps", TRUE,
+                             nullptr);
+            }
+        } else {
+            // CPU 软编码路径
+            convert = gst_element_factory_make("videoconvert", nullptr);
             encoder = gst_element_factory_make("x264enc", nullptr);
             if (encoder) {
                 g_object_set(encoder,
@@ -87,14 +88,50 @@ bool WebRTCPeer::create_peer_bin() {
                              "key-int-max", config_.encoding.keyframe_interval,
                              nullptr);
             }
-        } else if (config_.encoding.codec == "vp8") {
-            encoder = gst_element_factory_make("vp8enc", nullptr);
         }
-    }
 
-    payloader = gst_element_factory_make("rtph264pay", nullptr);
-    if (payloader) {
-        g_object_set(payloader, "config-interval", 1, nullptr);
+        payloader = gst_element_factory_make("rtph264pay", nullptr);
+        if (payloader) {
+            g_object_set(payloader, "config-interval", 1, "pt", 96, nullptr);
+        }
+    } else if (codec == "vp8") {
+        // VP8 仅提供软件编码兜底
+        convert = gst_element_factory_make("videoconvert", nullptr);
+        encoder = gst_element_factory_make("vp8enc", nullptr);
+        if (encoder) {
+            g_object_set(encoder,
+                         "target-bitrate", static_cast<guint>(config_.encoding.bitrate * 1000),
+                         "deadline", 1,
+                         "keyframe-max-dist", config_.encoding.keyframe_interval,
+                         nullptr);
+        }
+
+        payloader = gst_element_factory_make("rtpvp8pay", nullptr);
+        if (payloader) {
+            g_object_set(payloader, "pt", 96, nullptr);
+        }
+    } else if (codec == "h265" || codec == "hevc") {
+        if (config_.jetson.use_nvenc) {
+            // Jetson 硬件编码路径
+            encoder = gst_element_factory_make("nvv4l2h265enc", nullptr);
+            if (encoder) {
+                g_object_set(encoder,
+                             "bitrate", static_cast<guint>(config_.encoding.bitrate * 1000),
+                             "control-rate", 1,
+                             "preset-level", 1,
+                             "iframeinterval", config_.encoding.keyframe_interval,
+                             "insert-sps-pps", TRUE,
+                             nullptr);
+            }
+        } else {
+            // 非 Jetson 环境暂不提供 H.265 软件编码
+            std::cerr << "H.265 software encoding not supported" << std::endl;
+        }
+
+        payloader = gst_element_factory_make("rtph265pay", nullptr);
+        if (payloader) {
+            g_object_set(payloader, "config-interval", 1, "pt", 96, nullptr);
+        }
     }
 
     if (!encoder || !payloader) {
@@ -112,14 +149,10 @@ bool WebRTCPeer::create_peer_bin() {
     gst_bin_add_many(GST_BIN(peer_bin_), encoder, payloader, webrtcbin_, nullptr);
 
     bool link_ok = false;
-    if (config_.jetson.use_nvenc) {
-        link_ok = gst_element_link_many(queue, encoder, payloader, nullptr);
+    if (convert) {
+        link_ok = gst_element_link_many(queue, convert, encoder, payloader, nullptr);
     } else {
-        if (convert) {
-            link_ok = gst_element_link_many(queue, convert, encoder, payloader, nullptr);
-        } else {
-            link_ok = gst_element_link_many(queue, encoder, payloader, nullptr);
-        }
+        link_ok = gst_element_link_many(queue, encoder, payloader, nullptr);
     }
 
     if (!link_ok) {
