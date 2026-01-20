@@ -101,6 +101,37 @@ deploy() {
     if [ -d "${CONTROL_SRC}/app" ]; then
         cp -r "${CONTROL_SRC}/app" "${CONTROL_DST}/"
         log_info "  -> app/"
+
+        # 编译 Python 源码并清理 (保护源码)
+        log_info "  -> 编译 Python 代码并移除源码..."
+        
+        # 清理可能存在的旧 __pycache__
+        find "${CONTROL_DST}/app" -name "__pycache__" -type d -exec rm -rf {} +
+
+        # 尝试使用 python3 或 python
+        PY_CMD="python3"
+        if ! command -v python3 &> /dev/null; then
+            PY_CMD="python"
+        fi
+        
+        $PY_CMD -m compileall "${CONTROL_DST}/app" >/dev/null
+        
+        # 移动 .pyc 并重命名 (flat structure)
+        find "${CONTROL_DST}/app" -type d -name "__pycache__" | while read -r cache_dir; do
+             for pyc in "$cache_dir"/*.pyc; do
+                 if [ -f "$pyc" ]; then
+                     filename=$(basename "$pyc")
+                     # 替换规则: main.cpython-310.pyc -> main.pyc
+                     new_name=$(echo "$filename" | sed -E 's/\.[^.]+\.pyc$/.pyc/')
+                     mv "$pyc" "$(dirname "$cache_dir")/$new_name"
+                 fi
+             done
+             rm -rf "$cache_dir"
+        done
+        
+        # 删除源码
+        find "${CONTROL_DST}/app" -name "*.py" -delete
+        log_info "  -> 已移除 .py 源码文件，仅保留 bytecode"
     fi
     if [ -f "${CONTROL_SRC}/requirements.txt" ]; then
         cp "${CONTROL_SRC}/requirements.txt" "${CONTROL_DST}/"
