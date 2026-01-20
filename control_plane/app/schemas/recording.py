@@ -9,18 +9,21 @@ from pydantic import BaseModel, Field
 
 class StartRecordingRequest(BaseModel):
     """开始录制请求"""
-    action_name: str = Field(..., description="动作名称/ID（如 pickup_cube）")
-    user_name: str = Field(..., description="用户名")
+    action_name: Optional[str] = Field(None, description="动作名称/ID（如 pickup_cube）")
+    action_id: Optional[str] = Field(None, description="前端传递的动作ID")
+    user_name: Optional[str] = Field(None, description="用户名")
     version: str = Field(default="1.0", description="版本号")
     topics: List[str] = Field(
         default_factory=list,
         description="要录制的话题列表，空则使用默认话题"
     )
+    episode_name: Optional[str] = Field(None, description="前端传递的 episode_name")
     
 
 class RecordingStatus(BaseModel):
     """录制状态"""
     is_recording: bool = Field(default=False, description="是否正在录制")
+    status: str = Field(default="idle", description="状态字符串: idle, recording, paused")
     action_name: str = Field(default="", description="当前动作名称")
     user_name: str = Field(default="", description="用户名")
     version: str = Field(default="", description="版本号")

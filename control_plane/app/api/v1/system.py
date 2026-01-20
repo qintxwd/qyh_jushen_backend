@@ -118,7 +118,7 @@ async def get_system_health():
     )
     
     health = SystemHealth(
-        status=overall_status,
+        overall_status=overall_status,
         services=services,
         ros2_connected=ros2_connected,
         robot_mode=mode_manager.current_mode.value,
@@ -140,6 +140,8 @@ async def get_system_info():
     info = SystemInfo(
         app_name=settings.APP_NAME,
         app_version=settings.APP_VERSION,
+        version=settings.APP_VERSION,
+        environment="production", # Todo: from settings
         robot_id=settings.ROBOT_ID,
         robot_name=settings.ROBOT_NAME,
         uptime_seconds=uptime,

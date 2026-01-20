@@ -241,6 +241,7 @@ async def list_actions(
             "robot_version": rv,
             "total": len(actions),
             "items": actions,
+            "actions": actions,
         },
         message="获取动作列表成功"
     )

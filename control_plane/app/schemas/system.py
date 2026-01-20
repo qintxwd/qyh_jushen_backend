@@ -50,7 +50,7 @@ class ServiceHealth(BaseModel):
 
 class SystemHealth(BaseModel):
     """系统健康状态"""
-    status: str = Field(..., description="overall, healthy, degraded, unhealthy")
+    overall_status: str = Field(..., description="healthy, degraded, unhealthy")
     services: List[ServiceHealth] = Field(default_factory=list)
     ros2_connected: bool = False
     robot_mode: str = "unknown"
@@ -60,6 +60,8 @@ class SystemInfo(BaseModel):
     """系统信息"""
     app_name: str
     app_version: str
+    version: Optional[str] = Field(None, description="Frontend alias for app_version")
+    environment: str = Field(default="production", description="Frontend field")
     robot_id: str
     robot_name: str
     uptime_seconds: float

@@ -91,3 +91,41 @@ async def release_emergency_stop(current_user: User = Depends(get_current_operat
     return success_response(
         message="紧急停止已解除"
     )
+
+
+@router.get("/status", response_model=ApiResponse)
+async def get_emergency_status():
+    """
+    获取紧急停止状态
+    
+    Returns:
+        ApiResponse: 包含急停状态的响应
+    """
+    ros2_client = get_ros2_client()
+    
+    # 从 ROS2 获取急停状态
+    try:
+        is_active = await ros2_client.get_emergency_stop_status()
+    except Exception:
+        is_active = False
+    
+    return success_response(
+        data={
+            "is_active": is_active,
+            "triggered_at": None,  # TODO: 从 ROS2 获取触发时间
+            "trigger_source": "unknown" if is_active else None,
+            "can_recover": True,
+            "message": "急停已激活" if is_active else "系统正常"
+        },
+        message="获取急停状态成功"
+    )
+
+
+@router.post("/recover", response_model=ApiResponse)
+async def recover_emergency_stop(current_user: User = Depends(get_current_operator)):
+    """
+    恢复紧急停止状态 (别名 /release)
+    
+    为了兼容前端 API 命名，提供 /recover 作为 /release 的别名
+    """
+    return await release_emergency_stop(current_user)

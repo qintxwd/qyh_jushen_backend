@@ -189,3 +189,74 @@ async def reset_chassis_config(
         data=config.model_dump(),
         message="底盘配置已重置为默认值"
     )
+
+
+# ==================== 底盘控制 API (Placeholder) ====================
+# 这些接口目前仅作占位，以防止前端 404
+# 实际控制逻辑应连接到 Data Plane 或 ROS2
+
+@router.get("/status", response_model=ApiResponse)
+async def get_chassis_status():
+    """获取底盘状态 (Mock)"""
+    return success_response(
+        data={
+            "connected": True,
+            "system_status": 1,
+            "system_status_text": "Normal",
+            "battery": {
+                "percentage": 85,
+                "voltage": 24.5,
+                "current": 1.2,
+                "status_text": "Discharging",
+            },
+            "pose": {"x": 0, "y": 0, "yaw": 0},
+            "velocity": {"linear_x": 0, "linear_y": 0, "angular_z": 0},
+            "flags": {"is_emergency_stopped": False}
+        },
+        message="获取状态成功"
+    )
+
+@router.get("/stations", response_model=ApiResponse)
+async def get_stations():
+    """获取站点列表 (Mock)"""
+    return success_response(
+        data={"stations": []},
+        message="获取站点成功"
+    )
+
+@router.post("/velocity", response_model=ApiResponse)
+async def send_velocity(cmd: dict):
+    return success_response(message="速度指令已发送 (Mock)")
+
+@router.post("/stop", response_model=ApiResponse)
+async def stop_chassis():
+    return success_response(message="已停止 (Mock)")
+
+@router.post("/manual/start", response_model=ApiResponse)
+async def start_manual():
+    return success_response(message="进入手动模式 (Mock)")
+
+@router.post("/manual/stop", response_model=ApiResponse)
+async def stop_manual():
+    return success_response(message="退出手动模式 (Mock)")
+
+@router.post("/manual/command", response_model=ApiResponse)
+async def manual_command(cmd: dict):
+    return success_response(message="手动指令已发送 (Mock)")
+
+@router.post("/emergency_stop", response_model=ApiResponse)
+async def emergency_stop():
+    return success_response(message="已急停 (Mock)")
+
+@router.post("/release_emergency_stop", response_model=ApiResponse)
+async def release_emergency_stop():
+    return success_response(message="已解除急停 (Mock)")
+
+@router.post("/navigate/coordinate", response_model=ApiResponse)
+async def navigate_coordinate(target: dict):
+    return success_response(message="导航指令已发送 (Mock)")
+
+@router.post("/navigate/site", response_model=ApiResponse)
+async def navigate_site(target: dict):
+    return success_response(message="站点导航指令已发送 (Mock)")
+

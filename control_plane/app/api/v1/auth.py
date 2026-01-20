@@ -159,3 +159,25 @@ async def refresh_token(
             code=ErrorCodes.AUTH_TOKEN_INVALID,
             message="Token 无效或已过期"
         )
+
+
+@router.post("/heartbeat", response_model=ApiResponse)
+async def heartbeat(
+    current_user: User = Depends(get_current_user),
+):
+    """
+    心跳检查
+    
+    用于前端定期检查 Token 有效性和服务连接状态
+    """
+    return success_response(
+        data={
+            "alive": True,
+            "refreshed": False,
+            "user": {
+                "username": current_user.username,
+                "role": current_user.role,
+            }
+        },
+        message="Heartbeat OK"
+    )

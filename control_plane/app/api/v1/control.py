@@ -39,11 +39,12 @@ async def acquire_control(
     
     同一时间只能有一个用户持有控制权
     """
+    session_type = request.session_type or request.client_type or "teleop"
     success = control_lock.acquire(
         user_id=current_user.id,
         username=current_user.username,
         duration=request.duration,
-        session_type=request.session_type,
+        session_type=session_type,
     )
     
     if success:
@@ -54,7 +55,7 @@ async def acquire_control(
             db=db,
             user_id=current_user.id,
             username=current_user.username,
-            session_type=request.session_type,
+            session_type=session_type,
         )
         
         # 记录审计日志
@@ -62,7 +63,7 @@ async def acquire_control(
             db=db,
             action="control_acquire",
             resource="control",
-            details={"session_type": request.session_type, "duration": request.duration},
+            details={"session_type": session_type, "duration": request.duration},
             user=current_user,
             request=http_request,
         )
@@ -170,11 +171,15 @@ async def force_release_control(
     """
     强制释放控制权（仅管理员）
     """
-    old_holder = control_lock.force_release(request.reason)
+    reason = request.reason
+    if request.session_id:
+        reason = f"{reason} (Session: {request.session_id})"
+    
+    old_holder = control_lock.force_release(reason)
     
     if old_holder:
         # 持久化：结束被强制释放用户的会话
-        await end_control_session(db, old_holder["user_id"], f"forced:{request.reason}")
+        await end_control_session(db, old_holder["user_id"], f"forced:{reason}")
         
         # 记录审计日志
         await AuditService.log(
@@ -182,7 +187,7 @@ async def force_release_control(
             action="control_force_release",
             resource="control",
             details={
-                "reason": request.reason,
+                "reason": reason,
                 "previous_holder": old_holder["username"],
                 "previous_user_id": old_holder["user_id"],
             },

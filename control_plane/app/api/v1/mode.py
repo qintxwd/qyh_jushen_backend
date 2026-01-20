@@ -118,3 +118,11 @@ async def get_available_modes():
         data={"modes": modes},
         message="获取成功"
     )
+
+
+@router.get("/status", response_model=ApiResponse)
+async def get_mode_status_alias():
+    """
+    获取当前工作模式 (Alias for /current)
+    """
+    return await get_current_mode()

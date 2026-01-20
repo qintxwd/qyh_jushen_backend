@@ -87,8 +87,11 @@ class RecordingState:
         if self._started_at:
             duration = (datetime.now() - self._started_at).total_seconds()
         
+        status_str = "recording" if self._is_recording else "idle"
+        
         return RecordingStatus(
             is_recording=self._is_recording,
+            status=status_str,
             action_name=self._action_name,
             user_name=self._user_name,
             version=self._version,
@@ -321,6 +324,15 @@ async def start_recording(
     
     需要先获取控制锁
     """
+    # 兼容前端字段
+    action_name = request.action_name or request.action_id
+    if not action_name:
+        return error_response(
+            code=ErrorCodes.VALIDATION_ERROR,
+            message="action_name or action_id is required"
+        )
+    user_name = request.user_name or current_user.username
+    
     # 检查是否已在录制
     if state._is_recording:
         return error_response(
@@ -333,15 +345,15 @@ async def start_recording(
     
     # 生成录制路径
     bag_path = generate_bag_path(
-        request.action_name,
-        request.user_name,
+        action_name,
+        user_name,
         request.version
     )
     
     # 调用 ROS2 服务
     success, message = await call_ros2_start_recording(
-        request.action_name,
-        request.user_name,
+        action_name,
+        user_name,
         request.version,
         bag_path,
         topics
@@ -349,8 +361,8 @@ async def start_recording(
     
     if success:
         state.start(
-            action_name=request.action_name,
-            user_name=request.user_name,
+            action_name=action_name,
+            user_name=user_name,
             version=request.version,
             topics=topics,
             bag_path=bag_path
