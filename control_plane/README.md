@@ -175,6 +175,143 @@ control_plane/
 | GET | `/topics` | 获取可用话题 |
 | GET | `/topics/default` | 获取默认话题配置 |
 
+### 紧急停止 `/api/v1/emergency` (HTTP 备用通道)
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| POST | `/stop` | 触发紧急停止 |
+| GET | `/status` | 获取急停状态 |
+
+> ⚠️ **注意**: 紧急停止的主通道是 WebSocket (`MSG_EMERGENCY_STOP`)，HTTP 接口作为备用方案，
+> 用于 WebSocket 断开时的安全冗余（符合 ISO 10218 安全要求）。
+
+### 导航控制 `/api/v1/chassis/navigate`
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| POST | `/pose` | 导航到坐标点 (x, y, yaw) |
+| POST | `/station` | 导航到站点 (by ID 或 name) |
+| POST | `/cancel` | 取消当前导航任务 |
+
+> 💡 导航取消/暂停的推荐方式是 WebSocket (`MSG_NAVIGATION_CANCEL/PAUSE`)，延迟更低。
+
+### 摄像头 `/api/v1/camera`
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| GET | `/list` | 获取可用摄像头列表 |
+| GET | `/{camera_id}` | 获取指定摄像头信息 |
+| GET | `/{camera_id}/webrtc` | 获取 WebRTC 连接信息 |
+
+> 📹 实际视频流通过 Media Plane (WebRTC) 传输，本接口仅提供元数据。
+
+### 底盘配置与状态 `/api/v1/chassis`
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| GET | `/config` | 获取底盘配置 |
+| PUT | `/config` | 更新底盘配置 |
+| POST | `/config/reset` | 重置底盘配置为默认值 |
+| GET | `/status` | 获取底盘状态快照 |
+| GET | `/stations` | 获取站点列表 |
+
+> ⚠️ `/status` 接口仅用于页面初始化，**禁止高频轮询**！实时状态请订阅 Data Plane 的 `chassis_state`。
+
+## API 请求/响应示例
+
+### 紧急停止
+
+```http
+POST /api/v1/emergency/stop
+Authorization: Bearer <token>
+```
+
+响应:
+```json
+{
+  "success": true,
+  "code": 0,
+  "message": "紧急停止已触发",
+  "data": {
+    "emergency_active": true,
+    "source": "http",
+    "triggered_at": "2026-01-20T10:30:00Z"
+  }
+}
+```
+
+### 导航到站点
+
+```http
+POST /api/v1/chassis/navigate/station
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "station_id": 1,
+  "speed_factor": 0.8
+}
+```
+
+响应:
+```json
+{
+  "success": true,
+  "code": 0,
+  "message": "导航到站点 充电桩 已发起",
+  "data": {
+    "task_id": "a1b2c3d4",
+    "station": {
+      "id": 1,
+      "name": "充电桩"
+    },
+    "target": {
+      "x": 1.5,
+      "y": 2.0,
+      "yaw": 0.0
+    }
+  }
+}
+```
+
+### 获取摄像头列表
+
+```http
+GET /api/v1/camera/list
+Authorization: Bearer <token>
+```
+
+响应:
+```json
+{
+  "success": true,
+  "code": 0,
+  "message": "获取摄像头列表成功",
+  "data": {
+    "cameras": [
+      {
+        "id": "head_rgb",
+        "name": "头部 RGB 摄像头",
+        "type": "rgb",
+        "topic": "/head_camera/color/image_raw",
+        "width": 1280,
+        "height": 720,
+        "fps": 30
+      },
+      {
+        "id": "left_wrist",
+        "name": "左手腕 RGB 摄像头",
+        "type": "rgb",
+        "topic": "/left_wrist_camera/color/image_raw",
+        "width": 640,
+        "height": 480,
+        "fps": 30
+      }
+    ],
+    "current_streaming": null
+  }
+}
+```
+| GET | `/{camera_id}/webrtc` | 获取 WebRTC 连接信息 |
+
+> 📹 实际视频流通过 Media Plane (WebRTC) 传输，本接口仅提供元数据。
+
 ## 快速开始
 
 ### 安装依赖

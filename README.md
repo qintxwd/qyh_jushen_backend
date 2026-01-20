@@ -165,22 +165,97 @@ sudo systemctl start qyh-control-plane qyh-data-plane qyh-media-plane
 
 ### Control Plane (REST)
 
+**认证与系统**
 - `POST /api/v1/auth/login` - 登录
+- `POST /api/v1/auth/logout` - 登出
+- `POST /api/v1/auth/refresh` - 刷新 Token
 - `GET /api/v1/system/config` - 服务发现
+- `GET /api/v1/system/health` - 健康检查
+
+**控制权与模式**
 - `POST /api/v1/control/acquire` - 获取控制权
+- `POST /api/v1/control/release` - 释放控制权
 - `POST /api/v1/mode/switch` - 切换模式
+- `GET /api/v1/mode/current` - 当前模式
+
+**紧急停止 (HTTP 备用通道)**
+- `POST /api/v1/emergency/stop` - 触发紧急停止
+- `GET /api/v1/emergency/status` - 获取急停状态
+
+**导航控制**
+- `POST /api/v1/chassis/navigate/pose` - 导航到坐标点
+- `POST /api/v1/chassis/navigate/station` - 导航到站点
+- `POST /api/v1/chassis/navigate/cancel` - 取消导航
+- `GET /api/v1/chassis/stations` - 获取站点列表
+- `GET /api/v1/chassis/status` - 获取底盘状态
+
+**摄像头**
+- `GET /api/v1/camera/list` - 获取摄像头列表
+- `GET /api/v1/camera/{id}` - 获取摄像头信息
+- `GET /api/v1/camera/{id}/webrtc` - WebRTC 连接信息
+
+**任务与预设**
 - `GET /api/v1/tasks` - 任务列表
+- `POST /api/v1/tasks` - 创建任务
+- `GET /api/v1/presets` - 预设列表
+- `POST /api/v1/presets/{type}/{id}/apply` - 应用预设
+
+**录制与动作**
+- `POST /api/v1/recording/start` - 开始录制
+- `POST /api/v1/recording/stop` - 停止录制
+- `GET /api/v1/actions` - 动作列表
 
 ### Data Plane (WebSocket + Protobuf)
 
 连接: `ws://host:8765`
 
-消息类型:
-- `AUTH_REQUEST` - 认证
-- `SUBSCRIBE_REQUEST` - 订阅话题
-- `HEARTBEAT` - 心跳（<200ms 间隔）
-- `VR_CONTROL_INTENT` - VR 控制意图
-- `ROBOT_STATE` - 机器人状态推送
+**认证与订阅 (0x0001-0x001F)**
+| 消息类型 | 值 | 方向 | 说明 |
+|----------|-----|------|------|
+| `MSG_AUTH_REQUEST` | 1 | C→S | 认证请求 (携带 JWT) |
+| `MSG_AUTH_RESPONSE` | 2 | S→C | 认证响应 |
+| `MSG_SUBSCRIBE` | 16 | C→S | 订阅话题 |
+| `MSG_UNSUBSCRIBE` | 17 | C→S | 取消订阅 |
+| `MSG_HEARTBEAT` | 32 | C→S | 心跳 (<200ms 间隔) |
+| `MSG_HEARTBEAT_ACK` | 33 | S→C | 心跳响应 |
+
+**控制意图 (0x0100-0x01FF)**
+| 消息类型 | 值 | 方向 | 说明 |
+|----------|-----|------|------|
+| `MSG_VR_CONTROL` | 256 | C→S | VR 控制意图 |
+| `MSG_CHASSIS_VELOCITY` | 257 | C→S | 底盘速度命令 |
+| `MSG_JOINT_COMMAND` | 258 | C→S | 关节位置命令 |
+| `MSG_END_EFFECTOR_CMD` | 259 | C→S | 末端执行器命令 |
+| `MSG_GRIPPER_COMMAND` | 260 | C→S | 夹爪命令 |
+| `MSG_NAVIGATION_GOAL` | 261 | C→S | 导航目标 |
+| `MSG_NAVIGATION_CANCEL` | 262 | C→S | 取消导航 |
+| `MSG_NAVIGATION_PAUSE` | 263 | C→S | 暂停导航 |
+| `MSG_NAVIGATION_RESUME` | 264 | C→S | 恢复导航 |
+| `MSG_LIFT_COMMAND` | 265 | C→S | 升降控制 |
+| `MSG_WAIST_COMMAND` | 266 | C→S | 腰部控制 |
+| `MSG_HEAD_COMMAND` | 267 | C→S | 头部控制 |
+| `MSG_ARM_MOVE` | 268 | C→S | 机械臂运动 (MoveJ/MoveL) |
+| `MSG_ARM_JOG` | 269 | C→S | 机械臂点动 (Jog) |
+
+**状态推送 (0x0200-0x02FF)**
+| 消息类型 | 值 | 方向 | 说明 |
+|----------|-----|------|------|
+| `MSG_ROBOT_STATE` | 512 | S→C | 机器人综合状态 |
+| `MSG_JOINT_STATE` | 513 | S→C | 关节状态 |
+| `MSG_ARM_STATE` | 514 | S→C | 机械臂状态 |
+| `MSG_CHASSIS_STATE` | 515 | S→C | 底盘状态 |
+| `MSG_GRIPPER_STATE` | 516 | S→C | 夹爪状态 |
+| `MSG_VR_SYSTEM_STATE` | 517 | S→C | VR 系统状态 |
+| `MSG_TASK_STATE` | 518 | S→C | 任务状态 |
+| `MSG_ACTUATOR_STATE` | 519 | S→C | 执行器状态 |
+
+**系统通知 (0x0400-0x04FF)**
+| 消息类型 | 值 | 方向 | 说明 |
+|----------|-----|------|------|
+| `MSG_ERROR` | 768 | S→C | 错误通知 |
+| `MSG_MODE_CHANGED` | 1024 | S→C | 模式变更通知 |
+| `MSG_CONTROL_CHANGED` | 1025 | S→C | 控制权变更通知 |
+| `MSG_EMERGENCY_STOP` | 1026 | 双向 | 紧急停止 |
 
 ### Media Plane (WebSocket + JSON)
 
@@ -194,14 +269,26 @@ sudo systemctl start qyh-control-plane qyh-data-plane qyh-media-plane
 ## 重要约束
 
 1. **Watchdog 超时**: 客户端必须每 200ms 发送心跳，否则触发紧急停止
-2. **紧急停止**: 
-   - Watchdog 自动触发（心跳超时）
-   - WebSocket 消息 `EMERGENCY_STOP`（推荐方式，延迟最低）
-   - ~~HTTP API~~ **已删除**，急停必须走 WebSocket
+2. **紧急停止双通道**: 
+   - **主通道 (WebSocket)**: `MSG_EMERGENCY_STOP` 消息，延迟 <10ms
+   - **备用通道 (HTTP)**: `POST /api/v1/emergency/stop`，用于 WebSocket 断开时
+   - **自动触发**: Watchdog 超时自动触发
 3. **控制锁**: 同一时间只有一个客户端可以控制机器人
 4. **模式状态机**: 模式切换需遵循状态机规则
 5. **视频不走 HTTP**: 视频必须通过 WebRTC 传输
 6. **实时控制不走 HTTP**: 速度命令、关节控制必须走 WebSocket
+7. **执行器控制**: 升降、腰部、头部、机械臂等执行器控制通过 WebSocket 实现
+
+### 接口频率要求
+
+| 接口类型 | 频率 | 延迟要求 | 协议 |
+|----------|------|----------|------|
+| 认证/配置 | <5Hz | 100-500ms | HTTP |
+| 底盘速度 | 50Hz | <20ms | WebSocket |
+| 机械臂控制 | 50-100Hz | <10ms | WebSocket |
+| 心跳 | >5Hz | <200ms | WebSocket |
+| 状态推送 | 30-100Hz | <10ms | WebSocket |
+| 视频流 | 30fps | <100ms | WebRTC |
 
 ## 配置文件
 

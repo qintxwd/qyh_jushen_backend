@@ -164,18 +164,54 @@ Client                          Server
 
 ### 消息类型 (Protobuf)
 
-| 类型 | 方向 | 说明 |
-|------|------|------|
-| `AUTH_REQUEST` | C→S | 认证请求 (携带 JWT) |
-| `AUTH_RESPONSE` | S→C | 认证响应 |
-| `SUBSCRIBE_REQUEST` | C→S | 订阅话题 |
-| `UNSUBSCRIBE_REQUEST` | C→S | 取消订阅 |
-| `HEARTBEAT` | C→S | 心跳 (< 200ms 间隔) |
-| `STATE` | S→C | 状态数据 (关节/TF/IMU) |
-| `VR_CONTROL_INTENT` | C→S | VR 控制意图 |
-| `CHASSIS_VELOCITY` | C→S | 底盘速度命令 |
-| `JOINT_COMMAND` | C→S | 关节命令 |
-| `ERROR` | S→C | 错误通知 |
+#### 认证与订阅
+| 类型 | 值 | 方向 | 说明 |
+|------|-----|------|------|
+| `MSG_AUTH_REQUEST` | 1 | C→S | 认证请求 (携带 JWT) |
+| `MSG_AUTH_RESPONSE` | 2 | S→C | 认证响应 |
+| `MSG_SUBSCRIBE` | 16 | C→S | 订阅话题 |
+| `MSG_UNSUBSCRIBE` | 17 | C→S | 取消订阅 |
+| `MSG_HEARTBEAT` | 32 | C→S | 心跳 (< 200ms 间隔) |
+| `MSG_HEARTBEAT_ACK` | 33 | S→C | 心跳响应 |
+
+#### 控制意图 (客户端→服务端)
+| 类型 | 值 | 说明 | Protobuf 消息 |
+|------|-----|------|---------------|
+| `MSG_VR_CONTROL` | 256 | VR 控制意图 | `VRControlIntent` |
+| `MSG_CHASSIS_VELOCITY` | 257 | 底盘速度命令 | `ChassisVelocity` |
+| `MSG_JOINT_COMMAND` | 258 | 关节位置命令 | `JointCommand` |
+| `MSG_END_EFFECTOR_CMD` | 259 | 末端执行器命令 | `EndEffectorCommand` |
+| `MSG_GRIPPER_COMMAND` | 260 | 夹爪命令 | `GripperCommand` |
+| `MSG_NAVIGATION_GOAL` | 261 | 导航目标 | `NavigationGoal` |
+| `MSG_NAVIGATION_CANCEL` | 262 | 取消导航 | `NavigationControl` |
+| `MSG_NAVIGATION_PAUSE` | 263 | 暂停导航 | `NavigationControl` |
+| `MSG_NAVIGATION_RESUME` | 264 | 恢复导航 | `NavigationControl` |
+| `MSG_LIFT_COMMAND` | 265 | 升降控制 | `LiftCommand` |
+| `MSG_WAIST_COMMAND` | 266 | 腰部控制 | `WaistCommand` |
+| `MSG_HEAD_COMMAND` | 267 | 头部控制 | `HeadCommand` |
+| `MSG_ARM_MOVE` | 268 | 机械臂运动 | `ArmMoveCommand` |
+| `MSG_ARM_JOG` | 269 | 机械臂点动 | `ArmJogCommand` |
+| `MSG_EMERGENCY_STOP` | 1026 | 紧急停止 | - |
+
+#### 状态推送 (服务端→客户端)
+| 类型 | 值 | 说明 | 推送频率 |
+|------|-----|------|----------|
+| `MSG_ROBOT_STATE` | 512 | 机器人综合状态 | 30Hz |
+| `MSG_JOINT_STATE` | 513 | 关节状态 | 100Hz |
+| `MSG_ARM_STATE` | 514 | 机械臂状态 | 50Hz |
+| `MSG_CHASSIS_STATE` | 515 | 底盘状态 | 30Hz |
+| `MSG_GRIPPER_STATE` | 516 | 夹爪状态 | 事件触发 |
+| `MSG_VR_SYSTEM_STATE` | 517 | VR 系统状态 | 90Hz |
+| `MSG_TASK_STATE` | 518 | 任务状态 | 事件触发 |
+| `MSG_ACTUATOR_STATE` | 519 | 执行器状态 | 30Hz |
+
+#### 系统通知
+| 类型 | 值 | 方向 | 说明 |
+|------|-----|------|------|
+| `MSG_ERROR` | 768 | S→C | 错误通知 |
+| `MSG_MODE_CHANGED` | 1024 | S→C | 模式变更通知 |
+| `MSG_CONTROL_CHANGED` | 1025 | S→C | 控制权变更通知 |
+| `MSG_EMERGENCY_STOP` | 1026 | S→C | 紧急停止通知 |
 
 ## 安全机制
 
@@ -204,6 +240,7 @@ class Watchdog {
     void feed(const std::string& session_id);  // 喂狗
     void unregister(const std::string& session_id);  // 注销会话
     void set_emergency_stop_callback(EmergencyStopCallback callback);
+    void trigger_emergency_stop();  // 手动触发急停
 };
 ```
 
@@ -216,28 +253,67 @@ watchdog:
 
 ### 紧急停止 (Emergency Stop)
 
-**多种触发方式**:
+**双通道冗余设计** (符合 ISO 10218 安全要求):
 
-1. **Watchdog 自动触发**：心跳超时 200ms
-2. **WebSocket 消息**：客户端发送 `EMERGENCY_STOP` 消息（最低延迟）
-3. **ROS2 话题**：订阅 `/emergency_stop` 话题
-4. **HTTP API**：Control Plane 的后备接口（调试用）
+| 通道 | 触发方式 | 延迟 | 场景 |
+|------|----------|------|------|
+| **WebSocket (主)** | `MSG_EMERGENCY_STOP` 消息 | <10ms | 正常操作时的急停 |
+| **HTTP (备)** | `POST /api/v1/emergency/stop` | 50-200ms | WebSocket 断开时的后备 |
+| **Watchdog** | 心跳超时 200ms | 自动 | 连接异常时自动触发 |
+| **ROS2 话题** | `/emergency_stop` | 取决于网络 | 与其他 ROS2 节点联动 |
 
 **紧急停止流程**:
 ```
-触发源 ──> 检测 ──> 发布零速度 ──> 通知所有客户端 ──> 记录日志
-            │           │                 │
-            └───────────┴─────────────────┴──> 设置 emergency_triggered_
+┌─────────────────┐
+│   触发源        │
+│ - WebSocket消息 │
+│ - HTTP API      │
+│ - Watchdog超时  │
+│ - ROS2话题      │
+└────────┬────────┘
+         ▼
+┌─────────────────┐
+│  MessageHandler │
+│  handle_emergency_stop()
+└────────┬────────┘
+         │
+    ┌────┴────┬────────────┐
+    ▼         ▼            ▼
+┌───────┐ ┌────────┐ ┌──────────┐
+│发布零 │ │触发    │ │广播急停  │
+│速度   │ │Watchdog│ │通知给所  │
+│/cmd_vel│ │回调    │ │有客户端  │
+└───────┘ └────────┘ └──────────┘
 ```
 
 **Protobuf 消息**:
 ```protobuf
-// 紧急停止通知（服务端 -> 客户端）
+// 紧急停止通知（双向）
 message EmergencyStopNotification {
     Header header = 1;
     bool active = 2;           // true=急停激活, false=急停解除
-    string source = 3;         // 触发来源: "watchdog", "user", "hardware"
+    string source = 3;         // 触发来源: "websocket", "http", "watchdog", "hardware"
     string reason = 4;
+}
+```
+
+**前端实现示例**:
+```typescript
+// WebSocket 急停 (推荐)
+function emergencyStop() {
+  const msg = WebSocketMessage.create({
+    type: MessageType.MSG_EMERGENCY_STOP,
+    timestamp: Date.now()
+  });
+  ws.send(WebSocketMessage.encode(msg).finish());
+}
+
+// HTTP 急停 (后备)
+async function emergencyStopFallback() {
+  await fetch('/api/v1/emergency/stop', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
 }
 ```
 
@@ -318,6 +394,124 @@ KeyboardInput keyboard;
 keyboard.forward = true;
 keyboard.speed_level = KeyboardInput::SpeedLevel::NORMAL;
 auto vel2 = controller.process_keyboard(keyboard);
+```
+
+## Protobuf 消息结构
+
+### 执行器控制消息
+
+```protobuf
+// 升降控制命令
+message LiftCommand {
+    Header header = 1;
+    string command = 2;         // "goto", "up", "down", "stop"
+    double target_height = 3;   // 目标高度 (米), 仅 "goto" 时有效
+    double speed = 4;           // 速度 (米/秒)
+}
+
+// 腰部控制命令
+message WaistCommand {
+    Header header = 1;
+    string command = 2;         // "goto", "left", "right", "stop"
+    double target_angle = 3;    // 目标角度 (弧度), 仅 "goto" 时有效
+    double speed = 4;           // 角速度 (弧度/秒)
+}
+
+// 头部控制命令
+message HeadCommand {
+    Header header = 1;
+    string command = 2;         // "goto", "preset", "track"
+    double yaw = 3;             // 偏航角 (弧度)
+    double pitch = 4;           // 俯仰角 (弧度)
+    string preset_name = 5;     // 预设点名称
+    double speed = 6;           // 速度因子 (0.0-1.0)
+}
+```
+
+### 机械臂控制消息
+
+```protobuf
+// 机械臂运动命令 (MoveJ/MoveL)
+message ArmMoveCommand {
+    Header header = 1;
+    string arm_side = 2;        // "left" 或 "right"
+    string motion_type = 3;     // "movej" (关节空间) 或 "movel" (笛卡尔空间)
+    repeated double target = 4; // 目标：关节角度或末端位姿 [x,y,z,rx,ry,rz]
+    double speed = 5;           // 速度 (rad/s 或 m/s)
+    double acceleration = 6;    // 加速度
+    double blend_radius = 7;    // 平滑半径
+}
+
+// 机械臂点动命令 (Jog)
+message ArmJogCommand {
+    Header header = 1;
+    string arm_side = 2;        // "left" 或 "right"
+    string jog_mode = 3;        // "joint" (关节空间) 或 "cartesian" (笛卡尔空间)
+    int32 axis_index = 4;       // 轴索引 (0-5)
+    double direction = 5;       // 方向和速度 (-1.0 到 1.0)
+}
+```
+
+### 导航控制消息
+
+```protobuf
+// 导航目标
+message NavigationGoal {
+    Header header = 1;
+    Pose target_pose = 2;       // 目标位姿
+    bool is_localization_only = 3; // 仅定位，不导航
+}
+
+// 导航控制 (取消/暂停/恢复)
+message NavigationControl {
+    Header header = 1;
+    string action = 2;          // "cancel", "pause", "resume"
+}
+```
+
+### 前端使用示例
+
+```typescript
+// TypeScript 示例 - 发送升降控制命令
+import { WebSocketMessage, MessageType, LiftCommand } from './proto/messages';
+
+function sendLiftCommand(command: string, height?: number, speed?: number) {
+  const liftCmd = LiftCommand.create({
+    command: command,
+    targetHeight: height ?? 0,
+    speed: speed ?? 0.1
+  });
+  
+  const msg = WebSocketMessage.create({
+    type: MessageType.MSG_LIFT_COMMAND,
+    liftCommand: liftCmd
+  });
+  
+  ws.send(WebSocketMessage.encode(msg).finish());
+}
+
+// 使用示例
+sendLiftCommand('goto', 0.5, 0.1);  // 移动到 0.5m 高度
+sendLiftCommand('up', undefined, 0.05);  // 以 0.05m/s 向上移动
+sendLiftCommand('stop');  // 停止
+
+// 机械臂 MoveL 示例
+function sendArmMoveL(armSide: string, targetPose: number[]) {
+  const armCmd = ArmMoveCommand.create({
+    armSide: armSide,
+    motionType: 'movel',
+    target: targetPose,  // [x, y, z, rx, ry, rz]
+    speed: 0.1,
+    acceleration: 0.5
+  });
+  
+  const msg = WebSocketMessage.create({
+    type: MessageType.MSG_ARM_MOVE,
+    armMove: armCmd
+  });
+  
+  ws.send(WebSocketMessage.encode(msg).finish());
+}
 ```
 
 ## 相关文档
