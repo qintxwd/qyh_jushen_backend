@@ -80,7 +80,7 @@ class ROS2Bridge:
         client = self._get_client()
         return client.get_robot_state()
     
-    def get_shutdown_state(self) -> dict:
+    def get_shutdown_state(self) -> Optional[dict]:
         """获取关机状态"""
         client = self._get_client()
         return client.get_shutdown_state()
@@ -224,9 +224,9 @@ def _read_temperature_zones() -> List[Tuple[str, float]]:
 
 
 def _get_system_state() -> SystemState:
-    cpu_temp = 0.0
-    gpu_temp = 0.0
-    battery = 100.0
+    cpu_temp = None
+    gpu_temp = None
+    battery = None
     uptime_seconds = 0
 
     zones = _read_temperature_zones()
@@ -255,7 +255,7 @@ def _get_system_state() -> SystemState:
                 battery = float(f.read().strip())
                 break
     except Exception:
-        battery = 100.0
+        battery = None
 
     return SystemState(
         cpu_temp=cpu_temp,
@@ -277,18 +277,7 @@ def _load_urdf() -> Optional[str]:
             logger.error(f"Failed to read URDF: {e}")
             return None
     
-    # 返回占位 URDF
-    return """<?xml version="1.0"?>
-<robot name="qyh_jushen">
-  <link name="base_link">
-    <visual>
-      <geometry>
-        <box size="0.5 0.5 0.1"/>
-      </geometry>
-    </visual>
-  </link>
-  <!-- TODO: 完整 URDF 模型 -->
-</robot>"""
+        return None
 
 
 # ============================================================================
@@ -304,7 +293,7 @@ async def get_robot_info(
         name="QYH Jushen",
         model=ROBOT_NAME,
         version=ROBOT_VERSION,
-        serial_number=os.environ.get('ROBOT_SERIAL', 'QYH-001'),
+        serial_number=os.environ.get('ROBOT_SERIAL', ''),
         has_left_arm=True,
         has_right_arm=True,
         has_head=True,
@@ -412,6 +401,11 @@ async def get_shutdown_state(
     用于前端轮询显示关机进度
     """
     state = ros2_bridge.get_shutdown_state()
+    if not state:
+        return error_response(
+            code=ErrorCodes.ROS2_NOT_CONNECTED,
+            message="未收到关机状态（ROS2 未连接或状态话题不可用）",
+        )
     
     source_text = {
         0: "",

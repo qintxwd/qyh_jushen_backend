@@ -659,19 +659,23 @@ class ROS2ServiceClient:
     # 注意: VR 回调函数已移除 (原 _on_vr_* 系列)
     # VR 状态由 Data Plane 管理，参见 VR_ARCHITECTURE.md
 
-    def get_shutdown_state(self) -> Dict[str, Any]:
+    def get_shutdown_state(self) -> Optional[Dict[str, Any]]:
         """获取关机状态"""
         with self._state_lock:
             if self._latest_shutdown_state:
                 return self._latest_shutdown_state.copy()
-        
-        # 返回默认状态
-        return {
-            "shutdown_in_progress": False,
-            "trigger_source": 0,
-            "countdown_seconds": -1,
-            "plc_connected": False,
-        }
+        return None
+
+    def get_topic_list(self) -> list[str]:
+        """获取当前 ROS2 话题列表（来自节点本地查询）"""
+        if self._node is None:
+            return []
+        try:
+            topics = self._node.get_topic_names_and_types()
+            return [name for name, _types in topics]
+        except Exception as e:
+            logger.error(f"get_topic_list error: {e}")
+            return []
 
     def get_standard_robot_status(self) -> Optional[Dict[str, Any]]:
         """获取标准机器人状态 (底盘状态)"""

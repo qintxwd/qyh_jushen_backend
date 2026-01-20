@@ -288,14 +288,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
 
 ### ROS2 集成
 
-部分功能需要 ROS2 服务支持（如预设应用、录制控制）。目前使用模拟实现，待集成 ROS2 后替换：
-
-```python
-# TODO: 实现实际的 ROS2 服务调用
-async def call_ros2_service(...):
-    # 使用 rclpy 或 ros2cli
-    pass
-```
+部分功能需要 ROS2 服务支持（如预设应用、录制控制）。
+若 ROS2 未连接或状态话题不可用，接口将返回空值或错误提示，不再返回模拟数据。
 
 ## 待完成功能
 

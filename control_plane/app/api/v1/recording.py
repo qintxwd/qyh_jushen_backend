@@ -284,9 +284,10 @@ async def call_ros2_get_topics() -> List[str]:
     Returns:
         List[str]: 话题列表
     """
-    # TODO: 实现实际的 ros2 topic list 调用
-    # 目前返回默认话题
-    return get_default_topics()
+    client = get_ros2_client()
+    if not client._initialized:
+        await client.initialize()
+    return client.get_topic_list()
 
 
 # ============================================================================
@@ -532,10 +533,10 @@ async def get_available_topics(
 ):
     """获取当前可用的 ROS2 话题列表"""
     topics = await call_ros2_get_topics()
-    
+    message = "获取话题列表成功" if topics else "当前无法从 ROS2 获取话题列表"
     return success_response(
         data={"topics": topics},
-        message="获取话题列表成功"
+        message=message
     )
 
 
