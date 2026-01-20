@@ -26,23 +26,28 @@ bool WebRTCPeer::init() {
 
 bool WebRTCPeer::create_pipeline() {
     // 创建管道
-    std::string pipeline_desc = "webrtcbin name=webrtcbin bundle-policy=max-bundle";
-    
-    GError* error = nullptr;
-    pipeline_ = gst_parse_launch(pipeline_desc.c_str(), &error);
-    
-    if (error) {
-        std::cerr << "Failed to create pipeline: " << error->message << std::endl;
-        g_error_free(error);
+    pipeline_ = gst_pipeline_new("webrtc-pipeline");
+    if (!pipeline_) {
+        std::cerr << "Failed to create pipeline" << std::endl;
         return false;
     }
     
-    // 获取 webrtcbin
-    webrtcbin_ = gst_bin_get_by_name(GST_BIN(pipeline_), "webrtcbin");
+    // 创建 webrtcbin 元素
+    webrtcbin_ = gst_element_factory_make("webrtcbin", "webrtcbin");
     if (!webrtcbin_) {
-        std::cerr << "Failed to get webrtcbin" << std::endl;
+        std::cerr << "Failed to create webrtcbin element" << std::endl;
+        gst_object_unref(pipeline_);
+        pipeline_ = nullptr;
         return false;
     }
+    
+    // 配置 webrtcbin 属性
+    g_object_set(webrtcbin_, 
+                 "bundle-policy", 3,  // GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE
+                 nullptr);
+    
+    // 将 webrtcbin 添加到管道
+    gst_bin_add(GST_BIN(pipeline_), webrtcbin_);
     
     // 配置 STUN/TURN
     configure_ice_servers();
@@ -151,9 +156,18 @@ bool WebRTCPeer::add_video_source(const std::string& /*source_name*/,
     
     // 获取 payloader 的 src pad
     GstPad* src_pad = gst_element_get_static_pad(payloader, "src");
+    if (!src_pad) {
+        std::cerr << "Failed to get payloader src pad" << std::endl;
+        return false;
+    }
     
     // 请求 webrtcbin 的 sink pad
-    GstPad* sink_pad = gst_element_request_pad_simple(webrtcbin_, "sink_%u");
+    GstPad* sink_pad = gst_element_get_request_pad(webrtcbin_, "sink_%u");
+    if (!sink_pad) {
+        std::cerr << "Failed to request sink pad from webrtcbin" << std::endl;
+        gst_object_unref(src_pad);
+        return false;
+    }
     
     // 连接到 webrtcbin
     GstPadLinkReturn ret = gst_pad_link(src_pad, sink_pad);
@@ -162,7 +176,7 @@ bool WebRTCPeer::add_video_source(const std::string& /*source_name*/,
     gst_object_unref(sink_pad);
     
     if (ret != GST_PAD_LINK_OK) {
-        std::cerr << "Failed to link to webrtcbin" << std::endl;
+        std::cerr << "Failed to link to webrtcbin: " << ret << std::endl;
         return false;
     }
     
