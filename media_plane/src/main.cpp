@@ -11,12 +11,19 @@
 #include <iostream>
 #include <csignal>
 #include <atomic>
+#include <memory>
 
 static std::atomic<bool> g_running{true};
+static std::shared_ptr<qyh::mediaplane::MediaServer> g_server;
 
 void signal_handler(int signal) {
     std::cout << "\nReceived signal " << signal << ", shutting down..." << std::endl;
     g_running = false;
+    
+    // 触发服务器停止
+    if (g_server) {
+        g_server->stop();
+    }
 }
 
 int main(int argc, char* argv[]) {
@@ -51,26 +58,30 @@ int main(int argc, char* argv[]) {
     
     try {
         // 创建媒体服务器
-        qyh::mediaplane::MediaServer server(config);
+        g_server = std::make_shared<qyh::mediaplane::MediaServer>(config);
         
-        if (!server.init()) {
+        if (!g_server->init()) {
             std::cerr << "Failed to initialize media server" << std::endl;
             return 1;
         }
         
         // 启动服务器
-        server.start();
+        g_server->start();
         
         // 主循环
-        while (g_running && server.is_running()) {
+        while (g_running && g_server->is_running()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
         
         // 停止服务器
-        server.stop();
+        std::cout << "Stopping media server..." << std::endl;
+        g_server->stop();
+        g_server.reset();
         
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
+        g_server.reset();
+        gst_deinit();
         return 1;
     }
     

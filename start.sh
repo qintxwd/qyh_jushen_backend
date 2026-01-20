@@ -33,23 +33,61 @@ cleanup() {
     echo ""
     echo "⚠️  正在关闭所有服务..."
     
-    # Kill in reverse order
+    # Kill in reverse order with timeout
+    local TIMEOUT=5
+    local killed_pids=()
+    
+    # Send SIGTERM to all processes
     if [ ! -z "$MEDIA_PID" ] && kill -0 $MEDIA_PID 2>/dev/null; then
-        echo "Killing Media Plane (PID $MEDIA_PID)..."
-        kill $MEDIA_PID 2>/dev/null || true
+        echo "Stopping Media Plane (PID $MEDIA_PID)..."
+        kill -TERM $MEDIA_PID 2>/dev/null || true
+        killed_pids+=($MEDIA_PID)
     fi
     
     if [ ! -z "$DATA_PID" ] && kill -0 $DATA_PID 2>/dev/null; then
-        echo "Killing Data Plane (PID $DATA_PID)..."
-        kill $DATA_PID 2>/dev/null || true
+        echo "Stopping Data Plane (PID $DATA_PID)..."
+        kill -TERM $DATA_PID 2>/dev/null || true
+        killed_pids+=($DATA_PID)
     fi
     
     if [ ! -z "$CONTROL_PID" ] && kill -0 $CONTROL_PID 2>/dev/null; then
-        echo "Killing Control Plane (PID $CONTROL_PID)..."
-        kill $CONTROL_PID 2>/dev/null || true
+        echo "Stopping Control Plane (PID $CONTROL_PID)..."
+        kill -TERM $CONTROL_PID 2>/dev/null || true
+        killed_pids+=($CONTROL_PID)
     fi
     
-    wait 2>/dev/null
+    # Wait for processes to exit gracefully
+    local waited=0
+    local all_stopped=0
+    while [ $waited -lt $((TIMEOUT * 2)) ]; do
+        all_stopped=1
+        for pid in "${killed_pids[@]}"; do
+            if kill -0 $pid 2>/dev/null; then
+                all_stopped=0
+                break
+            fi
+        done
+        
+        if [ $all_stopped -eq 1 ]; then
+            break
+        fi
+        
+        sleep 0.5
+        waited=$((waited + 1))
+    done
+    
+    # Force kill any remaining processes
+    if [ $all_stopped -eq 0 ]; then
+        echo "⚠️  超时，强制终止剩余进程..."
+        for pid in "${killed_pids[@]}"; do
+            if kill -0 $pid 2>/dev/null; then
+                echo "Force killing PID $pid"
+                kill -9 $pid 2>/dev/null || true
+            fi
+        done
+        sleep 0.5
+    fi
+    
     echo "✅ 所有服务已关闭"
 }
 
