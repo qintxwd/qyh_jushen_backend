@@ -20,38 +20,132 @@ WebRTCPeer::~WebRTCPeer() {
     stop();
 }
 
-bool WebRTCPeer::init() {
-    return create_pipeline();
+bool WebRTCPeer::init(GstElement* pipeline) {
+    main_pipeline_ = pipeline;
+    return create_peer_bin();
 }
 
-bool WebRTCPeer::create_pipeline() {
-    // 创建管道
-    pipeline_ = gst_pipeline_new("webrtc-pipeline");
-    if (!pipeline_) {
-        std::cerr << "Failed to create pipeline" << std::endl;
+bool WebRTCPeer::create_peer_bin() {
+    // 创建 Bin
+    peer_bin_ = gst_bin_new(("peer_bin_" + peer_id_).c_str());
+    if (!peer_bin_) {
+        std::cerr << "Failed to create peer bin" << std::endl;
         return false;
     }
-    
+
+    // 输入队列：解耦 Source/Network 线程
+    GstElement* queue = gst_element_factory_make("queue", nullptr);
+    if (!queue) {
+        std::cerr << "Failed to create queue" << std::endl;
+        return false;
+    }
+    g_object_set(queue,
+                 "max-size-buffers", 1,
+                 "leaky", 2,  // downstream
+                 nullptr);
+
     // 创建 webrtcbin 元素
     webrtcbin_ = gst_element_factory_make("webrtcbin", "webrtcbin");
     if (!webrtcbin_) {
         std::cerr << "Failed to create webrtcbin element" << std::endl;
-        gst_object_unref(pipeline_);
-        pipeline_ = nullptr;
         return false;
     }
-    
-    // 配置 webrtcbin 属性
-    g_object_set(webrtcbin_, 
+
+    g_object_set(webrtcbin_,
                  "bundle-policy", 3,  // GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE
                  nullptr);
-    
-    // 将 webrtcbin 添加到管道
-    gst_bin_add(GST_BIN(pipeline_), webrtcbin_);
-    
+
+    GstElement* convert = nullptr;
+    GstElement* caps_filter = nullptr;
+    GstElement* encoder = nullptr;
+    GstElement* payloader = nullptr;
+
+    if (config_.jetson.use_nvenc) {
+        // Jetson 硬件编码路径
+        // 上游已经输出 NV12(NVMM)，无需重复 nvvidconv/capsfilter
+        encoder = gst_element_factory_make("nvv4l2h264enc", nullptr);
+        if (encoder) {
+            g_object_set(encoder,
+                         "bitrate", static_cast<guint>(config_.encoding.bitrate * 1000),
+                         "control-rate", 1,
+                         "preset-level", 1,
+                         "iframeinterval", config_.encoding.keyframe_interval,
+                         "insert-sps-pps", TRUE,
+                         nullptr);
+        }
+    } else {
+        // CPU 软编码路径
+        convert = gst_element_factory_make("videoconvert", nullptr);
+
+        if (config_.encoding.codec == "h264") {
+            encoder = gst_element_factory_make("x264enc", nullptr);
+            if (encoder) {
+                g_object_set(encoder,
+                             "bitrate", config_.encoding.bitrate,
+                             "tune", 0x04,
+                             "speed-preset", 1,
+                             "key-int-max", config_.encoding.keyframe_interval,
+                             nullptr);
+            }
+        } else if (config_.encoding.codec == "vp8") {
+            encoder = gst_element_factory_make("vp8enc", nullptr);
+        }
+    }
+
+    payloader = gst_element_factory_make("rtph264pay", nullptr);
+    if (payloader) {
+        g_object_set(payloader, "config-interval", 1, nullptr);
+    }
+
+    if (!encoder || !payloader) {
+        std::cerr << "Failed to create encoder or payloader" << std::endl;
+        return false;
+    }
+
+    gst_bin_add(GST_BIN(peer_bin_), queue);
+    if (convert) {
+        gst_bin_add(GST_BIN(peer_bin_), convert);
+    }
+    if (caps_filter) {
+        gst_bin_add(GST_BIN(peer_bin_), caps_filter);
+    }
+    gst_bin_add_many(GST_BIN(peer_bin_), encoder, payloader, webrtcbin_, nullptr);
+
+    bool link_ok = false;
+    if (config_.jetson.use_nvenc) {
+        link_ok = gst_element_link_many(queue, encoder, payloader, nullptr);
+    } else {
+        if (convert) {
+            link_ok = gst_element_link_many(queue, convert, encoder, payloader, nullptr);
+        } else {
+            link_ok = gst_element_link_many(queue, encoder, payloader, nullptr);
+        }
+    }
+
+    if (!link_ok) {
+        std::cerr << "Failed to link peer elements" << std::endl;
+        return false;
+    }
+
+    GstPad* src_pad = gst_element_get_static_pad(payloader, "src");
+    GstPad* sink_pad = gst_element_request_pad_simple(webrtcbin_, "sink_%u");
+    if (!src_pad || !sink_pad || gst_pad_link(src_pad, sink_pad) != GST_PAD_LINK_OK) {
+        std::cerr << "Failed to link to webrtcbin" << std::endl;
+        if (src_pad) gst_object_unref(src_pad);
+        if (sink_pad) gst_object_unref(sink_pad);
+        return false;
+    }
+    gst_object_unref(src_pad);
+    gst_object_unref(sink_pad);
+
+    GstPad* queue_sink = gst_element_get_static_pad(queue, "sink");
+    sink_pad_ = gst_ghost_pad_new("sink", queue_sink);
+    gst_element_add_pad(peer_bin_, sink_pad_);
+    gst_object_unref(queue_sink);
+
     // 配置 STUN/TURN
     configure_ice_servers();
-    
+
     // 连接信号
     g_signal_connect(webrtcbin_, "on-negotiation-needed",
                      G_CALLBACK(on_negotiation_needed), this);
@@ -61,7 +155,7 @@ bool WebRTCPeer::create_pipeline() {
                      G_CALLBACK(on_ice_gathering_state_changed), this);
     g_signal_connect(webrtcbin_, "notify::ice-connection-state",
                      G_CALLBACK(on_ice_connection_state_changed), this);
-    
+
     return true;
 }
 
@@ -73,114 +167,6 @@ void WebRTCPeer::configure_ice_servers() {
     }
     
     // TODO: 配置 TURN 服务器
-}
-
-bool WebRTCPeer::add_video_source(const std::string& /*source_name*/, 
-                                   GstElement* src_element) {
-    if (!pipeline_ || !webrtcbin_) {
-        return false;
-    }
-    
-    // 创建编码管道
-    // videosrc -> nvvidconv/videoconvert -> encoder -> rtph264pay -> webrtcbin
-    
-    GstElement* convert = nullptr;
-    GstElement* encoder = nullptr;
-    GstElement* payloader = nullptr;
-    
-    // 根据配置选择编码器和转换器
-    if (config_.jetson.use_nvenc) {
-        // Jetson 硬件编码：使用 VIC 硬件加速色彩转换
-        // nvvidconv 利用 Video Image Compositor 独立硬件引擎
-        // 性能比 videoconvert 快 10-20 倍，且不占用 CPU
-        convert = gst_element_factory_make("nvvidconv", nullptr);
-        if (!convert) {
-            std::cerr << "Warning: nvvidconv not available, falling back to videoconvert" << std::endl;
-            convert = gst_element_factory_make("videoconvert", nullptr);
-        }
-        
-        encoder = gst_element_factory_make("nvv4l2h264enc", nullptr);
-        if (encoder) {
-            g_object_set(encoder, 
-                         "bitrate", config_.encoding.bitrate * 1000,
-                         "preset-level", 1,  // UltraFast
-                         "iframeinterval", config_.encoding.keyframe_interval,  // 关键帧间隔
-                         "insert-sps-pps", TRUE,  // 关键：WebRTC 需要每个关键帧都带 SPS/PPS
-                         nullptr);
-        }
-    } else {
-        // CPU 软编码：使用传统 videoconvert
-        convert = gst_element_factory_make("videoconvert", nullptr);
-    }
-    
-    if (!encoder) {
-        // 软件编码后备
-        encoder = gst_element_factory_make("x264enc", nullptr);
-        if (encoder) {
-            g_object_set(encoder,
-                         "bitrate", config_.encoding.bitrate,
-                         "tune", 0x04,  // zerolatency
-                         "speed-preset", 1,  // ultrafast
-                         "key-int-max", config_.encoding.keyframe_interval,  // 关键帧间隔
-                         nullptr);
-        }
-    }
-    
-    if (!convert) {
-        std::cerr << "Failed to create video converter" << std::endl;
-        return false;
-    }
-    
-    if (!encoder) {
-        std::cerr << "Failed to create encoder" << std::endl;
-        return false;
-    }
-    
-    payloader = gst_element_factory_make("rtph264pay", nullptr);
-    if (!payloader) {
-        std::cerr << "Failed to create payloader" << std::endl;
-        return false;
-    }
-    
-    // 配置 Payloader：每秒发送一次配置，防止丢包花屏
-    g_object_set(payloader, "config-interval", 1, nullptr);
-    
-    // 添加到管道
-    gst_bin_add_many(GST_BIN(pipeline_), src_element, convert, encoder, payloader, nullptr);
-    
-    // 连接元素
-    if (!gst_element_link_many(src_element, convert, encoder, payloader, nullptr)) {
-        std::cerr << "Failed to link video elements" << std::endl;
-        return false;
-    }
-    
-    // 获取 payloader 的 src pad
-    GstPad* src_pad = gst_element_get_static_pad(payloader, "src");
-    if (!src_pad) {
-        std::cerr << "Failed to get payloader src pad" << std::endl;
-        return false;
-    }
-    
-    // 请求 webrtcbin 的 sink pad
-    GstPad* sink_pad = gst_element_get_request_pad(webrtcbin_, "sink_%u");
-    if (!sink_pad) {
-        std::cerr << "Failed to request sink pad from webrtcbin" << std::endl;
-        gst_object_unref(src_pad);
-        return false;
-    }
-    
-    // 连接到 webrtcbin
-    GstPadLinkReturn ret = gst_pad_link(src_pad, sink_pad);
-    
-    gst_object_unref(src_pad);
-    gst_object_unref(sink_pad);
-    
-    if (ret != GST_PAD_LINK_OK) {
-        std::cerr << "Failed to link to webrtcbin: " << ret << std::endl;
-        return false;
-    }
-    
-    return true;
 }
 
 void WebRTCPeer::create_offer() {
@@ -231,18 +217,29 @@ void WebRTCPeer::add_ice_candidate(const std::string& candidate,
 }
 
 void WebRTCPeer::start() {
-    if (pipeline_) {
-        gst_element_set_state(pipeline_, GST_STATE_PLAYING);
+    if (peer_bin_ && main_pipeline_) {
+        // 注意: Bin 添加到 Pipeline 后，Pipeline 会尝试同步状态
+        // 但我们可能需要显式控制
+        gst_element_sync_state_with_parent(peer_bin_);
         state_ = PeerState::CONNECTING;
     }
 }
 
 void WebRTCPeer::stop() {
-    if (pipeline_) {
-        gst_element_set_state(pipeline_, GST_STATE_NULL);
-        gst_object_unref(pipeline_);
-        pipeline_ = nullptr;
+    if (peer_bin_) {
+        // 断开连接时，先从管道中移除
+        if (main_pipeline_) {
+            gst_element_set_state(peer_bin_, GST_STATE_NULL);
+            gst_bin_remove(GST_BIN(main_pipeline_), peer_bin_);
+            gst_object_unref(peer_bin_);
+        } else {
+            gst_element_set_state(peer_bin_, GST_STATE_NULL);
+            gst_object_unref(peer_bin_);
+        }
+        
+        peer_bin_ = nullptr;
         webrtcbin_ = nullptr;
+        sink_pad_ = nullptr;
     }
     state_ = PeerState::DISCONNECTED;
 }

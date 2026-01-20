@@ -63,6 +63,13 @@ bool PipelineManager::init() {
     // 创建 GMainLoop
     main_loop_ = g_main_loop_new(nullptr, FALSE);
 
+    // 创建主管道
+    main_pipeline_ = gst_pipeline_new("media-server-pipeline");
+    if (!main_pipeline_) {
+        std::cerr << "Failed to create main pipeline" << std::endl;
+        return false;
+    }
+
 #ifdef ENABLE_ROS2
     if (config_.ros2.enabled) {
 #if defined(_WIN32)
@@ -77,6 +84,11 @@ bool PipelineManager::init() {
         ROS2ImageSourceFactory::instance().init_ros2();
     }
 #endif
+    
+    // 设置总线监视
+    GstBus* bus = gst_element_get_bus(main_pipeline_);
+    gst_bus_add_watch(bus, bus_callback, this);
+    gst_object_unref(bus);
     
     std::cout << "Pipeline manager initialized with " 
               << video_sources_.size() << " video sources" << std::endl;
@@ -98,6 +110,13 @@ bool PipelineManager::start_sources() {
                   << " (type: " << source.type << ")" << std::endl;
     }
     
+    // 启动主管道
+    GstStateChangeReturn ret = gst_element_set_state(main_pipeline_, GST_STATE_PLAYING);
+    if (ret == GST_STATE_CHANGE_FAILURE) {
+         std::cerr << "Failed to set pipeline to PLAYING" << std::endl;
+         return false;
+    }
+
     // 启动 GStreamer 线程
     gst_thread_ = std::thread([this]() {
         std::cout << "GStreamer main loop started" << std::endl;
@@ -129,53 +148,124 @@ void PipelineManager::stop_sources() {
     }
 #endif
     
-    // 停止视频源
-    for (auto& source : video_sources_) {
-        if (source.element) {
-            gst_element_set_state(source.element, GST_STATE_NULL);
-            gst_object_unref(source.element);
-            source.element = nullptr;
-        }
-    }
-    
+    // 停止管道
     if (main_pipeline_) {
         gst_element_set_state(main_pipeline_, GST_STATE_NULL);
         gst_object_unref(main_pipeline_);
         main_pipeline_ = nullptr;
+    }
+
+    // 清空源指针 (不需要 unref，因为它们被 main_pipeline 拥有并释放了)
+    for (auto& source : video_sources_) {
+        source.element = nullptr;
+        source.tee = nullptr;
     }
 }
 
 bool PipelineManager::create_source_pipeline(VideoSource& source) {
     GstElement* src = nullptr;
     
-    if (source.type == "v4l2") {
-        src = gst_element_factory_make("v4l2src", source.name.c_str());
-        if (src && !source.device.empty()) {
-            g_object_set(src, "device", source.device.c_str(), nullptr);
+    // 1. 创建源元素
+#ifdef ENABLE_ROS2
+    if (source.type == "ros2") {
+        std::lock_guard<std::mutex> lock(ros2_sources_mutex_);
+        
+        // 每个 Topic 只创建一个 ROS2 Source 对象
+        if (ros2_sources_.find(source.topic) == ros2_sources_.end()) {
+            ROS2ImageSourceConfig ros2_config;
+            ros2_config.topic_name = source.topic;
+            ros2_config.queue_size = 1;
+            
+            auto& factory = ROS2ImageSourceFactory::instance();
+            auto ros2_source = factory.create_source(ros2_config);
+            if (ros2_source) {
+                ros2_source->start();
+                ros2_sources_[source.topic] = ros2_source;
+            }
         }
-    } else if (source.type == "nvarguscamerasrc" || source.type == "nvargus") {
-        // Jetson CSI 摄像头
-        src = gst_element_factory_make("nvarguscamerasrc", source.name.c_str());
-    } else if (source.type == "videotestsrc" || source.type == "test") {
-        // 测试源
-        src = gst_element_factory_make("videotestsrc", source.name.c_str());
-        if (src) {
-            g_object_set(src, "is-live", TRUE, nullptr);
+        
+        if (ros2_sources_.count(source.topic)) {
+            src = ros2_sources_[source.topic]->get_appsrc();
+        }
+    }
+#endif
+
+    if (!src) {
+        if (source.type == "v4l2") {
+            src = gst_element_factory_make("v4l2src", source.name.c_str());
+            if (src && !source.device.empty()) {
+                g_object_set(src, "device", source.device.c_str(), nullptr);
+            }
+        } else if (source.type == "nvarguscamerasrc" || source.type == "nvargus") {
+            src = gst_element_factory_make("nvarguscamerasrc", source.name.c_str());
+        } else {
+            // 默认测试源
+            src = gst_element_factory_make("videotestsrc", source.name.c_str());
+            if (src) {
+                g_object_set(src, "is-live", TRUE, nullptr);
+            }
         }
     }
     
     if (!src) {
-        std::cerr << "Failed to create source element for type: " << source.type << std::endl;
+        std::cerr << "Failed to create source element for: " << source.name << std::endl;
         return false;
     }
-    
-    // 创建 tee 用于多路输出
-    GstElement* tee = gst_element_factory_make("tee", 
-        (source.name + "_tee").c_str());
-    
+
+    // 2. 创建 Tee
+    GstElement* tee = gst_element_factory_make("tee", (source.name + "_tee").c_str());
     if (!tee) {
-        gst_object_unref(src);
+        if (g_object_is_floating(src)) gst_object_unref(src);
         return false;
+    }
+    g_object_set(tee, "allow-not-linked", TRUE, nullptr);
+
+    // 3. 将元素添加到主管道 (重要：所有权转移)
+    gst_bin_add(GST_BIN(main_pipeline_), src);
+    gst_bin_add(GST_BIN(main_pipeline_), tee);
+
+    // 4. 连接 Source -> [Convert] -> Tee
+    GstElement* sw_convert = nullptr;
+    GstElement* hw_convert = nullptr;
+    GstElement* caps_filter = nullptr;
+
+    if (config_.jetson.use_nvenc) {
+        // 先用软件 videoconvert 处理 BGR/RGB 输入，避免 nvvidconv 协商失败
+        sw_convert = gst_element_factory_make("videoconvert", nullptr);
+        hw_convert = gst_element_factory_make("nvvidconv", nullptr);
+    } else {
+        sw_convert = gst_element_factory_make("videoconvert", nullptr);
+    }
+
+    if (config_.jetson.use_nvenc && sw_convert && hw_convert) {
+        gst_bin_add_many(GST_BIN(main_pipeline_), sw_convert, hw_convert, nullptr);
+
+        // 强制 nvvidconv 输出 NV12 到 Tee
+        caps_filter = gst_element_factory_make("capsfilter", nullptr);
+        if (caps_filter) {
+            GstCaps* caps = gst_caps_from_string("video/x-raw(memory:NVMM), format=(string)NV12");
+            g_object_set(caps_filter, "caps", caps, nullptr);
+            gst_caps_unref(caps);
+            gst_bin_add(GST_BIN(main_pipeline_), caps_filter);
+
+            if (!gst_element_link_many(src, sw_convert, hw_convert, caps_filter, tee, nullptr)) {
+                std::cerr << "Failed to link source chain with nvvidconv" << std::endl;
+                return false;
+            }
+        } else {
+            if (!gst_element_link_many(src, sw_convert, hw_convert, tee, nullptr)) {
+                std::cerr << "Failed to link source chain with nvvidconv" << std::endl;
+                return false;
+            }
+        }
+    } else if (sw_convert) {
+        gst_bin_add(GST_BIN(main_pipeline_), sw_convert);
+        if (!gst_element_link_many(src, sw_convert, tee, nullptr)) {
+            std::cerr << "Failed to link source chain" << std::endl;
+            return false;
+        }
+    } else {
+        gst_element_link(src, tee);
     }
     
     source.element = src;
@@ -184,121 +274,11 @@ bool PipelineManager::create_source_pipeline(VideoSource& source) {
     return true;
 }
 
-GstElement* PipelineManager::create_video_source_element(const VideoSource* source) {
-    GstElement* video_src = nullptr;
-    
-    if (!source) {
-        // 无视频源配置，使用测试源
-        video_src = gst_element_factory_make("videotestsrc", nullptr);
-        if (video_src) {
-            g_object_set(video_src, "is-live", TRUE, "pattern", 0, nullptr);
-        }
-        return video_src;
-    }
-    
-#ifdef ENABLE_ROS2
-    if (source->type == "ros2") {
-        // ROS2 图像源 - 返回 appsrc 元素
-        // 查找或创建 ROS2ImageSource
-        std::lock_guard<std::mutex> lock(ros2_sources_mutex_);
-        
-        auto it = ros2_sources_.find(source->topic);
-        if (it != ros2_sources_.end()) {
-            // 已有该话题的源，直接返回 appsrc
-            return it->second->get_appsrc();
-        }
-        
-        // 创建新的 ROS2ImageSource
-        ROS2ImageSourceConfig ros2_config;
-        ros2_config.topic_name = source->topic;
-        ros2_config.queue_size = 1;
-        
-        auto& factory = ROS2ImageSourceFactory::instance();
-        auto ros2_source = factory.create_source(ros2_config);
-        
-        if (ros2_source) {
-            ros2_source->start();
-            ros2_sources_[source->topic] = ros2_source;
-            
-            std::cout << "Created ROS2 image source for topic: " << source->topic << std::endl;
-            return ros2_source->get_appsrc();
-        } else {
-            std::cerr << "Failed to create ROS2 image source for topic: " << source->topic << std::endl;
-            // 回退到测试源
-            video_src = gst_element_factory_make("videotestsrc", nullptr);
-            if (video_src) {
-                g_object_set(video_src, "is-live", TRUE, "pattern", 0, nullptr);
-            }
-            return video_src;
-        }
-    }
-#endif
-    
-    if (source->type == "v4l2") {
-        video_src = gst_element_factory_make("v4l2src", nullptr);
-        if (video_src && !source->device.empty()) {
-            g_object_set(video_src, "device", source->device.c_str(), nullptr);
-        }
-    } else if (source->type == "nvarguscamerasrc" || source->type == "nvargus") {
-        video_src = gst_element_factory_make("nvarguscamerasrc", nullptr);
-    } else if (source->type == "videotestsrc" || source->type == "test") {
-        video_src = gst_element_factory_make("videotestsrc", nullptr);
-        if (video_src) {
-            g_object_set(video_src, "is-live", TRUE, "pattern", 0, nullptr);
-        }
-    }
-    
-    return video_src;
-}
-
-GstElement* PipelineManager::create_encoder() {
-    GstElement* encoder = nullptr;
-    
-    if (config_.jetson.use_nvenc) {
-        // Jetson 硬件编码
-        if (config_.encoding.codec == "h264") {
-            encoder = gst_element_factory_make("nvv4l2h264enc", nullptr);
-        } else if (config_.encoding.codec == "h265") {
-            encoder = gst_element_factory_make("nvv4l2h265enc", nullptr);
-        }
-        
-        if (encoder) {
-            g_object_set(encoder,
-                         "bitrate", config_.encoding.bitrate * 1000,
-                         nullptr);
-        }
-    }
-    
-    if (!encoder) {
-        // 软件编码后备
-        if (config_.encoding.codec == "h264") {
-            encoder = gst_element_factory_make("x264enc", nullptr);
-            if (encoder) {
-                g_object_set(encoder,
-                             "bitrate", config_.encoding.bitrate,
-                             "tune", 0x04,  // zerolatency
-                             "speed-preset", 1,  // ultrafast
-                             "key-int-max", config_.encoding.keyframe_interval,
-                             nullptr);
-            }
-        } else if (config_.encoding.codec == "vp8") {
-            encoder = gst_element_factory_make("vp8enc", nullptr);
-            if (encoder) {
-                g_object_set(encoder,
-                             "target-bitrate", config_.encoding.bitrate * 1000,
-                             nullptr);
-            }
-        }
-    }
-    
-    return encoder;
-}
-
 std::shared_ptr<WebRTCPeer> PipelineManager::create_peer(
     const std::string& peer_id,
     const std::string& video_source) {
     
-    // 查找视频源
+    // 1. 查找源
     VideoSource* source = nullptr;
     for (auto& vs : video_sources_) {
         if (vs.name == video_source && vs.enabled) {
@@ -308,7 +288,6 @@ std::shared_ptr<WebRTCPeer> PipelineManager::create_peer(
     }
     
     if (!source && !video_sources_.empty()) {
-        // 使用第一个可用源
         for (auto& vs : video_sources_) {
             if (vs.enabled) {
                 source = &vs;
@@ -317,38 +296,55 @@ std::shared_ptr<WebRTCPeer> PipelineManager::create_peer(
         }
     }
     
-    // 创建 peer
+    if (!source || !source->tee) {
+        std::cerr << "Source not found or invalid: " << video_source << std::endl;
+        report_error(peer_id, "Video source not available");
+        return nullptr;
+    }
+    
+    // 2. 创建 Peer
     auto peer = std::make_shared<WebRTCPeer>(peer_id, config_);
-    if (!peer->init()) {
+    if (!peer->init(main_pipeline_)) {
         std::cerr << "Failed to init WebRTC peer" << std::endl;
         report_error(peer_id, "Failed to initialize WebRTC peer");
         return nullptr;
     }
     
-    // 创建视频源元素
-    GstElement* video_src = create_video_source_element(source);
+    GstElement* peer_bin = peer->get_element();
     
-    if (!video_src) {
-        std::cerr << "Failed to create video source element" << std::endl;
-        report_error(peer_id, "Failed to create video source");
+    // 3. 添加 Peer Bin 到主管道
+    if (!gst_bin_add(GST_BIN(main_pipeline_), peer_bin)) {
+        std::cerr << "Failed to add peer bin" << std::endl;
         return nullptr;
     }
-    
-    std::string source_name = source ? source->name : "test_pattern";
-    
-    // 添加视频源到 peer
-    if (!peer->add_video_source(source_name, video_src)) {
-        std::cerr << "Failed to add video source to peer" << std::endl;
-        gst_object_unref(video_src);
-        report_error(peer_id, "Failed to add video source to peer");
-        return nullptr;
+    gst_element_sync_state_with_parent(peer_bin);
+
+    // 4. 连接 Source Tee -> Peer Bin
+    GstPad* tee_pad = gst_element_request_pad_simple(source->tee, "src_%u");
+    GstPad* sink_pad = peer->get_sink_pad();
+
+    if (tee_pad && sink_pad) {
+        if (gst_pad_link(tee_pad, sink_pad) != GST_PAD_LINK_OK) {
+            std::cerr << "Failed to link tee to peer bin" << std::endl;
+            gst_element_release_request_pad(source->tee, tee_pad);
+            gst_object_unref(tee_pad);
+        } else {
+            std::lock_guard<std::mutex> lock(peers_mutex_);
+            peer_tee_pads_[peer_id] = tee_pad;
+        }
+    } else {
+        std::cerr << "Failed to get pads for linking" << std::endl;
+        if (tee_pad) {
+            gst_element_release_request_pad(source->tee, tee_pad);
+            gst_object_unref(tee_pad);
+        }
     }
     
     // 存储 peer
     {
         std::lock_guard<std::mutex> lock(peers_mutex_);
         peers_[peer_id] = peer;
-        peer_sources_[peer_id] = source_name;
+        peer_sources_[peer_id] = source->name;
     }
     
     // 更新统计
@@ -362,7 +358,7 @@ std::shared_ptr<WebRTCPeer> PipelineManager::create_peer(
     peer->start();
     
     std::cout << "Created WebRTC peer: " << peer_id 
-              << " with source: " << source_name << std::endl;
+              << " with source: " << source->name << std::endl;
     
     return peer;
 }
@@ -373,6 +369,20 @@ void PipelineManager::remove_peer(const std::string& peer_id) {
     auto it = peers_.find(peer_id);
     if (it != peers_.end()) {
         it->second->stop();
+
+        // 释放 Tee Request Pad
+        auto pad_it = peer_tee_pads_.find(peer_id);
+        if (pad_it != peer_tee_pads_.end()) {
+            GstPad* pad = pad_it->second;
+            GstElement* tee = gst_pad_get_parent_element(pad);
+            if (tee) {
+                gst_element_release_request_pad(tee, pad);
+                gst_object_unref(tee);
+            }
+            gst_object_unref(pad);
+            peer_tee_pads_.erase(pad_it);
+        }
+
         peers_.erase(it);
         peer_sources_.erase(peer_id);
         

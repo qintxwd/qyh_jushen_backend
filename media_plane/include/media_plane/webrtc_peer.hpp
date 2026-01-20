@@ -56,17 +56,21 @@ public:
     ~WebRTCPeer();
     
     /**
-     * @brief 初始化 WebRTC 管道
+     * @brief 初始化 WebRTC Bin
+     * @param pipeline 主管道指针
      * @return 是否成功
      */
-    bool init();
+    bool init(GstElement* pipeline);
     
     /**
-     * @brief 添加视频源
-     * @param source_name 源名称
-     * @param src_element GStreamer 源元素
+     * @brief 获取 Peer 的 Bin 元素
      */
-    bool add_video_source(const std::string& source_name, GstElement* src_element);
+    GstElement* get_element() const { return peer_bin_; }
+
+    /**
+     * @brief 获取 Peer 的 Sink Pad（用于连接源）
+     */
+    GstPad* get_sink_pad() const { return sink_pad_; }
     
     /**
      * @brief 创建 Offer
@@ -119,9 +123,9 @@ public:
     
 private:
     /**
-     * @brief 创建 webrtcbin 管道
+     * @brief 创建 webrtc bin 及其内部元素
      */
-    bool create_pipeline();
+    bool create_peer_bin();
     
     /**
      * @brief 配置 STUN/TURN 服务器
@@ -147,8 +151,10 @@ private:
     std::string peer_id_;
     const Config& config_;
     
-    GstElement* pipeline_ = nullptr;
+    GstElement* main_pipeline_ = nullptr; // 主管道引用 (不拥有)
+    GstElement* peer_bin_ = nullptr;      // 本 Peer 的 Bin
     GstElement* webrtcbin_ = nullptr;
+    GstPad* sink_pad_ = nullptr;          // Bin 的输入 Pad
     
     PeerState state_ = PeerState::IDLE;
     

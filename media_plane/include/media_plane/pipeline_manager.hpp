@@ -185,6 +185,7 @@ private:
     
     std::unordered_map<std::string, std::shared_ptr<WebRTCPeer>> peers_;
     std::unordered_map<std::string, std::string> peer_sources_;  // peer_id -> source_name
+    std::unordered_map<std::string, GstPad*> peer_tee_pads_;     // peer_id -> source_tee_src_pad
     mutable std::mutex peers_mutex_;
     
 #ifdef ENABLE_ROS2

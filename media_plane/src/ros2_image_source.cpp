@@ -61,6 +61,10 @@ bool ROS2ImageSource::init(rclcpp::Node::SharedPtr node) {
         return false;
     }
     
+    // 立即获取所有权，防止被 Pipeline 以 floating ref 方式拿走后，析构函数再次 unref 导致崩溃
+    // 这样我们拥有一个强引用，Pipeline 添加时会增加第二个引用
+    gst_object_ref_sink(appsrc_);
+    
     // 配置 appsrc
     g_object_set(G_OBJECT(appsrc_),
                  "stream-type", GST_APP_STREAM_TYPE_STREAM,
