@@ -57,3 +57,5 @@ dmypy.json
 
 # 任务文件和配置（如果这些需要保留，可以删除这行）
 # persistent/
+
+old_backup/
