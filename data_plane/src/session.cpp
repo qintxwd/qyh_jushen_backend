@@ -71,22 +71,27 @@ void Session::close() {
 }
 
 void Session::send(std::shared_ptr<const std::vector<uint8_t>> data) {
+    std::cout << "[Session] send() 调用, 数据大小: " << (data ? data->size() : 0) << " 字节" << std::endl;
     if (!data) return;
 
+    bool should_start_write = false;
+    
     // 加入发送队列
     {
         std::lock_guard<std::mutex> lock(write_mutex_);
         write_queue_.push(data);
+        if (!writing_) {
+            writing_ = true;
+            should_start_write = true;
+        }
     }
     
-    // 如果没有正在写入，启动写入
-    net::post(ws_.get_executor(), [self = shared_from_this()]() {
-        std::lock_guard<std::mutex> lock(self->write_mutex_);
-        if (!self->writing_ && !self->write_queue_.empty()) {
-            self->writing_ = true;
+    // 如果没有正在写入，启动写入（在锁外调用）
+    if (should_start_write) {
+        net::post(ws_.get_executor(), [self = shared_from_this()]() {
             self->do_write();
-        }
-    });
+        });
+    }
 }
 
 void Session::send(const std::vector<uint8_t>& data) {
@@ -186,44 +191,56 @@ void Session::on_read(beast::error_code ec, std::size_t bytes_transferred) {
 }
 
 void Session::do_write() {
-    std::lock_guard<std::mutex> lock(write_mutex_);
-    if (write_queue_.empty()) {
-        writing_ = false;
-        return;
+    std::cout << "[Session] do_write() 开始" << std::endl;
+    
+    std::shared_ptr<const std::vector<uint8_t>> data;
+    {
+        std::lock_guard<std::mutex> lock(write_mutex_);
+        if (write_queue_.empty()) {
+            writing_ = false;
+            std::cout << "[Session] do_write() 队列为空，退出" << std::endl;
+            return;
+        }
+        data = write_queue_.front();
     }
     
-    // 注意：write_queue_ 存储的是 shared_ptr<const vector>
-    // *data 解引用得到 const vector&
-    auto& data = write_queue_.front();
+    std::cout << "[Session] do_write() 准备发送 " << data->size() << " 字节" << std::endl;
     
     ws_.async_write(
         net::buffer(*data),
         beast::bind_front_handler(&Session::on_write, shared_from_this())
     );
+    
+    std::cout << "[Session] do_write() async_write已调用" << std::endl;
 }
 
-void Session::on_write(beast::error_code ec, std::size_t /*bytes_transferred*/) {
+void Session::on_write(beast::error_code ec, std::size_t bytes_transferred) {
+    std::cout << "[Session] on_write() 完成, bytes=" << bytes_transferred << ", ec=" << ec.message() << std::endl;
     if (ec) {
         std::cerr << "Write error: " << ec.message() << std::endl;
+        std::lock_guard<std::mutex> lock(write_mutex_);
+        writing_ = false;
         return;
     }
+    
+    bool has_more = false;
     
     // 移除已发送的消息
     {
         std::lock_guard<std::mutex> lock(write_mutex_);
-        write_queue_.pop();
         if (!write_queue_.empty()) {
-             // 必须在锁外调用或重新调度，避免死锁或在此处递归调用（虽然是 async 但最好 post）
-             // 当前结构 do_write 内部也加锁，需要小心
+            write_queue_.pop();
+        }
+        has_more = !write_queue_.empty();
+        if (!has_more) {
+            writing_ = false;
         }
     }
     
-    // 重新调度 do_write 以释放栈并检查队列
-    // (由于 do_write 有锁，这里其实可以直接调用，因为已经释放了锁)
-    // 但为了安全，使用 post 或者是直接调用 do_write (如果 do_write 处理了重入)
-    // 上面的 do_write 实现会加锁，所以这里释放锁后调用是安全的
-    
-    do_write();
+    // 如果还有消息，继续发送
+    if (has_more) {
+        do_write();
+    }
 }
 
 std::string Session::generate_session_id() {

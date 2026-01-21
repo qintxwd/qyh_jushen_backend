@@ -541,6 +541,7 @@ void MessageHandler::send_auth_response(std::shared_ptr<Session> session,
     
     std::vector<uint8_t> data(response.ByteSizeLong());
     response.SerializeToArray(data.data(), static_cast<int>(data.size()));
+    std::cout << "[MessageHandler] 发送认证响应, 大小: " << data.size() << " 字节, success=" << success << std::endl;
     session->send(data);
 }
 
