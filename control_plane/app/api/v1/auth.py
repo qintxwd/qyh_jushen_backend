@@ -37,6 +37,10 @@ async def login(
     
     验证用户名和密码，成功后返回 JWT Token
     """
+    print(f"[AUTH] ========== 登录请求 ==========")
+    print(f"[AUTH] 用户名: {request.username}")
+    print(f"[AUTH] 来源IP: {http_request.client.host if http_request.client else 'unknown'}")
+    
     # 查询用户
     user = db.query(User).filter(User.username == request.username).first()
     
@@ -53,6 +57,7 @@ async def login(
         )
     
     # 生成 Token
+    print(f"[AUTH] 用户验证通过，开始生成Token...")
     access_token = create_access_token(
         data={
             "sub": str(user.id),
@@ -60,6 +65,7 @@ async def login(
             "role": user.role,
         }
     )
+    print(f"[AUTH] ✅ Token生成完成")
     
     # 更新最后登录时间
     user.last_login = datetime.utcnow()

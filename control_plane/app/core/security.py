@@ -52,11 +52,20 @@ def create_access_token(
         "iat": datetime.utcnow(),
     })
     
+    print(f"[AUTH] 🔐 创建Token:")
+    print(f"[AUTH]   密钥前20字符: {settings.SECRET_KEY[:20]}...")
+    print(f"[AUTH]   算法: {settings.ALGORITHM}")
+    print(f"[AUTH]   载荷: sub={to_encode.get('sub')}, username={to_encode.get('username')}, role={to_encode.get('role')}")
+    print(f"[AUTH]   过期时间: {expire}")
+    
     encoded_jwt = jwt.encode(
         to_encode,
         settings.SECRET_KEY,
         algorithm=settings.ALGORITHM,
     )
+    
+    print(f"[AUTH]   Token长度: {len(encoded_jwt)}")
+    print(f"[AUTH]   Token前50字符: {encoded_jwt[:50]}...")
     
     return encoded_jwt
 
@@ -74,12 +83,23 @@ def decode_access_token(token: str) -> Dict[str, Any]:
     Raises:
         JWTError: Token 无效或已过期
     """
-    payload = jwt.decode(
-        token,
-        settings.SECRET_KEY,
-        algorithms=[settings.ALGORITHM],
-    )
-    return payload
+    print(f"[AUTH] 🔓 解码Token:")
+    print(f"[AUTH]   Token长度: {len(token)}")
+    print(f"[AUTH]   Token前50字符: {token[:50]}...")
+    print(f"[AUTH]   使用密钥前20字符: {settings.SECRET_KEY[:20]}...")
+    print(f"[AUTH]   算法: {settings.ALGORITHM}")
+    
+    try:
+        payload = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM],
+        )
+        print(f"[AUTH]   ✅ 解码成功! sub={payload.get('sub')}, username={payload.get('username')}")
+        return payload
+    except JWTError as e:
+        print(f"[AUTH]   ❌ 解码失败: {type(e).__name__}: {e}")
+        raise
 
 
 def should_refresh_token(token: str) -> bool:

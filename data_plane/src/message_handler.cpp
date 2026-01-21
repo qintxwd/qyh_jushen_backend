@@ -40,6 +40,15 @@ MessageHandler::MessageHandler(const Config& config,
 
 void MessageHandler::handle_message(std::shared_ptr<Session> session,
                                      const std::vector<uint8_t>& data) {
+    std::cout << "[MessageHandler] ===== 收到消息 =====" << std::endl;
+    std::cout << "[MessageHandler] 数据大小: " << data.size() << " 字节" << std::endl;
+    if (data.size() > 0) {
+        std::cout << "[MessageHandler] 前10字节: ";
+        for (size_t i = 0; i < std::min(data.size(), (size_t)10); i++) {
+            std::cout << std::hex << (int)data[i] << " ";
+        }
+        std::cout << std::dec << std::endl;
+    }
     // 解析 WebSocketMessage
     qyh::dataplane::WebSocketMessage msg;
     if (!msg.ParseFromArray(data.data(), static_cast<int>(data.size()))) {
@@ -48,6 +57,8 @@ void MessageHandler::handle_message(std::shared_ptr<Session> session,
         send_error(session, 400, "Invalid message format");
         return;
     }
+    std::cout << "[MessageHandler] ✓ Protobuf解析成功, type=" << msg.type() << std::endl;
+    std::cout << "[MessageHandler] ✓ Protobuf解析成功, type=" << msg.type() << std::endl;
     
     // 检查鉴权状态
     if (session->state() == SessionState::CONNECTING) {
@@ -140,8 +151,11 @@ void MessageHandler::handle_message(std::shared_ptr<Session> session,
 
 void MessageHandler::handle_auth_request(std::shared_ptr<Session> session,
                                           const WebSocketMessage& msg) {
+    std::cout << "[MessageHandler] ===== handle_auth_request 开始 =====" << std::endl;
+    
     // 从消息中提取认证请求
     if (!msg.has_auth_request()) {
+        std::cout << "[MessageHandler] ERROR: msg.has_auth_request() 返回 false!" << std::endl;
         send_error(session, 400, "Missing auth_request payload");
         return;
     }
@@ -165,7 +179,9 @@ void MessageHandler::handle_auth_request(std::shared_ptr<Session> session,
     }
     
     // 验证 Token
+    std::cout << "[MessageHandler] 开始验证Token, 长度: " << token.length() << std::endl;
     auto user_info = validator_.validate(token);
+    std::cout << "[MessageHandler] Token验证完成, 结果: " << (user_info ? "有效" : "无效") << std::endl;
     if (!user_info) {
         send_auth_response(session, false, "Invalid token");
         return;
@@ -208,7 +224,9 @@ void MessageHandler::handle_auth_request(std::shared_ptr<Session> session,
               << " (" << auth_req.client_type() << " v" << auth_req.client_version() << ")"
               << std::endl;
     
+    std::cout << "[MessageHandler] 准备发送认证成功响应..." << std::endl;
     send_auth_response(session, true);
+    std::cout << "[MessageHandler] ===== handle_auth_request 结束 (成功) =====" << std::endl;
 }
 
 void MessageHandler::handle_subscribe(std::shared_ptr<Session> session,

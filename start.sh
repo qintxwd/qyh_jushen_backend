@@ -114,6 +114,64 @@ else
     PYTHON_CMD="$VENV_PYTHON"
 fi
 
+
+# 检测并清理旧进程
+echo "🔍 检测旧进程..."
+
+# 检查 Control Plane (端口 8000)
+OLD_CONTROL_PID=$(lsof -t -i:8000 2>/dev/null)
+if [ ! -z "$OLD_CONTROL_PID" ]; then
+    echo "   发现旧的 Control Plane 进程 (PID: $OLD_CONTROL_PID)，正在停止..."
+    kill -TERM $OLD_CONTROL_PID 2>/dev/null || true
+    sleep 1
+    # 如果还存活，强制杀死
+    if kill -0 $OLD_CONTROL_PID 2>/dev/null; then
+        kill -9 $OLD_CONTROL_PID 2>/dev/null || true
+    fi
+    echo "   ✅ 已停止旧的 Control Plane"
+fi
+
+# 检查 Data Plane
+OLD_DATA_PIDS=$(pgrep -f "data_plane_server" 2>/dev/null)
+if [ ! -z "$OLD_DATA_PIDS" ]; then
+    echo "   发现旧的 Data Plane 进程 (PID: $OLD_DATA_PIDS)，正在停止..."
+    echo $OLD_DATA_PIDS | xargs kill -TERM 2>/dev/null || true
+    sleep 1
+    # 如果还存活，强制杀死
+    for pid in $OLD_DATA_PIDS; do
+        if kill -0 $pid 2>/dev/null; then
+            kill -9 $pid 2>/dev/null || true
+        fi
+    done
+    echo "   ✅ 已停止旧的 Data Plane"
+fi
+
+# 检查 Media Plane
+OLD_MEDIA_PIDS=$(pgrep -f "media_plane_server" 2>/dev/null)
+if [ ! -z "$OLD_MEDIA_PIDS" ]; then
+    echo "   发现旧的 Media Plane 进程 (PID: $OLD_MEDIA_PIDS)，正在停止..."
+    echo $OLD_MEDIA_PIDS | xargs kill -TERM 2>/dev/null || true
+    sleep 1
+    # 如果还存活，强制杀死
+    for pid in $OLD_MEDIA_PIDS; do
+        if kill -0 $pid 2>/dev/null; then
+            kill -9 $pid 2>/dev/null || true
+        fi
+    done
+    echo "   ✅ 已停止旧的 Media Plane"
+fi
+
+# 等待端口释放
+if [ ! -z "$OLD_CONTROL_PID" ]; then
+    echo "   等待端口 8000 释放..."
+    for i in {1..5}; do
+        if ! lsof -i:8000 >/dev/null 2>&1; then
+            break
+        fi
+        sleep 1
+    done
+fi
+
 echo "🚀 启动后端服务器组件..."
 
 # 1. Start Control Plane

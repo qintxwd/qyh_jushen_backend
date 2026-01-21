@@ -15,6 +15,7 @@
 #include <vector>
 #include <regex>
 #include <chrono>
+#include <iostream>
 
 namespace qyh::dataplane {
 
@@ -22,14 +23,28 @@ JWTValidator::JWTValidator(const std::string& secret, const std::string& algorit
     : secret_(secret)
     , algorithm_(algorithm)
 {
+    std::cout << "[JWT] ========== JWTValidator 初始化 ==========" << std::endl;
+    std::cout << "[JWT] 密钥长度: " << secret_.size() << std::endl;
+    if (secret_.size() >= 20) {
+        std::cout << "[JWT] 密钥前20字符: " << secret_.substr(0, 20) << "..." << std::endl;
+    } else {
+        std::cout << "[JWT] 密钥: " << secret_ << " (警告: 密钥太短!)" << std::endl;
+    }
+    std::cout << "[JWT] 算法: " << algorithm_ << std::endl;
 }
 
 std::optional<SessionUserInfo> JWTValidator::validate(const std::string& token) {
-    // JWT 格式: header.payload.signature
+    std::cout << "[JWT] ========== 验证Token ==========" << std::endl;
+    std::cout << "[JWT] Token长度: " << token.size() << std::endl;
+    if (token.size() > 50) {
+        std::cout << "[JWT] Token前50字符: " << token.substr(0, 50) << "..." << std::endl;
+    }
+    
     auto first_dot = token.find('.');
     auto second_dot = token.find('.', first_dot + 1);
     
     if (first_dot == std::string::npos || second_dot == std::string::npos) {
+        std::cout << "[JWT] Token格式错误: 找不到分隔符" << std::endl;
         return std::nullopt;
     }
     
@@ -37,17 +52,27 @@ std::optional<SessionUserInfo> JWTValidator::validate(const std::string& token) 
     std::string payload_b64 = token.substr(first_dot + 1, second_dot - first_dot - 1);
     std::string signature_b64 = token.substr(second_dot + 1);
     
-    // 验证签名
+    std::cout << "[JWT] Signature(base64): " << signature_b64 << std::endl;
+    
     std::string header_payload = header_b64 + "." + payload_b64;
     if (!verify_signature(header_payload, signature_b64)) {
+        std::cout << "[JWT] 签名验证失败!" << std::endl;
         return std::nullopt;
     }
+    std::cout << "[JWT] 签名验证成功!" << std::endl;
     
-    // 解码 payload
     std::string payload_json = base64url_decode(payload_b64);
+    std::cout << "[JWT] Payload(JSON): " << payload_json << std::endl;
     
-    // 解析用户信息
-    return parse_payload(payload_json);
+    auto result = parse_payload(payload_json);
+    if (result) {
+        std::cout << "[JWT] 解析成功! user_id=" << result->user_id 
+                  << ", username=" << result->username 
+                  << ", role=" << result->role << std::endl;
+    } else {
+        std::cout << "[JWT] 解析用户信息失败!" << std::endl;
+    }
+    return result;
 }
 
 bool JWTValidator::is_expired(const std::string& token) {
@@ -61,7 +86,6 @@ bool JWTValidator::is_expired(const std::string& token) {
     std::string payload_b64 = token.substr(first_dot + 1, second_dot - first_dot - 1);
     std::string payload_json = base64url_decode(payload_b64);
     
-    // 使用 JSON 库解析 exp 字段
     try {
         auto json = nlohmann::json::parse(payload_json);
         if (json.contains("exp") && json["exp"].is_number()) {
@@ -69,28 +93,22 @@ bool JWTValidator::is_expired(const std::string& token) {
             auto now = std::chrono::system_clock::now();
             auto now_sec = std::chrono::duration_cast<std::chrono::seconds>(
                 now.time_since_epoch()).count();
-            
             return now_sec > exp;
         }
     } catch (const nlohmann::json::exception& e) {
         LOG_ERROR("Failed to parse JWT payload: " << e.what());
     }
-    
-    return true;  // 解析失败或没有 exp 字段，视为过期
+    return true;
 }
 
 std::string JWTValidator::base64url_decode(const std::string& input) {
-    // Base64URL 转 Base64
     std::string base64 = input;
     std::replace(base64.begin(), base64.end(), '-', '+');
     std::replace(base64.begin(), base64.end(), '_', '/');
-    
-    // 补齐 padding
     while (base64.size() % 4 != 0) {
         base64 += '=';
     }
     
-    // Base64 解码
     static const std::string chars = 
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     
@@ -110,17 +128,18 @@ std::string JWTValidator::base64url_decode(const std::string& input) {
             valb -= 8;
         }
     }
-    
     return result;
 }
 
 bool JWTValidator::verify_signature(const std::string& header_payload, 
                                      const std::string& signature) {
+    std::cout << "[JWT] 验证签名, 使用密钥前20字符: " << secret_.substr(0, std::min(size_t(20), secret_.size())) << "..." << std::endl;
+    
     if (algorithm_ != "HS256") {
-        return false;  // 暂只支持 HS256
+        std::cout << "[JWT] 不支持的算法: " << algorithm_ << std::endl;
+        return false;
     }
     
-    // 计算 HMAC-SHA256
     unsigned char digest[EVP_MAX_MD_SIZE];
     unsigned int digest_len = 0;
     
@@ -130,7 +149,6 @@ bool JWTValidator::verify_signature(const std::string& header_payload,
          header_payload.size(),
          digest, &digest_len);
     
-    // Base64URL 编码
     static const char* chars = 
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
     
@@ -147,11 +165,13 @@ bool JWTValidator::verify_signature(const std::string& header_payload,
     if (valb > -6) {
         computed.push_back(chars[((val << 8) >> (valb + 8)) & 0x3F]);
     }
-    
-    // 移除 padding（Base64URL 不需要）
     while (!computed.empty() && computed.back() == '=') {
         computed.pop_back();
     }
+    
+    std::cout << "[JWT] 计算签名: " << computed << std::endl;
+    std::cout << "[JWT] 收到签名: " << signature << std::endl;
+    std::cout << "[JWT] 匹配结果: " << (computed == signature ? "YES" : "NO") << std::endl;
     
     return computed == signature;
 }
@@ -159,43 +179,50 @@ bool JWTValidator::verify_signature(const std::string& header_payload,
 std::optional<SessionUserInfo> JWTValidator::parse_payload(const std::string& payload_json) {
     SessionUserInfo info;
     
-    // 简单正则提取（实际项目建议使用 JSON 库）
-    std::regex user_id_regex(R"("user_id"\s*:\s*(\d+))");
-    std::regex username_regex(R"xxx("username"\s*:\s*"([^"]+)")xxx");
-    std::regex role_regex(R"xxx("role"\s*:\s*"([^"]+)")xxx");
-    
-    std::smatch match;
-    
-    if (std::regex_search(payload_json, match, user_id_regex)) {
-        info.user_id = std::stoll(match[1].str());
-    }
-    
-    if (std::regex_search(payload_json, match, username_regex)) {
-        info.username = match[1].str();
-    }
-    
-    if (std::regex_search(payload_json, match, role_regex)) {
-        info.role = match[1].str();
-    }
-    
-    // 简单权限解析
-    std::regex perm_regex(R"("permissions"\s*:\s*\[([^\]]*)\])");
-    if (std::regex_search(payload_json, match, perm_regex)) {
-        std::string perms = match[1].str();
-        std::regex single_perm(R"xxx("([^"]+)")xxx");
-        auto perms_begin = std::sregex_iterator(perms.begin(), perms.end(), single_perm);
-        auto perms_end = std::sregex_iterator();
+    try {
+        auto json = nlohmann::json::parse(payload_json);
         
-        for (auto it = perms_begin; it != perms_end; ++it) {
-            info.permissions.push_back((*it)[1].str());
+        // 支持 "sub" 和 "user_id" 两种字段
+        if (json.contains("sub")) {
+            if (json["sub"].is_string()) {
+                info.user_id = std::stoll(json["sub"].get<std::string>());
+            } else if (json["sub"].is_number()) {
+                info.user_id = json["sub"].get<int64_t>();
+            }
+            std::cout << "[JWT] 从 'sub' 获取 user_id: " << info.user_id << std::endl;
+        } else if (json.contains("user_id")) {
+            if (json["user_id"].is_string()) {
+                info.user_id = std::stoll(json["user_id"].get<std::string>());
+            } else if (json["user_id"].is_number()) {
+                info.user_id = json["user_id"].get<int64_t>();
+            }
+            std::cout << "[JWT] 从 'user_id' 获取: " << info.user_id << std::endl;
+        } else {
+            std::cout << "[JWT] 找不到 'sub' 或 'user_id' 字段!" << std::endl;
         }
-    }
-    
-    // 至少要有 user_id
-    if (info.user_id == 0) {
+        
+        if (json.contains("username") && json["username"].is_string()) {
+            info.username = json["username"].get<std::string>();
+        }
+        if (json.contains("role") && json["role"].is_string()) {
+            info.role = json["role"].get<std::string>();
+        }
+        if (json.contains("permissions") && json["permissions"].is_array()) {
+            for (const auto& perm : json["permissions"]) {
+                if (perm.is_string()) {
+                    info.permissions.push_back(perm.get<std::string>());
+                }
+            }
+        }
+    } catch (const nlohmann::json::exception& e) {
+        std::cout << "[JWT] JSON解析错误: " << e.what() << std::endl;
         return std::nullopt;
     }
     
+    if (info.user_id == 0) {
+        std::cout << "[JWT] user_id=0, 验证失败!" << std::endl;
+        return std::nullopt;
+    }
     return info;
 }
 

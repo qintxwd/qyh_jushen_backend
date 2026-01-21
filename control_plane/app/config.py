@@ -55,7 +55,7 @@ class Settings(BaseSettings):
         return url
     
     # ==================== JWT 认证 ====================
-    SECRET_KEY: str = "your-super-secret-key-change-this-in-production"
+    SECRET_KEY: str = os.getenv("JWT_SECRET", "yb9hQ2-sQip-9sROU3ERwhFgoIos8pQ7_GZu8QIneto")
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     TOKEN_REFRESH_THRESHOLD_MINUTES: int = 10
