@@ -191,3 +191,71 @@ message TaskState {
     string current_action = 8;          // 当前执行的动作描述
     string error_message = 9;
 }
+
+// ==================== 基础状态（状态栏用） ====================
+
+// 模块连接状态
+message ModuleStatus {
+    bool connected = 1;                 // 是否连接
+    bool enabled = 2;                   // 是否使能
+    bool error = 3;                     // 是否有错误
+    int32 error_code = 4;               // 错误码
+}
+
+// 相机状态
+message CameraStatus {
+    bool head_connected = 1;
+    bool left_hand_connected = 2;
+    bool right_hand_connected = 3;
+}
+
+// 夹爪状态摘要
+message GripperStatusSummary {
+    bool left_connected = 1;
+    bool left_activated = 2;
+    int32 left_fault = 3;
+    bool right_connected = 4;
+    bool right_activated = 5;
+    int32 right_fault = 6;
+}
+
+// 电池状态
+message BatteryStatus {
+    double percentage = 1;              // 电量百分比 0-100
+    double voltage = 2;                 // 电压 V
+    bool charging = 3;                  // 是否充电中
+}
+
+// 基础状态消息（状态栏总览，低频推送 1-2Hz）
+message BasicState {
+    Header header = 1;
+    
+    // WebSocket/ROS 连接
+    bool ws_connected = 2;              // WebSocket 已连接
+    bool ros_connected = 3;             // ROS2 已连接
+    
+    // 各模块状态
+    ModuleStatus arm = 4;               // 机械臂
+    ModuleStatus chassis = 5;           // 底盘
+    ModuleStatus lift = 6;              // 升降
+    ModuleStatus waist = 7;             // 腰部
+    ModuleStatus head = 8;              // 头部
+    
+    // 特殊模块
+    CameraStatus camera = 9;            // 相机
+    GripperStatusSummary gripper = 10;  // 夹爪
+    
+    // VR 状态
+    bool vr_connected = 11;
+    bool vr_left_controller = 12;
+    bool vr_right_controller = 13;
+    
+    // 底盘特有状态
+    bool emergency_stop = 14;           // 急停状态
+    BatteryStatus battery = 15;         // 电池状态
+    
+    // 系统状态
+    RobotMode mode = 16;                // 当前工作模式
+    bool control_held = 17;             // 是否有人持有控制权
+    string control_holder = 18;         // 控制权持有者
+}

@@ -213,6 +213,14 @@ void ROS2Bridge::start() {
     });
     
     RCLCPP_INFO(node_->get_logger(), "ROS2 Bridge started");
+    
+    // 启动基础状态定时发送（1Hz）
+    basic_state_thread_ = std::thread([this]() {
+        while (running_) {
+            broadcast_basic_state();
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+    });
 }
 
 void ROS2Bridge::stop() {
@@ -224,6 +232,10 @@ void ROS2Bridge::stop() {
     
     if (spin_thread_.joinable()) {
         spin_thread_.join();
+    }
+    
+    if (basic_state_thread_.joinable()) {
+        basic_state_thread_.join();
     }
     
     if (node_) {
@@ -653,6 +665,14 @@ void ROS2Bridge::jaka_robot_state_callback(const qyh_jaka_control_msgs::msg::Rob
     state.SerializeToArray(data.data(), static_cast<int>(data.size()));
     state_cache_.update_arm_state(data);
     
+    // 更新基础状态缓存
+    {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        arm_connected_ = msg->connected;
+        arm_enabled_ = msg->enabled;
+        arm_error_ = msg->in_error;
+    }
+    
     // Broadcast if needed, or rely on aggregation
     broadcast_state("arm_state", qyh::dataplane::MSG_ARM_STATE, data);
 }
@@ -870,12 +890,143 @@ void ROS2Bridge::broadcast_state(const std::string& topic_name,
     ws_msg.mutable_timestamp()->set_seconds(seconds);
     ws_msg.mutable_timestamp()->set_nanos(static_cast<int32_t>(nanos));
     
-    // 零拷贝序列化
+    // 根据消息类型设置对应的状态字段
+    switch (message_type) {
+        case qyh::dataplane::MSG_CHASSIS_STATE: {
+            qyh::dataplane::ChassisState chassis;
+            if (chassis.ParseFromArray(payload.data(), static_cast<int>(payload.size()))) {
+                *ws_msg.mutable_chassis_state() = chassis;
+            }
+            break;
+        }
+        case qyh::dataplane::MSG_ARM_STATE: {
+            qyh::dataplane::ArmState arm;
+            if (arm.ParseFromArray(payload.data(), static_cast<int>(payload.size()))) {
+                *ws_msg.mutable_arm_state() = arm;
+            }
+            break;
+        }
+        case qyh::dataplane::MSG_JOINT_STATE: {
+            qyh::dataplane::JointState joint;
+            if (joint.ParseFromArray(payload.data(), static_cast<int>(payload.size()))) {
+                *ws_msg.mutable_joint_state() = joint;
+            }
+            break;
+        }
+        case qyh::dataplane::MSG_GRIPPER_STATE: {
+            qyh::dataplane::GripperState gripper;
+            if (gripper.ParseFromArray(payload.data(), static_cast<int>(payload.size()))) {
+                *ws_msg.mutable_gripper_state() = gripper;
+            }
+            break;
+        }
+        case qyh::dataplane::MSG_ACTUATOR_STATE: {
+            qyh::dataplane::ActuatorState actuator;
+            if (actuator.ParseFromArray(payload.data(), static_cast<int>(payload.size()))) {
+                *ws_msg.mutable_actuator_state() = actuator;
+            }
+            break;
+        }
+        default:
+            // 对于其他类型，暂不处理
+            break;
+    }
+    
+    // 序列化完整消息
     auto data = std::make_shared<std::vector<uint8_t>>(ws_msg.ByteSizeLong());
     ws_msg.SerializeToArray(data->data(), static_cast<int>(data->size()));
     
     // 广播给订阅了该话题的客户端
     server_->broadcast_to_subscribers(topic_name, data);
+}
+
+
+void ROS2Bridge::broadcast_basic_state() {
+    std::cout << "[ROS2Bridge] broadcast_basic_state 调用, server=" << (server_ ? "有效" : "空") << std::endl;
+    if (!server_) return;
+    
+    // 构建基础状态消息
+    qyh::dataplane::WebSocketMessage ws_msg;
+    ws_msg.set_type(qyh::dataplane::MSG_BASIC_STATE);
+    
+    auto* basic = ws_msg.mutable_basic_state();
+    
+    // 设置连接状态
+    basic->set_ws_connected(true);  // WebSocket 已连接（能收到消息说明已连接）
+    basic->set_ros_connected(rclcpp::ok());
+    
+    // 从缓存获取各模块状态
+    {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        
+        // 机械臂状态
+        auto* arm = basic->mutable_arm();
+        arm->set_connected(arm_connected_);
+        arm->set_enabled(arm_enabled_);
+        arm->set_error(arm_error_);
+        
+        // 底盘状态
+        auto* chassis = basic->mutable_chassis();
+        chassis->set_connected(true);  // 如果有 odom 数据则认为连接
+        chassis->set_enabled(true);
+        chassis->set_error(false);
+        
+        // 升降状态
+        auto* lift = basic->mutable_lift();
+        lift->set_connected(lift_connected_);
+        lift->set_enabled(lift_enabled_);
+        lift->set_error(lift_error_);
+        
+        // 腰部状态
+        auto* waist = basic->mutable_waist();
+        waist->set_connected(waist_connected_);
+        waist->set_enabled(waist_enabled_);
+        waist->set_error(waist_error_);
+        
+        // 头部状态
+        auto* head = basic->mutable_head();
+        head->set_connected(head_connected_);
+        head->set_enabled(head_enabled_);
+        head->set_error(head_error_);
+        
+        // 夹爪状态
+        auto* gripper = basic->mutable_gripper();
+        gripper->set_left_connected(left_gripper_connected_);
+        gripper->set_left_activated(left_gripper_activated_);
+        gripper->set_right_connected(right_gripper_connected_);
+        gripper->set_right_activated(right_gripper_activated_);
+        
+        // VR 状态
+        basic->set_vr_connected(vr_connected_);
+        basic->set_vr_left_controller(vr_left_controller_);
+        basic->set_vr_right_controller(vr_right_controller_);
+        
+        // 急停和电池
+        basic->set_emergency_stop(emergency_stop_active_);
+        auto* battery = basic->mutable_battery();
+        battery->set_percentage(battery_level_);
+        battery->set_voltage(battery_voltage_);
+        battery->set_charging(charging_);
+    }
+    
+    // 设置时间戳
+    auto now = std::chrono::system_clock::now();
+    auto duration = now.time_since_epoch();
+    auto seconds = std::chrono::duration_cast<std::chrono::seconds>(duration).count();
+    auto nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count() % 1000000000;
+    basic->mutable_header()->mutable_stamp()->set_seconds(seconds);
+    basic->mutable_header()->mutable_stamp()->set_nanos(static_cast<int32_t>(nanos));
+    
+    ws_msg.mutable_timestamp()->set_seconds(seconds);
+    ws_msg.mutable_timestamp()->set_nanos(static_cast<int32_t>(nanos));
+    
+    // 序列化并广播
+    auto data = std::make_shared<std::vector<uint8_t>>(ws_msg.ByteSizeLong());
+    ws_msg.SerializeToArray(data->data(), static_cast<int>(data->size()));
+    
+    std::cout << "[ROS2Bridge] 广播 basic_state, 大小=" << data->size() << " 字节" << std::endl;
+    std::cout << "[ROS2Bridge] 广播 basic_state, 大小=" << data->size() << " 字节" << std::endl;
+    server_->broadcast_to_subscribers("basic_state", data);
 }
 
 } // namespace qyh::dataplane

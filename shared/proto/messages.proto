@@ -49,6 +49,7 @@ enum MessageType {
     MSG_VR_SYSTEM_STATE = 517;
     MSG_TASK_STATE = 518;
     MSG_ACTUATOR_STATE = 519;
+    MSG_BASIC_STATE = 520;              // 基础状态（状态栏用）
     
     // 错误 (0x0300 - 0x03FF)
     MSG_ERROR = 768;
@@ -107,6 +108,7 @@ message WebSocketMessage {
         VRSystemState vr_system_state = 205;
         TaskState task_state = 206;
         ActuatorState actuator_state = 207;
+        BasicState basic_state = 208;
         
         // 错误
         Error error = 300;

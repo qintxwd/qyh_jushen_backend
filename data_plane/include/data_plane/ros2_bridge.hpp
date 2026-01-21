@@ -197,6 +197,7 @@ private:
     void broadcast_state(const std::string& topic_name, 
                          int message_type,
                          const std::vector<uint8_t>& data);
+    void broadcast_basic_state();
     
 private:
     const Config& config_;
@@ -238,10 +239,46 @@ private:
     std::atomic<bool> running_{false};
     std::thread spin_thread_;
     
+    std::thread basic_state_thread_;
     // 状态缓存（用于聚合推送）
     std::mutex state_mutex_;
+    
+    // 电池状态
     double battery_level_ = 0.0;
+    double battery_voltage_ = 0.0;
+    bool charging_ = false;
     bool emergency_stop_active_ = false;
+    
+    // 机械臂状态
+    bool arm_connected_ = false;
+    bool arm_enabled_ = false;
+    bool arm_error_ = false;
+    
+    // 升降状态
+    bool lift_connected_ = false;
+    bool lift_enabled_ = false;
+    bool lift_error_ = false;
+    
+    // 腰部状态
+    bool waist_connected_ = false;
+    bool waist_enabled_ = false;
+    bool waist_error_ = false;
+    
+    // 头部状态
+    bool head_connected_ = false;
+    bool head_enabled_ = false;
+    bool head_error_ = false;
+    
+    // 夹爪状态
+    bool left_gripper_connected_ = false;
+    bool left_gripper_activated_ = false;
+    bool right_gripper_connected_ = false;
+    bool right_gripper_activated_ = false;
+    
+    // VR 状态
+    bool vr_connected_ = false;
+    bool vr_left_controller_ = false;
+    bool vr_right_controller_ = false;
 };
 
 } // namespace qyh::dataplane

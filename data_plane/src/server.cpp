@@ -169,6 +169,13 @@ void Server::broadcast_to_subscribers(const std::string& topic,
         }
     }
     
+    static int broadcast_count = 0;
+    if (++broadcast_count % 100 == 1) {
+        std::cout << "[Server] broadcast topic=" << topic 
+                  << ", subscribers=" << subscribers.size() 
+                  << ", data_size=" << data->size() << std::endl;
+    }
+    
     // 解锁后发送
     for (auto& session : subscribers) {
         session->send(data);

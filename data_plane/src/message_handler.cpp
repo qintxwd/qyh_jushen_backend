@@ -70,6 +70,7 @@ void MessageHandler::handle_message(std::shared_ptr<Session> session,
     }
     
     // 根据消息类型分发处理
+    std::cout << "[MessageHandler] 收到消息类型: " << msg.type() << std::endl;
     switch (msg.type()) {
         case qyh::dataplane::MSG_AUTH_REQUEST:
             handle_auth_request(session, msg);
