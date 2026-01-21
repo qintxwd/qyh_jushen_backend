@@ -87,6 +87,72 @@ app.include_router(api_router, prefix="/api/v1")
 app.include_router(health_router)
 
 
+
+# ==================== 公开路由 (地图图片) ====================
+from fastapi.responses import FileResponse as PublicFileResponse
+from pathlib import Path as PublicPath
+import os as public_os
+
+@app.get("/api/v1/chassis/map_image/{map_name}")
+async def get_public_map_image(map_name: str):
+    """获取地图图片 - 公开访问，不需要认证"""
+    workspace_root = PublicPath(public_os.environ.get('QYH_WORKSPACE_ROOT', PublicPath.home() / 'qyh-robot-system'))
+    maps_dir = workspace_root / "maps"
+    
+    # 安全检查
+    if '..' in map_name or '/' in map_name or '\\' in map_name:
+        raise HTTPException(status_code=400, detail="Invalid map name")
+    
+    map_image_file = maps_dir / map_name / f"{map_name}.png"
+    if not map_image_file.exists():
+        map_image_file = maps_dir / map_name / f"{map_name}.jpg"
+        if not map_image_file.exists():
+            raise HTTPException(status_code=404, detail="Map image not found")
+    
+    return PublicFileResponse(
+        path=str(map_image_file),
+        media_type="image/png" if map_image_file.suffix == '.png' else "image/jpeg",
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET",
+            "Cache-Control": "public, max-age=3600"
+        }
+    )
+
+
+
+# ==================== 公开路由 (地图图片) ====================
+from fastapi.responses import FileResponse as PublicFileResponse
+from pathlib import Path as PublicPath
+import os as public_os
+
+@app.get("/api/v1/chassis/map_image/{map_name}")
+async def get_public_map_image(map_name: str):
+    """获取地图图片 - 公开访问，不需要认证"""
+    workspace_root = PublicPath(public_os.environ.get('QYH_WORKSPACE_ROOT', PublicPath.home() / 'qyh-robot-system'))
+    maps_dir = workspace_root / "maps"
+    
+    # 安全检查
+    if '..' in map_name or '/' in map_name or '\\' in map_name:
+        raise HTTPException(status_code=400, detail="Invalid map name")
+    
+    map_image_file = maps_dir / map_name / f"{map_name}.png"
+    if not map_image_file.exists():
+        map_image_file = maps_dir / map_name / f"{map_name}.jpg"
+        if not map_image_file.exists():
+            raise HTTPException(status_code=404, detail="Map image not found")
+    
+    return PublicFileResponse(
+        path=str(map_image_file),
+        media_type="image/png" if map_image_file.suffix == '.png' else "image/jpeg",
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET",
+            "Cache-Control": "public, max-age=3600"
+        }
+    )
+
+
 # ==================== 根路由 ====================
 
 @app.get("/", tags=["Root"])

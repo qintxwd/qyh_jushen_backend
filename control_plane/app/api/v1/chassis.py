@@ -694,12 +694,10 @@ async def get_map_data(
 
 
 @router.get("/map_image/{map_name}")
-async def get_map_image(
-    map_name: str,
-    current_user: User = Depends(get_current_user),
-):
-    """获取地图图片"""
+async def get_map_image(map_name: str):
+    """获取地图图片 (公开访问，用于前端 Image 元素加载)"""
     from fastapi.responses import FileResponse
+    from fastapi import Response
     import os
     
     workspace_root = Path(os.environ.get('QYH_WORKSPACE_ROOT', Path.home() / 'qyh-robot-system'))
@@ -716,9 +714,15 @@ async def get_map_image(
         if not map_image_file.exists():
             raise HTTPException(status_code=404, detail="地图图片不存在")
     
+    # 返回图片，添加 CORS 头
     return FileResponse(
         path=str(map_image_file),
-        media_type="image/png" if map_image_file.suffix == '.png' else "image/jpeg"
+        media_type="image/png" if map_image_file.suffix == '.png' else "image/jpeg",
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET",
+            "Cache-Control": "public, max-age=3600"
+        }
     )
 
 
