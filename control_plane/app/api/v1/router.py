@@ -7,12 +7,16 @@ QYH Jushen Control Plane - API v1 路由聚合
 - Media Plane (WebRTC):     视频流
 
 紧急停止: HTTP 接口作为 WebSocket 的备用通道，满足安全冗余要求
+
+机械臂接口职责:
+- FastAPI: 状态查询、电源/使能控制、伺服模式、负载配置、点位CRUD
+- WebSocket: Jog点动(MSG_ARM_JOG=269)、MoveJ/MoveL运动(MSG_ARM_MOVE=268)
 """
 from fastapi import APIRouter
 
 from app.api.v1 import (
     auth, system, control, mode, tasks, presets, recording,
-    actions, robot, audit, chassis, led, vr, emergency, camera
+    actions, robot, audit, chassis, led, vr, emergency, camera, arm
 )
 
 api_router = APIRouter()
@@ -63,3 +67,5 @@ api_router.include_router(vr.router, prefix="/vr", tags=["VR遥操作"])
 # 摄像头列表 (视频流走 WebRTC)
 api_router.include_router(camera.router, prefix="/camera", tags=["摄像头"])
 
+# 机械臂控制 (运动控制走 WebSocket: MSG_ARM_JOG/MSG_ARM_MOVE)
+api_router.include_router(arm.router, prefix="/arm", tags=["机械臂"])

@@ -158,6 +158,9 @@ class ROS2ServiceClient:
         self._latest_robot_status: Optional[Dict[str, Any]] = None
         self._latest_odom: Optional[Dict[str, Any]] = None
         self._latest_shutdown_state: Optional[Dict[str, Any]] = None
+        # 机械臂状态缓存
+        self._latest_jaka_robot_state: Optional[Dict[str, Any]] = None
+        self._latest_servo_status: Optional[Dict[str, Any]] = None
         self._state_lock = threading.Lock()
 
         # 缓存 joint_states 的索引映射，避免每次 get_robot_state 都解析
@@ -257,7 +260,9 @@ class ROS2ServiceClient:
                 ResumeTask,
             )
             from std_srvs.srv import Trigger as ShutdownTrigger
-            from qyh_jaka_control_msgs.srv import MoveJ
+            from qyh_jaka_control_msgs.srv import MoveJ, Jog, StartServo, StopServo
+            from std_srvs.srv import Trigger, Jog, StartServo, StopServo
+            from std_srvs.srv import Trigger
             from qyh_lift_msgs.srv import LiftControl
             from qyh_waist_msgs.srv import WaistControl
             from qyh_gripper_msgs.srv import MoveGripper
@@ -293,10 +298,10 @@ class ROS2ServiceClient:
                 CancelTask, '/task_engine/cancel'
             )
             self._service_clients['pause_task'] = self._node.create_client(
-                PauseTask, '/task_engine/pause_task'
+                PauseTask, '/task_engine/pause'
             )
             self._service_clients['resume_task'] = self._node.create_client(
-                ResumeTask, '/task_engine/resume_task'
+                ResumeTask, '/task_engine/resume'
             )
             
             # 关机服务
@@ -307,6 +312,41 @@ class ROS2ServiceClient:
             # 机械臂服务
             self._service_clients['arm_move_j'] = self._node.create_client(
                 MoveJ, '/jaka/move_j'
+            )
+            self._service_clients['arm_power_on'] = self._node.create_client(
+                Trigger, '/jaka/robot/power_on'
+            )
+            self._service_clients['arm_power_off'] = self._node.create_client(
+                Trigger, '/jaka/robot/power_off'
+            )
+            self._service_clients['arm_enable'] = self._node.create_client(
+                Trigger, '/jaka/robot/enable'
+            )
+            self._service_clients['arm_disable'] = self._node.create_client(
+                Trigger, '/jaka/robot/disable'
+            )
+            self._service_clients['arm_clear_error'] = self._node.create_client(
+                Trigger, '/jaka/robot/clear_error'
+            )
+            self._service_clients['arm_motion_abort'] = self._node.create_client(
+                Trigger, '/jaka/robot/motion_abort'
+            )
+            self._service_clients['arm_servo_start'] = self._node.create_client(
+                StartServo, '/jaka/servo/start'
+            )
+            self._service_clients['arm_servo_stop'] = self._node.create_client(
+                StopServo, '/jaka/servo/stop'
+            )
+            self._service_clients['arm_jog'] = self._node.create_client(
+                Jog, '/jaka/jog'
+            )
+            self._service_clients['arm_jog_stop'] = self._node.create_client(
+                Jog, '/jaka/jog_stop'
+            )
+            # 负载设置服务
+            from qyh_jaka_control_msgs.srv import SetPayload
+            self._service_clients['arm_set_payload'] = self._node.create_client(
+                SetPayload, '/jaka/set_payload'
             )
             
             # 升降服务
@@ -459,6 +499,33 @@ class ROS2ServiceClient:
             #     self._on_shutdown_state,
             #     10
             # )
+
+
+            # 机械臂状态订阅 (Jaka)
+            try:
+                from qyh_jaka_control_msgs.msg import RobotState as JakaRobotState
+                self._node.create_subscription(
+                    JakaRobotState,
+                    '/jaka/robot_state',
+                    self._on_jaka_robot_state,
+                    10
+                )
+                logger.info("Subscribed to /jaka/robot_state")
+            except ImportError as e:
+                logger.warning(f"qyh_jaka_control_msgs.msg.RobotState not available: {e}")
+            
+            # 伺服状态订阅
+            try:
+                from qyh_jaka_control_msgs.msg import JakaServoStatus
+                self._node.create_subscription(
+                    JakaServoStatus,
+                    '/jaka/servo_status',
+                    self._on_servo_status,
+                    10
+                )
+                logger.info("Subscribed to /jaka/servo_status")
+            except ImportError as e:
+                logger.warning(f"qyh_jaka_control_msgs.msg.JakaServoStatus not available: {e}")
 
             logger.info("ROS2 subscriptions created: /joint_states, ...")
 
@@ -656,8 +723,78 @@ class ROS2ServiceClient:
         with self._state_lock:
             self._latest_shutdown_state = data
 
-    # 注意: VR 回调函数已移除 (原 _on_vr_* 系列)
-    # VR 状态由 Data Plane 管理，参见 VR_ARCHITECTURE.md
+
+    def _on_jaka_robot_state(self, msg):
+        """机械臂状态回调（来自 /jaka/robot_state）"""
+        left_joints = list(msg.left_joint_positions) if len(msg.left_joint_positions) == 7 else [0.0] * 7
+        right_joints = list(msg.right_joint_positions) if len(msg.right_joint_positions) == 7 else [0.0] * 7
+        
+        data = {
+            "connected": msg.connected,
+            "robot_ip": msg.robot_ip,
+            "powered_on": msg.powered_on,
+            "enabled": msg.enabled,
+            "in_estop": msg.in_estop,
+            "in_error": msg.in_error,
+            "servo_mode_enabled": msg.servo_mode_enabled,
+            "error_message": msg.error_message,
+            "left_in_position": msg.left_in_position,
+            "right_in_position": msg.right_in_position,
+            "left_joint_positions": left_joints,
+            "right_joint_positions": right_joints
+        }
+        with self._state_lock:
+            self._latest_jaka_robot_state = data
+    
+    def _on_servo_status(self, msg):
+        """伺服状态回调（来自 /jaka/servo_status）"""
+        data = {
+            "mode": msg.mode,
+            "is_abs": msg.is_abs,
+            "cycle_time_ns": msg.cycle_time_ns,
+            "publish_rate_hz": msg.publish_rate_hz,
+        }
+        with self._state_lock:
+            self._latest_servo_status = data
+    
+    def get_jaka_robot_state(self) -> Optional[Dict[str, Any]]:
+        """获取机械臂状态（电源/使能/错误等）"""
+        with self._state_lock:
+            if self._latest_jaka_robot_state:
+                return self._latest_jaka_robot_state.copy()
+        return None
+    
+    def get_servo_status(self) -> Optional[Dict[str, Any]]:
+        """获取伺服模式状态"""
+        with self._state_lock:
+            if self._latest_servo_status:
+                return self._latest_servo_status.copy()
+        return None
+    
+    def get_joint_states(self) -> Optional[Dict[str, Any]]:
+        """获取关节状态（用于点位管理）"""
+        with self._state_lock:
+            if self._latest_jaka_robot_state:
+                state = self._latest_jaka_robot_state.copy()
+                return {
+                    "left_arm": {
+                        "joints": state.get("left_joint_positions", [0.0] * 7)
+                    },
+                    "right_arm": {
+                        "joints": state.get("right_joint_positions", [0.0] * 7)
+                    }
+                }
+        # 如果没有 jaka_robot_state，尝试从 joint_states 获取
+        if self._latest_joint_state or self._latest_left_arm_joint_state or self._latest_right_arm_joint_state:
+            result = {"left_arm": {"joints": []}, "right_arm": {"joints": []}}
+            if self._latest_left_arm_joint_state:
+                positions = self._latest_left_arm_joint_state.get("position", [])
+                result["left_arm"]["joints"] = list(positions) if positions else [0.0] * 7
+            if self._latest_right_arm_joint_state:
+                positions = self._latest_right_arm_joint_state.get("position", [])
+                result["right_arm"]["joints"] = list(positions) if positions else [0.0] * 7
+            return result
+        return None
 
     def get_shutdown_state(self) -> Dict[str, Any]:
         """获取关机状态"""
@@ -1803,6 +1940,233 @@ class ROS2ServiceClient:
     
     # ==================== 机械臂服务 ====================
     
+    async def arm_power_on(self) -> ServiceResponse:
+        """机械臂上电"""
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
+        
+        try:
+            from std_srvs.srv import Trigger
+            
+            client = self._service_clients.get('arm_power_on')
+            if not client or not client.wait_for_service(timeout_sec=2.0):
+                return ServiceResponse(False, "机械臂上电服务不可用")
+            
+            request = Trigger.Request()
+            future = client.call_async(request)
+            result = await self._wait_for_future(future, timeout=5.0)
+            
+            if result is not None:
+                return ServiceResponse(result.success, result.message)
+            else:
+                return ServiceResponse(False, "服务调用超时")
+        except Exception as e:
+            logger.error(f"arm_power_on error: {e}")
+            return ServiceResponse(False, str(e))
+    
+    async def arm_power_off(self) -> ServiceResponse:
+        """机械臂下电"""
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
+        
+        try:
+            from std_srvs.srv import Trigger
+            
+            client = self._service_clients.get('arm_power_off')
+            if not client or not client.wait_for_service(timeout_sec=2.0):
+                return ServiceResponse(False, "机械臂下电服务不可用")
+            
+            request = Trigger.Request()
+            future = client.call_async(request)
+            result = await self._wait_for_future(future, timeout=5.0)
+            
+            if result is not None:
+                return ServiceResponse(result.success, result.message)
+            else:
+                return ServiceResponse(False, "服务调用超时")
+        except Exception as e:
+            logger.error(f"arm_power_off error: {e}")
+            return ServiceResponse(False, str(e))
+    
+    async def arm_enable(self) -> ServiceResponse:
+        """机械臂使能"""
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
+        
+        try:
+            from std_srvs.srv import Trigger
+            
+            client = self._service_clients.get('arm_enable')
+            if not client or not client.wait_for_service(timeout_sec=2.0):
+                return ServiceResponse(False, "机械臂使能服务不可用")
+            
+            request = Trigger.Request()
+            future = client.call_async(request)
+            result = await self._wait_for_future(future, timeout=5.0)
+            
+            if result is not None:
+                return ServiceResponse(result.success, result.message)
+            else:
+                return ServiceResponse(False, "服务调用超时")
+        except Exception as e:
+            logger.error(f"arm_enable error: {e}")
+            return ServiceResponse(False, str(e))
+    
+    async def arm_disable(self) -> ServiceResponse:
+        """机械臂去使能"""
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
+        
+        try:
+            from std_srvs.srv import Trigger
+            
+            client = self._service_clients.get('arm_disable')
+            if not client or not client.wait_for_service(timeout_sec=2.0):
+                return ServiceResponse(False, "机械臂去使能服务不可用")
+            
+            request = Trigger.Request()
+            future = client.call_async(request)
+            result = await self._wait_for_future(future, timeout=5.0)
+            
+            if result is not None:
+                return ServiceResponse(result.success, result.message)
+            else:
+                return ServiceResponse(False, "服务调用超时")
+        except Exception as e:
+            logger.error(f"arm_disable error: {e}")
+            return ServiceResponse(False, str(e))
+    
+    async def arm_clear_error(self) -> ServiceResponse:
+        """清除机械臂错误"""
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
+        
+        try:
+            from std_srvs.srv import Trigger
+            
+            client = self._service_clients.get('arm_clear_error')
+            if not client or not client.wait_for_service(timeout_sec=2.0):
+                return ServiceResponse(False, "清除错误服务不可用")
+            
+            request = Trigger.Request()
+            future = client.call_async(request)
+            result = await self._wait_for_future(future, timeout=5.0)
+            
+            if result is not None:
+                return ServiceResponse(result.success, result.message)
+            else:
+                return ServiceResponse(False, "服务调用超时")
+        except Exception as e:
+            logger.error(f"arm_clear_error error: {e}")
+            return ServiceResponse(False, str(e))
+    
+    async def arm_motion_abort(self) -> ServiceResponse:
+        """机械臂急停"""
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
+        
+        try:
+            from std_srvs.srv import Trigger
+            
+            client = self._service_clients.get('arm_motion_abort')
+            if not client or not client.wait_for_service(timeout_sec=2.0):
+                return ServiceResponse(False, "急停服务不可用")
+            
+            request = Trigger.Request()
+            future = client.call_async(request)
+            result = await self._wait_for_future(future, timeout=5.0)
+            
+            if result is not None:
+                return ServiceResponse(result.success, result.message)
+            else:
+                return ServiceResponse(False, "服务调用超时")
+        except Exception as e:
+            logger.error(f"arm_motion_abort error: {e}")
+            return ServiceResponse(False, str(e))
+    
+    async def arm_servo_start(self) -> ServiceResponse:
+        """启动伺服模式"""
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
+        
+        try:
+            from qyh_jaka_control_msgs.srv import StartServo
+            
+            client = self._service_clients.get('arm_servo_start')
+            if not client or not client.wait_for_service(timeout_sec=2.0):
+                return ServiceResponse(False, "伺服启动服务不可用")
+            
+            request = StartServo.Request()
+            request.is_abs = True
+            request.cycle_time_ns = 8000000  # 8ms
+            
+            future = client.call_async(request)
+            result = await self._wait_for_future(future, timeout=5.0)
+            
+            if result is not None:
+                return ServiceResponse(result.success, result.message)
+            else:
+                return ServiceResponse(False, "服务调用超时")
+        except Exception as e:
+            logger.error(f"arm_servo_start error: {e}")
+            return ServiceResponse(False, str(e))
+    
+    async def arm_servo_stop(self) -> ServiceResponse:
+        """停止伺服模式"""
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
+        
+        try:
+            from qyh_jaka_control_msgs.srv import StopServo
+            
+            client = self._service_clients.get('arm_servo_stop')
+            if not client or not client.wait_for_service(timeout_sec=2.0):
+                return ServiceResponse(False, "伺服停止服务不可用")
+            
+            request = StopServo.Request()
+            
+            future = client.call_async(request)
+            result = await self._wait_for_future(future, timeout=5.0)
+            
+            if result is not None:
+                return ServiceResponse(result.success, result.message)
+            else:
+                return ServiceResponse(False, "服务调用超时")
+        except Exception as e:
+            logger.error(f"arm_servo_stop error: {e}")
+            return ServiceResponse(False, str(e))
+    
+    async def arm_set_payload(
+        self,
+        robot_id: int = 0,
+        mass: float = 0.0,
+    ) -> ServiceResponse:
+        """设置机械臂负载"""
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
+        
+        try:
+            from qyh_jaka_control_msgs.srv import SetPayload
+            
+            client = self._service_clients.get('arm_set_payload')
+            if not client or not client.wait_for_service(timeout_sec=2.0):
+                return ServiceResponse(False, "设置负载服务不可用")
+            
+            request = SetPayload.Request()
+            request.robot_id = robot_id
+            request.mass = mass
+            
+            future = client.call_async(request)
+            result = await self._wait_for_future(future, timeout=5.0)
+            
+            if result is not None:
+                return ServiceResponse(result.success, result.message)
+            else:
+                return ServiceResponse(False, "服务调用超时")
+        except Exception as e:
+            logger.error(f"arm_set_payload error: {e}")
+            return ServiceResponse(False, str(e))
+
     async def arm_move_j(
         self,
         joint_positions: list[float],
@@ -1828,7 +2192,9 @@ class ROS2ServiceClient:
             return ServiceResponse(False, "ROS2 client not initialized")
         
         try:
-            from qyh_jaka_control_msgs.srv import MoveJ
+            from qyh_jaka_control_msgs.srv import MoveJ, Jog, StartServo, StopServo
+            from std_srvs.srv import Trigger, Jog, StartServo, StopServo
+            from std_srvs.srv import Trigger
             
             client = self._service_clients.get('arm_move_j')
             if not client or not client.wait_for_service(timeout_sec=2.0):

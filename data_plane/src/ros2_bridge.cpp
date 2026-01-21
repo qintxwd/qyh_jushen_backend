@@ -57,11 +57,11 @@ bool ROS2Bridge::init() {
             std::bind(&ROS2Bridge::joint_state_callback, this, std::placeholders::_1)
         );
         
-        // 里程计
-        //         odom_sub_ = node_->create_subscription<nav_msgs::msg::Odometry>(
-        //             "/odom", state_qos,
-        //             std::bind(&ROS2Bridge::odom_callback, this, std::placeholders::_1)
-        //         );
+        // 里程计 - 不使用，底盘状态从 standard_robot_status 获取
+        // odom_sub_ = node_->create_subscription<nav_msgs::msg::Odometry>(
+        //     "/odom", state_qos,
+        //     std::bind(&ROS2Bridge::odom_callback, this, std::placeholders::_1)
+        // );
         
         // 左臂状态
         left_arm_sub_ = node_->create_subscription<sensor_msgs::msg::JointState>(
@@ -794,10 +794,12 @@ void ROS2Bridge::right_gripper_state_callback(const qyh_gripper_msgs::msg::Gripp
 }
 
 void ROS2Bridge::standard_robot_status_callback(const qyh_standard_robot_msgs::msg::StandardRobotStatus::SharedPtr msg) {
-    // 1. 更新电池
+    // 1. 更新电池和充电状态
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
         battery_level_ = msg->battery_remaining_percentage;
+        battery_voltage_ = msg->battery_voltage / 1000.0;  // mV -> V
+        charging_ = msg->is_charging;
     }
 
     // 2. 更新急停
@@ -826,10 +828,43 @@ void ROS2Bridge::standard_robot_status_callback(const qyh_standard_robot_msgs::m
         }
     }
     
-    // 3. 可能的底盘状态更新 (Pose/Twist)
-    // 如果我们想用这里的 Pose/Twist 覆盖 odom，可以在这里做
-    // 目前 ros2_bridge.cpp 依赖 odom_callback。如果 standard_robot_status 更准，可以考虑切换。
-    // 暂时保持 odom，它是标准的。
+    // 3. 构建并广播 ChassisState (从 standard_robot_status 提取)
+    qyh::dataplane::ChassisState chassis;
+    
+    // 时间戳
+    chassis.mutable_header()->mutable_stamp()->set_seconds(msg->pose.header.stamp.sec);
+    chassis.mutable_header()->mutable_stamp()->set_nanos(msg->pose.header.stamp.nanosec);
+    
+    // 位姿 (从 PoseWithCovarianceStamped 提取)
+    auto* odom_pose = chassis.mutable_odom();
+    odom_pose->mutable_position()->set_x(msg->pose.pose.pose.position.x);
+    odom_pose->mutable_position()->set_y(msg->pose.pose.pose.position.y);
+    odom_pose->mutable_position()->set_z(msg->pose.pose.pose.position.z);
+    odom_pose->mutable_orientation()->set_x(msg->pose.pose.pose.orientation.x);
+    odom_pose->mutable_orientation()->set_y(msg->pose.pose.pose.orientation.y);
+    odom_pose->mutable_orientation()->set_z(msg->pose.pose.pose.orientation.z);
+    odom_pose->mutable_orientation()->set_w(msg->pose.pose.pose.orientation.w);
+    
+    // 速度 (从 Twist 提取)
+    auto* vel = chassis.mutable_velocity();
+    vel->mutable_linear()->set_x(msg->twist.linear.x / 1000.0);   // mm/s -> m/s
+    vel->mutable_linear()->set_y(msg->twist.linear.y / 1000.0);
+    vel->mutable_linear()->set_z(0.0);
+    vel->mutable_angular()->set_x(0.0);
+    vel->mutable_angular()->set_y(0.0);
+    vel->mutable_angular()->set_z(msg->twist.angular.z / 1000.0); // mrad/s -> rad/s
+    
+    // 电池和状态
+    chassis.set_battery_level(msg->battery_remaining_percentage);
+    chassis.set_charging(msg->is_charging);
+    chassis.set_emergency_stop(msg->is_emergency_stopped);
+    
+    // 序列化
+    std::vector<uint8_t> data(chassis.ByteSizeLong());
+    chassis.SerializeToArray(data.data(), static_cast<int>(data.size()));
+    
+    state_cache_.update_chassis_state(data);
+    broadcast_state("chassis_state", qyh::dataplane::MSG_CHASSIS_STATE, data);
 }
 
 // ==================== 辅助函数 ====================
