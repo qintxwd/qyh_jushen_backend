@@ -7,6 +7,15 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK_DIR="$SCRIPT_DIR"
 STOP_REQUESTED=0
+# Load .env variables
+if [ -f "$WORK_DIR/.env" ]; then
+    export $(grep -v "^#" "$WORK_DIR/.env" | xargs)
+    # Map SECRET_KEY to JWT_SECRET for Data Plane
+    if [ ! -z "$SECRET_KEY" ]; then
+        export JWT_SECRET="$SECRET_KEY"
+    fi
+    echo "✅ 已加载环境配置 (.env)"
+fi
 ROBOT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # Source ROS2 environment

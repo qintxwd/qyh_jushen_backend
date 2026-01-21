@@ -46,6 +46,7 @@ api_router.include_router(actions.router, prefix="/actions", tags=["动作管理
 
 # 机器人信息
 api_router.include_router(robot.router, prefix="/robot", tags=["机器人"])
+api_router.include_router(robot.router, prefix="/robot-model", tags=["机器人URDF兼容"])
 
 # 审计日志
 api_router.include_router(audit.router, prefix="/audit", tags=["审计日志"])

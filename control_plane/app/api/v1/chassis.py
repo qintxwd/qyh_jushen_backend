@@ -622,3 +622,138 @@ async def cancel_navigation(
             message=f"ROS2 服务调用失败: {str(e)}"
         )
 
+
+
+# ==================== 地图数据 API ====================
+
+@router.get("/map_data", response_model=ApiResponse)
+async def get_map_data(
+    current_user: User = Depends(get_current_user),
+):
+    """
+    获取当前地图的完整数据，用于3D场景渲染
+    返回: meta, nodes, edges, stations, image_url
+    """
+    import os
+    
+    workspace_root = Path(os.environ.get('QYH_WORKSPACE_ROOT', Path.home() / 'qyh-robot-system'))
+    maps_dir = workspace_root / "maps"
+    
+    # 读取当前地图名
+    current_map_file = maps_dir / "current_map.txt"
+    if not current_map_file.exists():
+        return error_response(
+            code=ErrorCodes.RESOURCE_NOT_FOUND,
+            message="未找到当前地图信息，请先同步地图"
+        )
+    
+    current_map = current_map_file.read_text(encoding='utf-8').strip()
+    if not current_map:
+        return error_response(
+            code=ErrorCodes.RESOURCE_NOT_FOUND,
+            message="当前地图名称为空"
+        )
+    
+    # 读取地图JSON数据
+    map_json_file = maps_dir / current_map / f"{current_map}.json"
+    if not map_json_file.exists():
+        return error_response(
+            code=ErrorCodes.RESOURCE_NOT_FOUND,
+            message=f"地图数据文件不存在: {current_map}"
+        )
+    
+    try:
+        with open(map_json_file, 'r', encoding='utf-8') as f:
+            map_data = json.load(f)
+        
+        meta = map_data.get('meta', {})
+        data = map_data.get('data', {})
+        
+        # 检查地图图片
+        map_image_file = maps_dir / current_map / f"{current_map}.png"
+        has_image = map_image_file.exists()
+        
+        return success_response(
+            data={
+                "success": True,
+                "map_name": current_map,
+                "meta": meta,
+                "nodes": data.get('node', []),
+                "edges": data.get('edge', []),
+                "stations": data.get('station', []),
+                "has_image": has_image,
+                "image_url": f"/api/v1/chassis/map_image/{current_map}" if has_image else None
+            },
+            message="获取地图数据成功"
+        )
+    except Exception as e:
+        return error_response(
+            code=ErrorCodes.INTERNAL_ERROR,
+            message=f"读取地图数据失败: {str(e)}"
+        )
+
+
+@router.get("/map_image/{map_name}")
+async def get_map_image(
+    map_name: str,
+    current_user: User = Depends(get_current_user),
+):
+    """获取地图图片"""
+    from fastapi.responses import FileResponse
+    import os
+    
+    workspace_root = Path(os.environ.get('QYH_WORKSPACE_ROOT', Path.home() / 'qyh-robot-system'))
+    maps_dir = workspace_root / "maps"
+    
+    # 安全检查：防止路径遍历
+    if '..' in map_name or '/' in map_name or '\\' in map_name:
+        raise HTTPException(status_code=400, detail="无效的地图名称")
+    
+    map_image_file = maps_dir / map_name / f"{map_name}.png"
+    if not map_image_file.exists():
+        # 尝试 jpg
+        map_image_file = maps_dir / map_name / f"{map_name}.jpg"
+        if not map_image_file.exists():
+            raise HTTPException(status_code=404, detail="地图图片不存在")
+    
+    return FileResponse(
+        path=str(map_image_file),
+        media_type="image/png" if map_image_file.suffix == '.png' else "image/jpeg"
+    )
+
+
+@router.get("/maps", response_model=ApiResponse)
+async def get_maps_list(
+    current_user: User = Depends(get_current_user),
+):
+    """获取所有地图列表"""
+    import os
+    
+    workspace_root = Path(os.environ.get('QYH_WORKSPACE_ROOT', Path.home() / 'qyh-robot-system'))
+    maps_dir = workspace_root / "maps"
+    
+    if not maps_dir.exists():
+        return success_response(
+            data={"maps": [], "current_map": None},
+            message="地图目录不存在"
+        )
+    
+    # 读取当前地图
+    current_map_file = maps_dir / "current_map.txt"
+    current_map = ""
+    if current_map_file.exists():
+        current_map = current_map_file.read_text(encoding='utf-8').strip()
+    
+    # 获取地图列表
+    map_list = []
+    for d in maps_dir.iterdir():
+        if d.is_dir():
+            map_list.append(d.name)
+    
+    return success_response(
+        data={
+            "maps": map_list,
+            "current_map": current_map
+        },
+        message="获取地图列表成功"
+    )

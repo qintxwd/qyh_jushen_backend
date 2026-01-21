@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Optional, List, Tuple
 
 from fastapi import APIRouter, Depends
-from fastapi.responses import Response
+from fastapi.responses import Response, FileResponse
 
 from app.dependencies import get_current_user, get_current_admin
 from app.models.user import User
@@ -47,7 +47,7 @@ router = APIRouter()
 # 配置
 ROBOT_NAME = os.environ.get('GLOBAL_ROBOT_NAME', 'general')
 ROBOT_VERSION = os.environ.get('GLOBAL_ROBOT_VERSION', '1.0')
-URDF_PATH = os.path.expanduser("~/qyh-robot-system/config/robot.urdf")
+URDF_PATH = os.path.expanduser("~/qyh-robot-system/qyh_jushen_ws/install/qyh_dual_arms_description/share/qyh_dual_arms_description/urdf/dual_arms.urdf")
 
 
 # ============================================================================
@@ -546,3 +546,30 @@ async def system_reboot(
             code=ErrorCodes.INTERNAL_ERROR,
             message=f"系统重启失败: {str(e)}"
         )
+
+@router.get("/package/{package_name}/{file_path:path}", summary="Get package file")
+async def get_package_file(
+    package_name: str,
+    file_path: str,
+):
+    """
+    获取 ROS 包内的资源文件 (mesh, texture 等)
+    """
+    workspace_root = os.path.expanduser("~/qyh-robot-system/qyh_jushen_ws")
+    
+    potential_paths = [
+        os.path.join(workspace_root, "install", package_name, "share", package_name, file_path),
+        os.path.join(workspace_root, "src", package_name, file_path),
+        os.path.join(workspace_root, "install", "share", package_name, file_path),
+    ]
+
+    for path_str in potential_paths:
+        path = Path(path_str)
+        if path.exists() and path.is_file():
+            media_type = None
+            suffix = path.suffix.lower()
+            if suffix == '.stl':
+                media_type = 'model/stl'
+            return FileResponse(path, media_type=media_type)
+
+    return Response(status_code=404, content="File not found")
