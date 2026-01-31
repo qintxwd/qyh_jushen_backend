@@ -1,0 +1,134 @@
+/**
+ * 事件消息协议定义
+ * 
+ * 用于 DataChannel #3 (event) 传输事件、日志、告警
+ */
+syntax = "proto3";
+package qyh.event;
+
+import "common.proto";
+
+option cc_enable_arenas = true;
+
+// ==================== 事件类型 ====================
+enum EventType {
+    EVT_UNKNOWN = 0;
+    
+    // 模式变更
+    EVT_MODE_CHANGED = 1;
+    EVT_MODE_CHANGE_FAILED = 2;
+    
+    // 控制权变更
+    EVT_CONTROL_ACQUIRED = 10;
+    EVT_CONTROL_RELEASED = 11;
+    EVT_CONTROL_PREEMPTED = 12;
+    EVT_CONTROL_EXPIRED = 13;
+    
+    // 任务事件
+    EVT_TASK_STARTED = 20;
+    EVT_TASK_COMPLETED = 21;
+    EVT_TASK_FAILED = 22;
+    EVT_TASK_CANCELLED = 23;
+    EVT_TASK_PAUSED = 24;
+    EVT_TASK_RESUMED = 25;
+    
+    // 导航事件
+    EVT_NAV_GOAL_REACHED = 30;
+    EVT_NAV_GOAL_FAILED = 31;
+    EVT_NAV_OBSTACLE_DETECTED = 32;
+    EVT_NAV_PATH_BLOCKED = 33;
+    
+    // 系统事件
+    EVT_SYSTEM_WARNING = 40;
+    EVT_SYSTEM_ERROR = 41;
+    EVT_SYSTEM_SHUTDOWN = 42;
+    EVT_SYSTEM_REBOOT = 43;
+    
+    // 安全事件
+    EVT_EMERGENCY_STOP = 50;
+    EVT_EMERGENCY_RESET = 51;
+    EVT_COLLISION_DETECTED = 52;
+    EVT_WATCHDOG_TIMEOUT = 53;
+    
+    // 硬件事件
+    EVT_BATTERY_LOW = 60;
+    EVT_BATTERY_CRITICAL = 61;
+    EVT_MOTOR_OVERHEATED = 62;
+    EVT_SENSOR_FAILURE = 63;
+    
+    // 日志
+    EVT_LOG = 100;
+}
+
+// ==================== 事件严重级别 ====================
+enum Severity {
+    SEV_DEBUG = 0;
+    SEV_INFO = 1;
+    SEV_WARNING = 2;
+    SEV_ERROR = 3;
+    SEV_CRITICAL = 4;
+}
+
+// ==================== 顶层事件消息 (DataChannel #3 专用) ====================
+message EventChannelMessage {
+    uint64 sequence_id = 1;     // 序列号 (递增)
+    uint64 timestamp = 2;       // 时间戳 (毫秒)
+    EventType type = 3;
+    Severity severity = 4;
+    
+    oneof payload {
+        ModeChangeEvent mode_change = 10;
+        ControlChangeEvent control_change = 11;
+        TaskEvent task_event = 12;
+        NavigationEvent nav_event = 13;
+        SystemEvent system_event = 14;
+        LogEntry log = 15;
+    }
+}
+
+// ==================== 模式变更事件 ====================
+message ModeChangeEvent {
+    string previous_mode = 1;
+    string new_mode = 2;
+    string triggered_by = 3;    // 触发者 (user_id 或 "system")
+    string reason = 4;
+}
+
+// ==================== 控制权变更事件 ====================
+message ControlChangeEvent {
+    string previous_holder = 1;
+    string new_holder = 2;
+    string reason = 3;
+}
+
+// ==================== 任务事件 ====================
+message TaskEvent {
+    string task_id = 1;
+    string task_name = 2;
+    string status = 3;          // "started", "completed", "failed", etc.
+    float progress = 4;         // 0.0 - 1.0
+    string message = 5;
+}
+
+// ==================== 导航事件 ====================
+message NavigationEvent {
+    string goal_id = 1;
+    qyh.dataplane.Pose2D target_pose = 2;
+    string status = 3;
+    string message = 4;
+}
+
+// ==================== 系统事件 ====================
+message SystemEvent {
+    string subsystem = 1;       // 子系统名称
+    string status = 2;
+    string message = 3;
+    map<string, string> details = 4;
+}
+
+// ==================== 日志条目 ====================
+message LogEntry {
+    string logger = 1;          // 日志源
+    string message = 2;
+    map<string, string> context = 3;
+}

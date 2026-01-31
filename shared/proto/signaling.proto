@@ -1,0 +1,127 @@
+/**
+ * WebRTC 信令协议定义
+ * 
+ * 用于 Client ↔ Signaling Server ↔ Robot 之间的信令消息交换
+ */
+syntax = "proto3";
+package qyh.signaling;
+
+option cc_enable_arenas = true;
+
+// ==================== 信令消息类型 ====================
+enum SignalingType {
+    SIG_UNKNOWN = 0;
+    
+    // 认证相关
+    SIG_AUTH = 1;               // 认证请求/响应
+    SIG_AUTH_SUCCESS = 2;       // 认证成功
+    SIG_AUTH_FAILED = 3;        // 认证失败
+    
+    // 会话管理
+    SIG_SESSION_CREATE = 10;    // 创建会话
+    SIG_SESSION_READY = 11;     // 会话就绪
+    SIG_SESSION_CLOSE = 12;     // 关闭会话
+    
+    // WebRTC 信令
+    SIG_OFFER = 20;             // SDP Offer
+    SIG_ANSWER = 21;            // SDP Answer
+    SIG_ICE_CANDIDATE = 22;     // ICE Candidate
+    SIG_ICE_DONE = 23;          // ICE 收集完成
+    
+    // 状态通知
+    SIG_ROBOT_ONLINE = 30;      // 机器人上线
+    SIG_ROBOT_OFFLINE = 31;     // 机器人下线
+    SIG_PEER_CONNECTED = 32;    // P2P 连接建立
+    SIG_PEER_DISCONNECTED = 33; // P2P 连接断开
+    
+    // 错误
+    SIG_ERROR = 100;            // 错误消息
+}
+
+// ==================== 顶层信令消息 ====================
+message SignalingMessage {
+    SignalingType type = 1;
+    string session_id = 2;      // 会话 ID
+    string from_id = 3;         // 发送方 ID (client_id 或 robot_id)
+    string to_id = 4;           // 接收方 ID
+    uint64 timestamp = 5;       // 时间戳 (毫秒)
+    
+    oneof payload {
+        AuthMessage auth = 10;
+        SDPMessage sdp = 11;
+        ICECandidate ice = 12;
+        SessionInfo session = 13;
+        ErrorMessage error = 14;
+        RobotStatus robot_status = 15;
+    }
+}
+
+// ==================== 认证消息 ====================
+message AuthMessage {
+    string token = 1;           // JWT Token
+    string robot_id = 2;        // 目标机器人 ID (客户端填写)
+    string user_id = 3;         // 用户 ID (服务端填写)
+    string username = 4;        // 用户名
+    string role = 5;            // 用户角色
+}
+
+// ==================== SDP 消息 ====================
+message SDPMessage {
+    string type = 1;            // "offer" 或 "answer"
+    string sdp = 2;             // SDP 内容
+}
+
+// ==================== ICE Candidate ====================
+message ICECandidate {
+    string candidate = 1;       // ICE candidate 字符串
+    string sdp_mid = 2;         // SDP media ID
+    int32 sdp_mline_index = 3;  // SDP media line index
+    string username_fragment = 4; // ICE ufrag (可选)
+}
+
+// ==================== 会话信息 ====================
+message SessionInfo {
+    string session_id = 1;
+    string client_id = 2;
+    string robot_id = 3;
+    string state = 4;           // "pending", "connected", "closed"
+    uint64 created_at = 5;
+    
+    // WebRTC 配置
+    repeated ICEServer ice_servers = 6;
+    repeated DataChannelConfig data_channels = 7;
+}
+
+// ==================== ICE Server 配置 ====================
+message ICEServer {
+    repeated string urls = 1;   // STUN/TURN URL 列表
+    string username = 2;        // TURN 用户名 (可选)
+    string credential = 3;      // TURN 密码 (可选)
+    string credential_type = 4; // "password" 或 "oauth"
+}
+
+// ==================== DataChannel 配置 ====================
+message DataChannelConfig {
+    string label = 1;           // 通道标签: "control", "state", "event"
+    int32 id = 2;               // 通道 ID
+    bool ordered = 3;           // 是否有序
+    int32 max_retransmits = 4;  // 最大重传次数 (-1 表示可靠传输)
+    string protocol = 5;        // 协议: "protobuf"
+}
+
+// ==================== 机器人状态 ====================
+message RobotStatus {
+    string robot_id = 1;
+    bool online = 2;
+    string ip_address = 3;
+    repeated string video_sources = 4;  // 可用视频源
+    string current_mode = 5;            // 当前工作模式
+    string control_holder = 6;          // 当前控制者 ID
+}
+
+// ==================== 错误消息 ====================
+message ErrorMessage {
+    int32 code = 1;
+    string message = 2;
+    string details = 3;
+}
