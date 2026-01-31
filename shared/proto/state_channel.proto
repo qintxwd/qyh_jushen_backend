@@ -19,5 +19,6 @@ message StateChannelMessage {
         VRSystemState vr_state = 9;
         BasicState basic_state = 10;
         ShutdownState shutdown_state = 11;
+        TaskResponse task_response = 12;
     }
 }

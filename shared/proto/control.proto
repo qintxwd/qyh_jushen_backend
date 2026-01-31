@@ -172,6 +172,7 @@ message TaskControl {
     string action = 2;                 // execute, pause, resume, cancel
     string task_id = 3;                // pause/resume/cancel
     string task_json = 4;              // execute
+    string category = 5;               // list filter
 }
 
 // LED 控制

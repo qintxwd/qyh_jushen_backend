@@ -192,6 +192,16 @@ message TaskState {
     string error_message = 9;
 }
 
+// 任务管理响应（列表/CRUD）
+message TaskResponse {
+    uint64 request_id = 1;              // ControlChannel sequence_id
+    string action = 2;                  // list/get/create/update/delete
+    bool success = 3;
+    string message = 4;
+    string task_id = 5;
+    string task_json = 6;               // JSON payload (list or task)
+}
+
 // ==================== 基础状态（状态栏用） ====================
 
 // 模块连接状态

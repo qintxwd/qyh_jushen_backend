@@ -1,10 +1,148 @@
 #include "ros2_control_state_impl.hpp"
 
+#include <chrono>
+#include <cctype>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 
 namespace qyh::robot {
 
 namespace detail {
+namespace {
+std::filesystem::path find_repo_root() {
+    auto current = std::filesystem::current_path();
+    for (int i = 0; i < 6; ++i) {
+        if (std::filesystem::exists(current / "persistent")) {
+            return current;
+        }
+        if (!current.has_parent_path()) {
+            break;
+        }
+        current = current.parent_path();
+    }
+    return std::filesystem::current_path();
+}
+
+std::filesystem::path tasks_dir() {
+    auto dir = find_repo_root() / "persistent" / "tasks";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    return dir;
+}
+
+std::string read_file(const std::filesystem::path& path) {
+    std::ifstream input(path, std::ios::in | std::ios::binary);
+    if (!input) {
+        return {};
+    }
+    std::ostringstream buffer;
+    buffer << input.rdbuf();
+    return buffer.str();
+}
+
+bool write_file(const std::filesystem::path& path, const std::string& content) {
+    std::ofstream output(path, std::ios::out | std::ios::binary | std::ios::trunc);
+    if (!output) {
+        return false;
+    }
+    output << content;
+    return static_cast<bool>(output);
+}
+
+std::string extract_json_string(const std::string& json, const std::string& key) {
+    const std::string needle = "\"" + key + "\"";
+    auto pos = json.find(needle);
+    if (pos == std::string::npos) {
+        return {};
+    }
+    pos = json.find(':', pos + needle.size());
+    if (pos == std::string::npos) {
+        return {};
+    }
+    pos++;
+    while (pos < json.size() && std::isspace(static_cast<unsigned char>(json[pos]))) {
+        pos++;
+    }
+    if (pos >= json.size() || json[pos] != '"') {
+        return {};
+    }
+    pos++;
+    std::string value;
+    while (pos < json.size()) {
+        char c = json[pos++];
+        if (c == '"') {
+            break;
+        }
+        if (c == '\\' && pos < json.size()) {
+            value.push_back(json[pos++]);
+        } else {
+            value.push_back(c);
+        }
+    }
+    return value;
+}
+
+bool has_json_key(const std::string& json, const std::string& key) {
+    const std::string needle = "\"" + key + "\"";
+    return json.find(needle) != std::string::npos;
+}
+
+std::string ensure_task_id(std::string json, const std::string& task_id) {
+    if (has_json_key(json, "id")) {
+        return json;
+    }
+    auto brace = json.find('{');
+    if (brace == std::string::npos) {
+        return json;
+    }
+    std::string insert = "{\"id\":\"" + task_id + "\",";
+    return insert + json.substr(brace + 1);
+}
+
+std::string generate_task_id() {
+    auto now = std::chrono::system_clock::now().time_since_epoch();
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+    std::ostringstream stream;
+    stream << std::hex << ms;
+    auto value = stream.str();
+    if (value.size() > 8) {
+        return value.substr(value.size() - 8);
+    }
+    return value;
+}
+
+uint64_t now_ms() {
+    auto now = std::chrono::system_clock::now().time_since_epoch();
+    return static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
+}
+
+void send_task_response(
+    Ros2ControlStateBridge::Impl& impl,
+    uint64_t request_id,
+    const std::string& action,
+    bool success,
+    const std::string& message,
+    const std::string& task_id,
+    const std::string& task_json) {
+    if (!impl.on_state) {
+        return;
+    }
+    qyh::dataplane::StateChannelMessage out;
+    out.set_timestamp(now_ms());
+    auto* resp = out.mutable_task_response();
+    resp->set_request_id(request_id);
+    resp->set_action(action);
+    resp->set_success(success);
+    resp->set_message(message);
+    resp->set_task_id(task_id);
+    resp->set_task_json(task_json);
+    impl.on_state(out);
+}
+} // namespace
+
 void setup_control_io(Ros2ControlStateBridge::Impl& impl) {
 #ifdef ROBOT_ENDPOINT_ENABLE_ROS2
     impl.cmd_vel_pub = impl.node->create_publisher<geometry_msgs::msg::Twist>(
@@ -271,6 +409,160 @@ void Ros2ControlStateBridge::handle_control(const qyh::dataplane::ControlChannel
         case qyh::dataplane::ControlChannelMessage::kTaskControl: {
             const auto& cmd = msg.task_control();
             const auto& action = cmd.action();
+            if (action == "list" || action == "get" || action == "create" ||
+                action == "update" || action == "delete") {
+                const auto request_id = msg.sequence_id();
+                const auto dir = tasks_dir();
+                if (action == "list") {
+                    std::ostringstream list;
+                    list << "[";
+                    bool first = true;
+                    const std::string category = cmd.category();
+                    for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+                        if (!entry.is_regular_file()) {
+                            continue;
+                        }
+                        if (entry.path().extension() != ".json") {
+                            continue;
+                        }
+                        std::string raw = read_file(entry.path());
+                        if (raw.empty()) {
+                            continue;
+                        }
+                        if (!category.empty()) {
+                            auto value = extract_json_string(raw, "category");
+                            if (value != category) {
+                                continue;
+                            }
+                        }
+                        if (!first) {
+                            list << ",";
+                        }
+                        list << raw;
+                        first = false;
+                    }
+                    list << "]";
+                    send_task_response(
+                        *impl_,
+                        request_id,
+                        action,
+                        true,
+                        "ok",
+                        "",
+                        list.str());
+                } else if (action == "get") {
+                    const auto task_id = cmd.task_id();
+                    auto file_path = dir / (task_id + ".json");
+                    if (!std::filesystem::exists(file_path)) {
+                        send_task_response(
+                            *impl_,
+                            request_id,
+                            action,
+                            false,
+                            "task not found",
+                            task_id,
+                            "");
+                        break;
+                    }
+                    auto raw = read_file(file_path);
+                    send_task_response(
+                        *impl_,
+                        request_id,
+                        action,
+                        true,
+                        "ok",
+                        task_id,
+                        raw);
+                } else if (action == "create" || action == "update") {
+                    std::string task_id = cmd.task_id();
+                    std::string raw = cmd.task_json();
+                    if (raw.empty()) {
+                        send_task_response(
+                            *impl_,
+                            request_id,
+                            action,
+                            false,
+                            "missing task_json",
+                            task_id,
+                            "");
+                        break;
+                    }
+                    if (task_id.empty()) {
+                        task_id = extract_json_string(raw, "id");
+                    }
+                    if (task_id.empty()) {
+                        task_id = generate_task_id();
+                    }
+                    auto file_path = dir / (task_id + ".json");
+                    if (action == "update" && !std::filesystem::exists(file_path)) {
+                        send_task_response(
+                            *impl_,
+                            request_id,
+                            action,
+                            false,
+                            "task not found",
+                            task_id,
+                            "");
+                        break;
+                    }
+                    raw = ensure_task_id(raw, task_id);
+                    if (!write_file(file_path, raw)) {
+                        send_task_response(
+                            *impl_,
+                            request_id,
+                            action,
+                            false,
+                            "write failed",
+                            task_id,
+                            "");
+                        break;
+                    }
+                    send_task_response(
+                        *impl_,
+                        request_id,
+                        action,
+                        true,
+                        "ok",
+                        task_id,
+                        raw);
+                } else if (action == "delete") {
+                    const auto task_id = cmd.task_id();
+                    auto file_path = dir / (task_id + ".json");
+                    if (!std::filesystem::exists(file_path)) {
+                        send_task_response(
+                            *impl_,
+                            request_id,
+                            action,
+                            false,
+                            "task not found",
+                            task_id,
+                            "");
+                        break;
+                    }
+                    std::error_code ec;
+                    std::filesystem::remove(file_path, ec);
+                    if (ec) {
+                        send_task_response(
+                            *impl_,
+                            request_id,
+                            action,
+                            false,
+                            "delete failed",
+                            task_id,
+                            "");
+                        break;
+                    }
+                    send_task_response(
+                        *impl_,
+                        request_id,
+                        action,
+                        true,
+                        "ok",
+                        task_id,
+                        "");
+                }
+                break;
+            }
             if (action == "execute" && impl_->task_execute_client) {
                 auto req = std::make_shared<qyh_task_engine_msgs::srv::ExecuteTask::Request>();
                 req->task_json = cmd.task_json();
