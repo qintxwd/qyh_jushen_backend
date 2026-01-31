@@ -10,6 +10,22 @@ webrtc:
   ice_servers:
     - urls: "stun:stun.l.google.com:19302"
 
+ros2:
+  cmd_vel_topic: "/cmd_vel"
+  joint_command_topic: "/joint_command"
+  gripper_command_topic_prefix: "/gripper/command"
+  joint_state_topic: "/joint_states"
+  imu_topic: "/imu"
+  odom_topic: "/odom"
+  standard_robot_status_topic: "standard_robot_status"
+  navigation_status_topic: "navigation_status"
+  arm_state_topic: "/jaka/robot_state"
+  head_joint_state_topic: "/head/joint_states"
+  lift_state_topic: "/lift/state"
+  waist_state_topic: "/waist/state"
+  left_gripper_state_topic: "/left/gripper_state"
+  right_gripper_state_topic: "/right/gripper_state"
+
 media:
   encoding: "h265"
   cameras:

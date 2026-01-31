@@ -37,6 +37,16 @@ WebRtcSession::WebRtcSession(SignalingClient& signaling)
 #endif
 }
 
+void WebRtcSession::set_data_channels(std::shared_ptr<DataChannelManager> channels) {
+    data_channels_ = std::move(channels);
+#ifdef ROBOT_ENDPOINT_ENABLE_WEBRTC
+    if (pc_ && data_channels_) {
+        data_channels_->attach_peer(pc_);
+        data_channels_->setup_channels();
+    }
+#endif
+}
+
 void WebRtcSession::on_offer(const SignalingMessage& msg) {
     current_session_id_ = msg.session_id;
 #ifdef ROBOT_ENDPOINT_ENABLE_WEBRTC

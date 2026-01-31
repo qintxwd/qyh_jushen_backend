@@ -9,6 +9,8 @@
 #include "robot_endpoint/config.hpp"
 #include "robot_endpoint/media_pipeline.hpp"
 #include "robot_endpoint/ros2_bridge.hpp"
+#include "robot_endpoint/ros2_control_state.hpp"
+#include "robot_endpoint/data_channel_manager.hpp"
 
 int main(int argc, char** argv) {
     std::cout << "QYH Robot Endpoint (skeleton)" << std::endl;
@@ -37,6 +39,17 @@ int main(int argc, char** argv) {
     client.register_robot(cfg.robot.name, sources);
 
     qyh::robot::WebRtcSession webrtc(client);
+
+    auto data_channels = std::make_shared<qyh::robot::DataChannelManager>();
+    webrtc.set_data_channels(data_channels);
+
+    qyh::robot::Ros2ControlStateBridge ros2_ctrl(cfg.ros2);
+    data_channels->set_on_control([&](const qyh::dataplane::ControlChannelMessage& msg) {
+        ros2_ctrl.handle_control(msg);
+    });
+    ros2_ctrl.set_on_state([&](const qyh::dataplane::StateChannelMessage& msg) {
+        data_channels->send_state(msg);
+    });
 
     std::unordered_map<std::string, std::unique_ptr<qyh::robot::MediaPipeline>> color_pipelines;
     std::unordered_map<std::string, std::unique_ptr<qyh::robot::MediaPipeline>> depth_pipelines;
@@ -100,6 +113,7 @@ int main(int argc, char** argv) {
         }
     });
     ros_bridge.start();
+    ros2_ctrl.start();
 
     client.start_polling([&webrtc](const qyh::robot::SignalingMessage& msg) {
         if (msg.type == "offer") {
@@ -112,6 +126,7 @@ int main(int argc, char** argv) {
     std::this_thread::sleep_for(std::chrono::seconds(2));
     client.stop_polling();
 
+    ros2_ctrl.stop();
     ros_bridge.stop();
     for (auto& [_, p] : color_pipelines) {
         p->stop();

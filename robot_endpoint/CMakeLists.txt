@@ -15,6 +15,14 @@ option(ROBOT_ENDPOINT_ENABLE_WEBRTC "Enable libdatachannel" OFF)
 if(ROBOT_ENDPOINT_ENABLE_ROS2)
     find_package(rclcpp REQUIRED)
     find_package(sensor_msgs REQUIRED)
+    find_package(geometry_msgs REQUIRED)
+    find_package(nav_msgs REQUIRED)
+    find_package(std_msgs REQUIRED)
+    find_package(qyh_lift_msgs REQUIRED)
+    find_package(qyh_waist_msgs REQUIRED)
+    find_package(qyh_gripper_msgs REQUIRED)
+    find_package(qyh_jaka_control_msgs REQUIRED)
+    find_package(qyh_standard_robot_msgs REQUIRED)
     add_definitions(-DROBOT_ENDPOINT_ENABLE_ROS2)
 endif()
 
@@ -45,10 +53,10 @@ add_executable(${PROJECT_NAME}
     src/webrtc_peer.cpp
     src/webrtc_session.cpp
     src/data_channel_manager.cpp
-    src/data_channel_manager.cpp
     src/config.cpp
     src/media_pipeline.cpp
     src/ros2_bridge.cpp
+    src/ros2_control_state.cpp
     ${PROTO_SRCS}
 )
 
@@ -67,7 +75,18 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 )
 
 if(ROBOT_ENDPOINT_ENABLE_ROS2)
-    target_link_libraries(${PROJECT_NAME} PRIVATE rclcpp::rclcpp sensor_msgs::sensor_msgs)
+    target_link_libraries(${PROJECT_NAME} PRIVATE
+        rclcpp::rclcpp
+        sensor_msgs::sensor_msgs
+        geometry_msgs::geometry_msgs
+        nav_msgs::nav_msgs
+        std_msgs::std_msgs
+        qyh_lift_msgs::qyh_lift_msgs
+        qyh_waist_msgs::qyh_waist_msgs
+        qyh_gripper_msgs::qyh_gripper_msgs
+        qyh_jaka_control_msgs::qyh_jaka_control_msgs
+        qyh_standard_robot_msgs::qyh_standard_robot_msgs
+    )
 endif()
 
 if(ROBOT_ENDPOINT_ENABLE_WEBRTC)

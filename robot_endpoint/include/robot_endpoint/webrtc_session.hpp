@@ -2,6 +2,7 @@
 
 #include "robot_endpoint/signaling_client.hpp"
 #include "robot_endpoint/webrtc_peer.hpp"
+#include "robot_endpoint/data_channel_manager.hpp"
 
 #include <string>
 #include <unordered_map>
@@ -21,6 +22,8 @@ class WebRtcSession {
 public:
     explicit WebRtcSession(SignalingClient& signaling);
 
+    void set_data_channels(std::shared_ptr<DataChannelManager> channels);
+
     void on_offer(const SignalingMessage& msg);
     void on_ice(const SignalingMessage& msg);
 
@@ -34,6 +37,8 @@ private:
     SignalingClient& signaling_;
     WebRtcPeer peer_;
     std::string current_session_id_;
+
+    std::shared_ptr<DataChannelManager> data_channels_;
 
 #ifdef ROBOT_ENDPOINT_ENABLE_WEBRTC
     std::shared_ptr<rtc::PeerConnection> pc_;

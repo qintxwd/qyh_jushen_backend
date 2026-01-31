@@ -25,6 +25,23 @@ struct WebRtcConfig {
     std::vector<IceServer> ice_servers;
 };
 
+struct Ros2Config {
+    std::string cmd_vel_topic = "/cmd_vel";
+    std::string joint_command_topic = "/joint_command";
+    std::string gripper_command_topic_prefix = "/gripper/command";
+    std::string joint_state_topic = "/joint_states";
+    std::string imu_topic = "/imu";
+    std::string odom_topic = "/odom";
+    std::string standard_robot_status_topic = "standard_robot_status";
+    std::string navigation_status_topic = "navigation_status";
+    std::string arm_state_topic = "/jaka/robot_state";
+    std::string head_joint_state_topic = "/head/joint_states";
+    std::string lift_state_topic = "/lift/state";
+    std::string waist_state_topic = "/waist/state";
+    std::string left_gripper_state_topic = "/left/gripper_state";
+    std::string right_gripper_state_topic = "/right/gripper_state";
+};
+
 struct CameraConfig {
     std::string name;
     std::string color_topic;
@@ -43,6 +60,7 @@ struct Config {
     RobotConfig robot;
     SignalingConfig signaling;
     WebRtcConfig webrtc;
+    Ros2Config ros2;
     MediaConfig media;
 };
 
