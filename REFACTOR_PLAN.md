@@ -1,36 +1,23 @@
-# QYH Robot Backend 架构重构计划
+# QYH Robot Backend 架构设计（WebRTC All-in-one）
 
 ## 📋 文档信息
 
 | 项目 | 内容 |
 |------|------|
-| 版本 | v2.0 |
+| 版本 | v2.1 |
 | 日期 | 2026-01-31 |
 | 作者 | QYH Team |
 | 状态 | 规划中 |
 
 ---
 
-## 🎯 重构目标
+## 🎯 目标
 
-### 核心理念变化
+### 核心理念
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                          BEFORE (当前架构)                               │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
-│   Client ─────HTTP────→ Control Plane (认证/配置/任务)                   │
-│           ─────WS──────→ Data Plane   (实时控制/状态 50-100Hz)           │
-│           ─────WebRTC──→ Media Plane  (视频流)                           │
-│                                                                          │
-│   问题：三条独立连接，复杂度高，状态同步困难                                │
-└─────────────────────────────────────────────────────────────────────────┘
-
-                                    ↓ 重构 ↓
-
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           AFTER (目标架构)                               │
+│                           目标架构 (唯一架构)                             │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
 │   Client ─────HTTP────→ Signaling Server (认证/配置/信令)                │
@@ -43,7 +30,7 @@
 │              • DataChannel 2 (状态推送)                                  │
 │              • DataChannel 3 (事件/日志)                                 │
 │                                                                          │
-│   优势：统一连接，低延迟，P2P直连，NAT穿透                                 │
+│   统一连接、低延迟、P2P 直连、NAT 穿透                                    │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -54,12 +41,12 @@
 | **统一传输** | Video + Data 走同一 WebRTC 连接，简化状态管理 |
 | **超低延迟** | QUIC/DTLS 直连，端到端延迟 <50ms |
 | **NAT 穿透** | ICE 框架自动处理 NAT，支持任意网络环境 |
-| **简化架构** | 去掉独立的 WebSocket Data Plane，降低复杂度 |
+| **简化架构** | 仅保留 HTTP + WebRTC，统一连接 |
 | **带宽自适应** | WebRTC 内置拥塞控制，自动适应网络状况 |
 
 ---
 
-## 🏗️ 新架构设计
+## 🏗️ 架构设计
 
 ### 整体架构图
 
@@ -74,7 +61,7 @@
          ▼                         ▼                         │
 ┌─────────────────┐    ┌────────────────────────┐            │
 │  /login API     │    │   /signaling API       │            │
-│  (HTTP/REST)    │    │   (WebSocket)          │            │
+│  (HTTP/REST)    │    │   (HTTP/REST)          │            │
 │                 │    │                        │            │
 │  • 用户认证     │    │  • SDP Offer/Answer    │            │
 │  • Token 签发   │    │  • ICE Candidate       │            │
@@ -85,7 +72,7 @@
          │      │                                            │
          ▼      ▼                                            │
 ┌─────────────────────────────────────────────────────────┐  │
-│              Signaling Server (FastAPI)                  │  │
+│            Signaling Server (HTTP/REST)                  │  │
 │                                                          │  │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐  │  │
 │  │ Auth Module │  │Session Mgmt │  │  Robot Registry │  │  │
@@ -116,21 +103,21 @@
                     └───────────────────────────────────────┘│
 ```
 
-### 组件职责重新划分
+### 组件职责
 
-#### 1. Signaling Server (原 Control Plane 演进)
+#### 1. Signaling Server
 
 | 模块 | 职责 | 接口 |
 |------|------|------|
 | **Auth** | 用户认证、Token 签发 | `POST /login`, `POST /logout`, `POST /refresh` |
 | **Robot Registry** | 机器人注册、在线状态、WebRTC 配置 | `GET /robots`, `GET /robots/{id}/webrtc-config` |
 | **Session Manager** | 控制会话管理、权限控制 | `POST /session/acquire`, `DELETE /session/release` |
-| **Signaling Relay** | SDP/ICE 信令转发 | `WS /signaling/{robot_id}` |
+| **Signaling Relay** | SDP/ICE 信令转发 | `POST /signaling` |
 | **Config API** | 配置管理（保留低频 HTTP） | `GET/PUT /config/*` |
 | **Task API** | 任务 CRUD（保留低频 HTTP） | `CRUD /tasks/*` |
 | **Preset API** | 预设 CRUD（保留低频 HTTP） | `CRUD /presets/*` |
 
-#### 2. Robot WebRTC Endpoint (原 Data Plane + Media Plane 合并)
+#### 2. Robot WebRTC Endpoint
 
 | 模块 | 职责 | 传输通道 |
 |------|------|----------|
@@ -169,23 +156,11 @@
 
 ---
 
-## 📁 目录结构变更
-
-### 现有结构
+## 📁 目标目录结构
 
 ```
 qyh_jushen_backend/
-├── control_plane/      # Python/FastAPI - 保留并改造
-├── data_plane/         # C++/WebSocket  - 废弃，功能迁移到 robot_endpoint
-├── media_plane/        # C++/GStreamer  - 废弃，功能迁移到 robot_endpoint
-└── shared/proto/       # Protobuf 定义 - 扩展
-```
-
-### 目标结构
-
-```
-qyh_jushen_backend/
-├── signaling_server/           # Python/FastAPI (原 control_plane 演进)
+├── signaling_server/           # HTTP Signaling Server
 │   ├── app/
 │   │   ├── main.py
 │   │   ├── config.py
@@ -195,7 +170,7 @@ qyh_jushen_backend/
 │   │   │       ├── auth.py           # 认证
 │   │   │       ├── robots.py         # 机器人注册/列表
 │   │   │       ├── session.py        # 控制会话管理
-│   │   │       ├── signaling.py      # WebSocket 信令 (新)
+│   │   │       ├── signaling.py      # HTTP 信令
 │   │   │       ├── config.py         # 配置 API
 │   │   │       ├── tasks.py          # 任务 CRUD
 │   │   │       └── presets.py        # 预设 CRUD
@@ -207,7 +182,7 @@ qyh_jushen_backend/
 │   │       └── signaling_relay.py    # 信令转发服务 (新)
 │   └── requirements.txt
 │
-├── robot_endpoint/             # C++/GStreamer/WebRTC (合并 data+media)
+├── robot_endpoint/             # C++/GStreamer/WebRTC
 │   ├── CMakeLists.txt
 │   ├── config/
 │   │   └── config.yaml
@@ -251,20 +226,20 @@ qyh_jushen_backend/
 
 ---
 
-## 🔄 重构阶段计划
+## 🔄 开发阶段计划
 
-### Phase 1: 信令服务器改造 (预计 2 周)
+### Phase 1: 信令服务器 (预计 2 周)
 
-#### 1.1 创建信令 WebSocket 端点
+#### 1.1 信令 HTTP 端点
 
-**目标**: 在 Signaling Server 中增加 `/signaling/{robot_id}` WebSocket 端点
+**目标**: 在 Signaling Server 中增加 `POST /signaling` HTTP 端点（轮询/长轮询）
 
 **任务清单**:
 
 - [ ] 创建 `app/api/v1/signaling.py`
-  - WebSocket 连接处理
-  - SDP Offer/Answer 转发
-  - ICE Candidate 转发
+    - HTTP 信令请求处理（poll/push）
+    - SDP Offer/Answer 转发
+    - ICE Candidate 转发
 - [ ] 创建 `app/core/robot_registry.py`
   - 机器人在线状态管理
   - 机器人 WebRTC 能力注册
@@ -277,52 +252,46 @@ qyh_jushen_backend/
 
 ```python
 # app/api/v1/signaling.py
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
-from app.core.security import verify_ws_token
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel
+from app.core.security import verify_http_token
 from app.core.robot_registry import RobotRegistry
 from app.services.signaling_relay import SignalingRelay
 
 router = APIRouter()
 
-@router.websocket("/signaling/{robot_id}")
-async def signaling_endpoint(
-    websocket: WebSocket,
-    robot_id: str,
-    token: str = Query(...),
+class SignalingRequest(BaseModel):
+    robot_id: str
+    session_id: str | None = None
+    message: dict
+
+class SignalingResponse(BaseModel):
+    session_id: str
+    messages: list[dict]
+
+@router.post("/signaling", response_model=SignalingResponse)
+async def signaling_http_endpoint(
+    req: SignalingRequest,
+    user = Depends(verify_http_token),
 ):
     """
-    WebRTC 信令 WebSocket 端点
+    WebRTC 信令 HTTP 端点（轮询/长轮询）
     
-    消息类型:
-    - offer: SDP Offer
-    - answer: SDP Answer  
-    - ice_candidate: ICE Candidate
-    - error: 错误信息
+    请求:
+    - message: offer/answer/ice_candidate
+    响应:
+    - messages: 需要下发给客户端或机器人的消息列表
     """
-    # 验证 Token
-    user = await verify_ws_token(token)
-    if not user:
-        await websocket.close(code=4001, reason="Unauthorized")
-        return
-    
-    # 检查机器人是否在线
     robot_registry = RobotRegistry()
-    if not robot_registry.is_online(robot_id):
-        await websocket.close(code=4004, reason="Robot offline")
-        return
+    if not robot_registry.is_online(req.robot_id):
+        return SignalingResponse(session_id=req.session_id or "", messages=[{
+            "type": "error",
+            "message": "Robot offline"
+        }])
     
-    await websocket.accept()
-    
-    # 创建信令会话
     relay = SignalingRelay()
-    session_id = await relay.create_session(user.id, robot_id, websocket)
-    
-    try:
-        while True:
-            data = await websocket.receive_json()
-            await relay.handle_message(session_id, data)
-    except WebSocketDisconnect:
-        await relay.close_session(session_id)
+    session_id, outbox = await relay.handle_http_message(user.id, req.robot_id, req.session_id, req.message)
+    return SignalingResponse(session_id=session_id, messages=outbox)
 ```
 
 ```protobuf
@@ -371,7 +340,7 @@ message ErrorMessage {
 # app/schemas/robot.py (扩展)
 class RobotWebRTCConfig(BaseModel):
     """机器人 WebRTC 配置"""
-    signaling_url: str           # WebSocket 信令地址
+    signaling_url: str           # HTTP 信令地址
     ice_servers: List[ICEServer] # STUN/TURN 服务器
     video_sources: List[str]     # 可用视频源
     data_channels: List[DataChannelConfig]  # DataChannel 配置
@@ -393,7 +362,7 @@ class DataChannelConfig(BaseModel):
 
 ---
 
-### Phase 2: Robot Endpoint 开发 (预计 3 周)
+### Phase 2: Robot Endpoint (预计 3 周)
 
 #### 2.1 项目初始化
 
@@ -409,7 +378,7 @@ class DataChannelConfig(BaseModel):
 |------|------|------|------|
 | WebRTC | libwebrtc / libdatachannel | libdatachannel | 轻量、易集成、支持 DataChannel |
 | Media | GStreamer + webrtcbin | GStreamer | 成熟、硬件编码支持好 |
-| Signaling | Boost.Beast WebSocket | Boost.Beast | 已在用，保持一致 |
+| Signaling | HTTP REST / 长轮询 | FastAPI | 仅 HTTP |
 
 #### 2.2 Signaling Client
 
@@ -453,7 +422,7 @@ private:
 
 **Proto 拆分设计**:
 
-不再使用统一的 `WebSocketMessage`，而是为每个 Channel 定义专用 Envelope：
+为每个 Channel 定义专用 Envelope：
 
 ```protobuf
 // shared/proto/control.proto
@@ -516,20 +485,12 @@ private:
 };
 ```
 
-#### 2.4 集成原有功能
+#### 2.4 功能集成
 
-**从 data_plane 迁移**:
-
-- [ ] `message_handler.cpp` → `control_handler.cpp`
-- [ ] `state_cache.cpp` → `state_publisher.cpp`
-- [ ] `ros2_bridge.cpp` → 保持
-- [ ] `watchdog.cpp` → 保持
-- [ ] `auth.cpp` → 简化（Token 验证移到 Signaling Server）
-
-**从 media_plane 迁移**:
-
-- [ ] `pipeline_manager.cpp` → `media_track_manager.cpp`
-- [ ] `webrtc_peer.cpp` → `peer_connection.cpp`
+- [ ] 控制通道接入（底盘/机械臂/夹爪）
+- [ ] 状态推送通道（关节/IMU/电池/TF）
+- [ ] 事件通道（日志/告警/任务事件）
+- [ ] 媒体轨道管理（多路视频）
 
 ### Phase 2.5: 开发辅助工具 (Mock Robot)
 
@@ -551,7 +512,7 @@ private:
 
 - [ ] 创建统一的 `WebRTCConnection` 类
 - [ ] 实现 DataChannel 消息处理
-- [ ] 移除原有 WebSocket 连接逻辑
+- [ ] 仅保留 HTTP 信令 + WebRTC 直连
 
 **代码示例**:
 
@@ -562,12 +523,12 @@ export class WebRTCConnection {
     private controlChannel: RTCDataChannel | null = null;
     private stateChannel: RTCDataChannel | null = null;
     private eventChannel: RTCDataChannel | null = null;
-    private signalingWs: WebSocket | null = null;
+    private signalingHttp: HttpSignalingClient | null = null;
     
     async connect(robotId: string, token: string) {
         // 1. 连接信令服务器
-        this.signalingWs = new WebSocket(
-            `wss://${SIGNALING_HOST}/api/v1/signaling/${robotId}?token=${token}`
+        this.signalingHttp = new HttpSignalingClient(
+            `https://${SIGNALING_HOST}/api/v1/signaling`, token, robotId
         );
         
         // 2. 创建 PeerConnection
@@ -581,8 +542,7 @@ export class WebRTCConnection {
         };
         
         // 4. 等待来自 Robot 的 Offer
-        this.signalingWs.onmessage = async (event) => {
-            const msg = JSON.parse(event.data);
+        this.signalingHttp.onmessage = async (msg) => {
             await this.handleSignalingMessage(msg);
         };
     }
@@ -618,7 +578,7 @@ export class WebRTCConnection {
 
 ---
 
-### Phase 4: 测试与迁移 (预计 1 周)
+### Phase 4: 测试与上线 (预计 1 周)
 
 #### 4.1 测试计划
 
@@ -629,7 +589,7 @@ export class WebRTCConnection {
 | 性能测试 | 延迟、吞吐量 | 自定义脚本 |
 | NAT 穿透测试 | 不同网络环境 | 多设备测试 |
 
-#### 4.2 迁移策略与构建更新
+#### 4.2 构建与部署更新
 
 **构建脚本更新**:
 
@@ -649,29 +609,9 @@ build_robot_endpoint() {
 }
 ```
 
-**部署架构调整**:
-- `qyh-signaling.service` (Python/FastAPI)
-- `qyh-robot.service` (C++ Binary)
-
-**分阶段迁移**:
-
-```
-Week 1: 并行运行
-├─ 新架构 (WebRTC All-in-one)
-│   └─ 端口 8888
-└─ 旧架构 (HTTP + WS + WebRTC)
-    ├─ 端口 8000 (HTTP)
-    ├─ 端口 8765 (WS)
-    └─ 端口 8888 (WebRTC 视频)
-
-Week 2: 灰度切换
-├─ 10% 流量 → 新架构
-└─ 90% 流量 → 旧架构
-
-Week 3: 全量切换
-├─ 100% 流量 → 新架构
-└─ 旧架构关闭
-```
+**部署架构**:
+- `qyh-signaling.service` (HTTP Signaling)
+- `qyh-robot.service` (Robot Endpoint)
 
 ---
 
@@ -683,8 +623,8 @@ Week 3: 全量切换
 1. Client → Signaling Server: POST /login
    └─ Response: { access_token, refresh_token }
 
-2. Client → Signaling Server: WS /signaling/{robot_id}?token=xxx
-   └─ Server 验证 Token，建立信令会话
+2. Client → Signaling Server: POST /signaling (带 token)
+    └─ Server 验证 Token，建立信令会话
 
 3. Signaling Server → Robot: 转发 SDP (包含 session_id)
    └─ Robot 通过 session_id 关联客户端
@@ -717,8 +657,8 @@ Robot Endpoint 内置 Watchdog:
 
 | 指标 | 当前值 | 目标值 |
 |------|--------|--------|
-| 控制命令延迟 | 15-30ms (WS) | <10ms (DataChannel) |
-| 状态推送延迟 | 20-40ms (WS) | <15ms (DataChannel) |
+| 控制命令延迟 | 目标 <10ms (DataChannel) |
+| 状态推送延迟 | 目标 <15ms (DataChannel) |
 | 视频端到端延迟 | 80-150ms | <100ms |
 | NAT 穿透成功率 | N/A | >95% |
 | 并发连接数 | 10 | 20+ |
@@ -730,7 +670,7 @@ Robot Endpoint 内置 Watchdog:
 ```
 2026-02
 ├─ Week 1-2: Phase 1 - 信令服务器改造
-│   ├─ 信令 WebSocket 端点
+│   ├─ 信令 HTTP 端点
 │   ├─ 机器人注册 API
 │   └─ 会话管理
 
@@ -753,16 +693,14 @@ Robot Endpoint 内置 Watchdog:
 
 ---
 
-## 🗑️ 废弃组件
+## 🧩 关键接口清单
 
-以下组件在新架构完成后将被废弃：
-
-| 组件 | 原路径 | 替代方案 |
-|------|--------|----------|
-| Data Plane | `data_plane/` | `robot_endpoint/` DataChannel |
-| Media Plane | `media_plane/` | `robot_endpoint/` MediaTrack |
-| WebSocket 状态推送 | `data_plane/src/session.cpp` | DataChannel #2 |
-| WebSocket 控制命令 | `data_plane/src/message_handler.cpp` | DataChannel #1 |
+| 类型 | 接口 | 说明 |
+|------|------|------|
+| Auth | `POST /login` | 登录获取 token |
+| Robots | `GET /robots` | 机器人列表 |
+| Robots | `GET /robots/{id}/webrtc-config` | ICE + DataChannel 配置 |
+| Signaling | `POST /signaling` | SDP/ICE 交换 |
 
 ---
 
@@ -779,7 +717,7 @@ Robot Endpoint 内置 Watchdog:
 ## ✅ 检查清单
 
 ### Phase 1 完成标准
-- [ ] Signaling WebSocket 端点可连接
+- [ ] Signaling HTTP 端点可连接
 - [ ] SDP Offer/Answer 可正常转发
 - [ ] ICE Candidate 可正常转发
 - [ ] 机器人在线状态可查询
