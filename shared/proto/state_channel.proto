@@ -1,0 +1,19 @@
+// 状态通道封装 - DataChannel #2
+syntax = "proto3";
+package qyh.dataplane;
+
+import "state.proto";
+
+option cc_enable_arenas = true;
+
+message StateChannelMessage {
+    uint64 timestamp = 1;
+    oneof payload {
+        RobotState robot_state = 2;
+        JointState joint_state = 3;
+        ChassisState chassis_state = 4;
+        ActuatorState actuator_state = 5;
+        GripperState gripper_state = 6;
+        ImuData imu = 7;
+    }
+}

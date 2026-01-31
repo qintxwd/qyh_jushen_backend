@@ -6,6 +6,22 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(CURL REQUIRED)
 find_package(yaml-cpp REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(GST REQUIRED gstreamer-1.0 gstreamer-app-1.0)
+find_package(Protobuf REQUIRED)
+
+option(ROBOT_ENDPOINT_ENABLE_ROS2 "Enable ROS2 integration" OFF)
+option(ROBOT_ENDPOINT_ENABLE_WEBRTC "Enable libdatachannel" OFF)
+if(ROBOT_ENDPOINT_ENABLE_ROS2)
+    find_package(rclcpp REQUIRED)
+    find_package(sensor_msgs REQUIRED)
+    add_definitions(-DROBOT_ENDPOINT_ENABLE_ROS2)
+endif()
+
+if(ROBOT_ENDPOINT_ENABLE_WEBRTC)
+    find_package(LibDataChannel REQUIRED)
+    add_definitions(-DROBOT_ENDPOINT_ENABLE_WEBRTC)
+endif()
 find_package(nlohmann_json 3.9 QUIET)
 if(NOT nlohmann_json_FOUND)
     include(FetchContent)
@@ -16,20 +32,46 @@ if(NOT nlohmann_json_FOUND)
     FetchContent_MakeAvailable(json)
 endif()
 
+set(PROTO_DIR ${CMAKE_SOURCE_DIR}/../shared/proto)
+file(GLOB PROTO_FILES
+    "${PROTO_DIR}/*.proto"
+)
+
+protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS ${PROTO_FILES})
+
 add_executable(${PROJECT_NAME}
     src/main.cpp
     src/signaling_client.cpp
     src/webrtc_peer.cpp
+    src/webrtc_session.cpp
+    src/data_channel_manager.cpp
     src/data_channel_manager.cpp
     src/config.cpp
+    src/media_pipeline.cpp
+    src/ros2_bridge.cpp
+    ${PROTO_SRCS}
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${GST_INCLUDE_DIRS}
+    ${CMAKE_CURRENT_BINARY_DIR}
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     CURL::libcurl
     nlohmann_json::nlohmann_json
     yaml-cpp
+    ${GST_LIBRARIES}
+    protobuf::libprotobuf
 )
+
+if(ROBOT_ENDPOINT_ENABLE_ROS2)
+    target_link_libraries(${PROJECT_NAME} PRIVATE rclcpp::rclcpp sensor_msgs::sensor_msgs)
+endif()
+
+if(ROBOT_ENDPOINT_ENABLE_WEBRTC)
+    target_link_libraries(${PROJECT_NAME} PRIVATE LibDataChannel::LibDataChannel)
+endif()
+
+target_compile_options(${PROJECT_NAME} PRIVATE ${GST_CFLAGS_OTHER})

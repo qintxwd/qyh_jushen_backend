@@ -1,0 +1,23 @@
+// 控制通道封装 - DataChannel #1
+syntax = "proto3";
+package qyh.dataplane;
+
+import "control.proto";
+
+option cc_enable_arenas = true;
+
+message ControlChannelMessage {
+    uint64 sequence_id = 1;
+    oneof payload {
+        ChassisVelocity chassis_vel = 2;
+        JointCommand joint_cmd = 3;
+        GripperCommand gripper = 4;
+        ArmMoveCommand arm_move = 5;
+        ArmJogCommand arm_jog = 6;
+        NavigationGoal nav_goal = 7;
+        NavigationControl nav_ctrl = 8;
+        HeadCommand head_cmd = 9;
+        WaistCommand waist_cmd = 10;
+        LiftCommand lift_cmd = 11;
+    }
+}

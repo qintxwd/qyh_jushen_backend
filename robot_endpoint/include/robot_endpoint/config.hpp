@@ -25,10 +25,25 @@ struct WebRtcConfig {
     std::vector<IceServer> ice_servers;
 };
 
+struct CameraConfig {
+    std::string name;
+    std::string color_topic;
+    std::string depth_topic;
+    int width = 1280;
+    int height = 720;
+    int fps = 0; // 0 表示跟随 ROS 实际频率
+};
+
+struct MediaConfig {
+    std::string encoding = "h265";
+    std::vector<CameraConfig> cameras;
+};
+
 struct Config {
     RobotConfig robot;
     SignalingConfig signaling;
     WebRtcConfig webrtc;
+    MediaConfig media;
 };
 
 Config load_config(const std::string& path);

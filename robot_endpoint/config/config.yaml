@@ -9,3 +9,25 @@ signaling:
 webrtc:
   ice_servers:
     - urls: "stun:stun.l.google.com:19302"
+
+media:
+  encoding: "h265"
+  cameras:
+    - name: "head"
+      color_topic: "/head_camera/color/image_raw"
+      depth_topic: "/head_camera/depth/image_raw"
+      width: 1280
+      height: 720
+      fps: 0
+    - name: "left"
+      color_topic: "/left_camera/color/image_raw"
+      depth_topic: "/left_camera/depth/image_raw"
+      width: 1280
+      height: 720
+      fps: 0
+    - name: "right"
+      color_topic: "/right_camera/color/image_raw"
+      depth_topic: "/right_camera/depth/image_raw"
+      width: 1280
+      height: 720
+      fps: 0
