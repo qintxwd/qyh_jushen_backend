@@ -86,6 +86,15 @@ Config load_config(const std::string& path) {
         cfg.ros2.led_blink_topic = root["ros2"]["led_blink_topic"].as<std::string>(cfg.ros2.led_blink_topic);
 
         cfg.ros2.shutdown_service = root["ros2"]["shutdown_service"].as<std::string>(cfg.ros2.shutdown_service);
+        cfg.ros2.shutdown_state_topic = root["ros2"]["shutdown_state_topic"].as<std::string>(cfg.ros2.shutdown_state_topic);
+
+        cfg.ros2.vr_head_pose_topic = root["ros2"]["vr_head_pose_topic"].as<std::string>(cfg.ros2.vr_head_pose_topic);
+        cfg.ros2.vr_left_active_topic = root["ros2"]["vr_left_active_topic"].as<std::string>(cfg.ros2.vr_left_active_topic);
+        cfg.ros2.vr_right_active_topic = root["ros2"]["vr_right_active_topic"].as<std::string>(cfg.ros2.vr_right_active_topic);
+        cfg.ros2.vr_left_pose_topic = root["ros2"]["vr_left_pose_topic"].as<std::string>(cfg.ros2.vr_left_pose_topic);
+        cfg.ros2.vr_right_pose_topic = root["ros2"]["vr_right_pose_topic"].as<std::string>(cfg.ros2.vr_right_pose_topic);
+        cfg.ros2.vr_left_joy_topic = root["ros2"]["vr_left_joy_topic"].as<std::string>(cfg.ros2.vr_left_joy_topic);
+        cfg.ros2.vr_right_joy_topic = root["ros2"]["vr_right_joy_topic"].as<std::string>(cfg.ros2.vr_right_joy_topic);
     }
 
     if (root["media"]) {

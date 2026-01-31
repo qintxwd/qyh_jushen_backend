@@ -25,6 +25,7 @@ if(ROBOT_ENDPOINT_ENABLE_ROS2)
     find_package(qyh_jaka_control_msgs REQUIRED)
     find_package(qyh_standard_robot_msgs REQUIRED)
     find_package(qyh_task_engine_msgs REQUIRED)
+    find_package(qyh_shutdown_msgs REQUIRED)
     add_definitions(-DROBOT_ENDPOINT_ENABLE_ROS2)
 endif()
 
@@ -61,6 +62,8 @@ add_executable(${PROJECT_NAME}
     src/ros2_control_state.cpp
     src/ros2_control_state_control.cpp
     src/ros2_control_state_state.cpp
+    src/ros2_control_state_basic.cpp
+    src/ros2_control_state_robot.cpp
     ${PROTO_SRCS}
 )
 
@@ -92,6 +95,7 @@ if(ROBOT_ENDPOINT_ENABLE_ROS2)
         qyh_jaka_control_msgs::qyh_jaka_control_msgs
         qyh_standard_robot_msgs::qyh_standard_robot_msgs
         qyh_task_engine_msgs::qyh_task_engine_msgs
+        qyh_shutdown_msgs::qyh_shutdown_msgs
     )
 endif()
 

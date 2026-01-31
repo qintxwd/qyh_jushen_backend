@@ -65,6 +65,14 @@ ros2:
   led_color_topic: "/robot_led/set_color"
   led_blink_topic: "/robot_led/blink"
   shutdown_service: "/shutdown"
+  shutdown_state_topic: "/shutdown_state"
+  vr_head_pose_topic: "/vr/head/pose"
+  vr_left_active_topic: "/vr/left_controller/active"
+  vr_right_active_topic: "/vr/right_controller/active"
+  vr_left_pose_topic: "/vr/left_controller/pose"
+  vr_right_pose_topic: "/vr/right_controller/pose"
+  vr_left_joy_topic: "/vr/left_controller/joy"
+  vr_right_joy_topic: "/vr/right_controller/joy"
 
 media:
   encoding: "h265"

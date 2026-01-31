@@ -259,3 +259,12 @@ message BasicState {
     bool control_held = 17;             // 是否有人持有控制权
     string control_holder = 18;         // 控制权持有者
 }
+
+// 关机状态
+message ShutdownState {
+    Header header = 1;
+    bool shutdown_in_progress = 2;
+    uint32 trigger_source = 3;          // 0=无,1=硬件,2=软件
+    int32 countdown_seconds = 4;
+    bool plc_connected = 5;
+}

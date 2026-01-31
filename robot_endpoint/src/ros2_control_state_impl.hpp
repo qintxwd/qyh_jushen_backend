@@ -54,7 +54,12 @@
 #include <qyh_task_engine_msgs/msg/task_status.hpp>
 #include <std_msgs/msg/color_rgba.hpp>
 #include <std_msgs/msg/string.hpp>
+#include <std_msgs/msg/bool.hpp>
+#include <sensor_msgs/msg/joy.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
+#include <optional>
 #include <std_srvs/srv/trigger.hpp>
+#include <qyh_shutdown_msgs/msg/shutdown_state.hpp>
 #include <cmath>
 #include <array>
 #endif
@@ -173,6 +178,56 @@ struct Ros2ControlStateBridge::Impl {
     rclcpp::Subscription<qyh_gripper_msgs::msg::GripperState>::SharedPtr left_gripper_sub;
     rclcpp::Subscription<qyh_gripper_msgs::msg::GripperState>::SharedPtr right_gripper_sub;
     rclcpp::Subscription<qyh_task_engine_msgs::msg::TaskStatus>::SharedPtr task_status_sub;
+    rclcpp::Subscription<qyh_shutdown_msgs::msg::ShutdownState>::SharedPtr shutdown_state_sub;
+
+    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr vr_head_pose_sub;
+    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr vr_left_active_sub;
+    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr vr_right_active_sub;
+    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr vr_left_pose_sub;
+    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr vr_right_pose_sub;
+    rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr vr_left_joy_sub;
+    rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr vr_right_joy_sub;
+
+    qyh::dataplane::Pose vr_head_pose;
+    qyh::dataplane::Pose vr_left_pose;
+    qyh::dataplane::Pose vr_right_pose;
+    bool vr_connected = false;
+    bool vr_left_active = false;
+    bool vr_right_active = false;
+    bool vr_left_clutch = false;
+    bool vr_right_clutch = false;
+
+    bool arm_connected = false;
+    bool lift_connected = false;
+    bool waist_connected = false;
+    bool head_connected = false;
+    bool left_gripper_connected = false;
+    bool right_gripper_connected = false;
+    bool left_gripper_activated = false;
+    bool right_gripper_activated = false;
+
+    bool has_arm = false;
+    bool has_chassis = false;
+    bool has_joints = false;
+    bool has_lift = false;
+    bool has_waist = false;
+    bool has_head_pan = false;
+    bool has_head_tilt = false;
+    bool has_left_gripper = false;
+    bool has_right_gripper = false;
+    bool is_auto_mode = false;
+    bool chassis_error = false;
+    uint32_t last_chassis_error_code = 0;
+
+    qyh::dataplane::ArmState cached_arm;
+    qyh::dataplane::ChassisState cached_chassis;
+    qyh::dataplane::JointState cached_joints;
+    qyh::dataplane::ActuatorState cached_lift;
+    qyh::dataplane::ActuatorState cached_waist;
+    qyh::dataplane::ActuatorState cached_head_pan;
+    qyh::dataplane::ActuatorState cached_head_tilt;
+    qyh::dataplane::GripperState cached_left_gripper;
+    qyh::dataplane::GripperState cached_right_gripper;
 
     qyh_standard_robot_msgs::msg::NavigationStatus last_nav;
     bool has_nav = false;
@@ -182,6 +237,11 @@ struct Ros2ControlStateBridge::Impl {
 namespace detail {
     void setup_control_io(Ros2ControlStateBridge::Impl& impl);
     void setup_state_subscriptions(Ros2ControlStateBridge::Impl& impl);
+    void publish_basic_state(Ros2ControlStateBridge::Impl& impl,
+                             const qyh_standard_robot_msgs::msg::StandardRobotStatus& msg);
+    void publish_robot_state(Ros2ControlStateBridge::Impl& impl,
+                             const builtin_interfaces::msg::Time& stamp,
+                             const std::string& frame);
 }
 
 } // namespace qyh::robot

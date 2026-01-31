@@ -87,6 +87,15 @@ struct Ros2Config {
     std::string led_blink_topic = "/robot_led/blink";
 
     std::string shutdown_service = "/shutdown";
+    std::string shutdown_state_topic = "/shutdown_state";
+
+    std::string vr_head_pose_topic = "/vr/head/pose";
+    std::string vr_left_active_topic = "/vr/left_controller/active";
+    std::string vr_right_active_topic = "/vr/right_controller/active";
+    std::string vr_left_pose_topic = "/vr/left_controller/pose";
+    std::string vr_right_pose_topic = "/vr/right_controller/pose";
+    std::string vr_left_joy_topic = "/vr/left_controller/joy";
+    std::string vr_right_joy_topic = "/vr/right_controller/joy";
 };
 
 struct CameraConfig {

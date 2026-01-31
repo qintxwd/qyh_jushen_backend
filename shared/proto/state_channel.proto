@@ -16,5 +16,8 @@ message StateChannelMessage {
         GripperState gripper_state = 6;
         ImuData imu = 7;
         TaskState task_state = 8;
+        VRSystemState vr_state = 9;
+        BasicState basic_state = 10;
+        ShutdownState shutdown_state = 11;
     }
 }

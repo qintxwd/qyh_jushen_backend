@@ -30,6 +30,9 @@ void setup_state_subscriptions(Ros2ControlStateBridge::Impl& impl) {
                     state->add_efforts(v);
                 }
                 impl.on_state(out);
+                impl.cached_joints = *state;
+                impl.has_joints = true;
+                detail::publish_robot_state(impl, msg->header.stamp, msg->header.frame_id);
             });
     }
 
@@ -122,6 +125,15 @@ void setup_state_subscriptions(Ros2ControlStateBridge::Impl& impl) {
                 }
 
                 impl.on_state(out);
+                detail::publish_basic_state(impl, *msg);
+                impl.cached_chassis = *chassis;
+                impl.has_chassis = true;
+                impl.is_auto_mode = msg->is_auto_mode;
+                impl.chassis_error = (msg->system_status == msg->SYS_STATUS_ERROR ||
+                                      msg->system_status == msg->SYS_STATUS_NAV_ERROR ||
+                                      msg->system_status == msg->SYS_STATUS_HARDWARE_ERROR);
+                impl.last_chassis_error_code = msg->last_error_code;
+                detail::publish_robot_state(impl, stamp, msg->pose.header.frame_id);
             });
     }
 
@@ -130,6 +142,7 @@ void setup_state_subscriptions(Ros2ControlStateBridge::Impl& impl) {
             impl.cfg.arm_state_topic, rclcpp::SensorDataQoS(),
             [&impl](qyh_jaka_control_msgs::msg::RobotState::ConstSharedPtr msg) {
                 if (!impl.on_state) return;
+                impl.arm_connected = msg->connected;
                 qyh::dataplane::StateChannelMessage out;
                 out.set_timestamp(static_cast<uint64_t>(msg->header.stamp.sec) * 1000ULL
                                   + static_cast<uint64_t>(msg->header.stamp.nanosec) / 1000000ULL);
@@ -155,6 +168,9 @@ void setup_state_subscriptions(Ros2ControlStateBridge::Impl& impl) {
                 fill_pose(arm->mutable_left_end_effector(), msg->left_cartesian_pose);
                 fill_pose(arm->mutable_right_end_effector(), msg->right_cartesian_pose);
                 impl.on_state(out);
+                impl.cached_arm = *arm;
+                impl.has_arm = true;
+                detail::publish_robot_state(impl, msg->header.stamp, msg->header.frame_id);
             });
     }
 
@@ -163,6 +179,7 @@ void setup_state_subscriptions(Ros2ControlStateBridge::Impl& impl) {
             impl.cfg.lift_state_topic, rclcpp::SensorDataQoS(),
             [&impl](qyh_lift_msgs::msg::LiftState::ConstSharedPtr msg) {
                 if (!impl.on_state) return;
+                impl.lift_connected = msg->connected;
                 qyh::dataplane::StateChannelMessage out;
                 out.set_timestamp(static_cast<uint64_t>(msg->header.stamp.sec) * 1000ULL
                                   + static_cast<uint64_t>(msg->header.stamp.nanosec) / 1000000ULL);
@@ -174,6 +191,9 @@ void setup_state_subscriptions(Ros2ControlStateBridge::Impl& impl) {
                 act->set_in_motion(!msg->position_reached);
                 act->set_in_position(msg->position_reached);
                 impl.on_state(out);
+                impl.cached_lift = *act;
+                impl.has_lift = true;
+                detail::publish_robot_state(impl, msg->header.stamp, msg->header.frame_id);
             });
     }
 
@@ -182,6 +202,7 @@ void setup_state_subscriptions(Ros2ControlStateBridge::Impl& impl) {
             impl.cfg.waist_state_topic, rclcpp::SensorDataQoS(),
             [&impl](qyh_waist_msgs::msg::WaistState::ConstSharedPtr msg) {
                 if (!impl.on_state) return;
+                impl.waist_connected = msg->connected;
                 qyh::dataplane::StateChannelMessage out;
                 out.set_timestamp(static_cast<uint64_t>(msg->header.stamp.sec) * 1000ULL
                                   + static_cast<uint64_t>(msg->header.stamp.nanosec) / 1000000ULL);
@@ -193,6 +214,9 @@ void setup_state_subscriptions(Ros2ControlStateBridge::Impl& impl) {
                 act->set_in_motion(!msg->position_reached);
                 act->set_in_position(msg->position_reached);
                 impl.on_state(out);
+                impl.cached_waist = *act;
+                impl.has_waist = true;
+                detail::publish_robot_state(impl, msg->header.stamp, msg->header.frame_id);
             });
     }
 
@@ -201,6 +225,7 @@ void setup_state_subscriptions(Ros2ControlStateBridge::Impl& impl) {
             impl.cfg.head_joint_state_topic, rclcpp::SensorDataQoS(),
             [&impl](sensor_msgs::msg::JointState::ConstSharedPtr msg) {
                 if (!impl.on_state) return;
+                impl.head_connected = true;
                 for (size_t i = 0; i < msg->name.size(); ++i) {
                     const auto& name = msg->name[i];
                     double pos = (i < msg->position.size()) ? msg->position[i] : 0.0;
@@ -219,6 +244,14 @@ void setup_state_subscriptions(Ros2ControlStateBridge::Impl& impl) {
                     act->set_in_motion(std::abs(vel) > 1e-6);
                     act->set_in_position(std::abs(vel) <= 1e-6);
                     impl.on_state(out);
+                    if (name.find("pan") != std::string::npos) {
+                        impl.cached_head_pan = *act;
+                        impl.has_head_pan = true;
+                    } else {
+                        impl.cached_head_tilt = *act;
+                        impl.has_head_tilt = true;
+                    }
+                    detail::publish_robot_state(impl, msg->header.stamp, msg->header.frame_id);
                 }
             });
     }
@@ -228,6 +261,8 @@ void setup_state_subscriptions(Ros2ControlStateBridge::Impl& impl) {
             impl.cfg.left_gripper_state_topic, rclcpp::SensorDataQoS(),
             [&impl](qyh_gripper_msgs::msg::GripperState::ConstSharedPtr msg) {
                 if (!impl.on_state) return;
+                impl.left_gripper_connected = msg->communication_ok;
+                impl.left_gripper_activated = msg->is_activated;
                 qyh::dataplane::StateChannelMessage out;
                 out.set_timestamp(static_cast<uint64_t>(msg->header.stamp.sec) * 1000ULL
                                   + static_cast<uint64_t>(msg->header.stamp.nanosec) / 1000000ULL);
@@ -239,6 +274,9 @@ void setup_state_subscriptions(Ros2ControlStateBridge::Impl& impl) {
                 g->set_object_detected(msg->object_status == 2);
                 g->set_in_motion(msg->is_moving);
                 impl.on_state(out);
+                impl.cached_left_gripper = *g;
+                impl.has_left_gripper = true;
+                detail::publish_robot_state(impl, msg->header.stamp, msg->header.frame_id);
             });
     }
 
@@ -247,6 +285,8 @@ void setup_state_subscriptions(Ros2ControlStateBridge::Impl& impl) {
             impl.cfg.right_gripper_state_topic, rclcpp::SensorDataQoS(),
             [&impl](qyh_gripper_msgs::msg::GripperState::ConstSharedPtr msg) {
                 if (!impl.on_state) return;
+                impl.right_gripper_connected = msg->communication_ok;
+                impl.right_gripper_activated = msg->is_activated;
                 qyh::dataplane::StateChannelMessage out;
                 out.set_timestamp(static_cast<uint64_t>(msg->header.stamp.sec) * 1000ULL
                                   + static_cast<uint64_t>(msg->header.stamp.nanosec) / 1000000ULL);
@@ -258,6 +298,9 @@ void setup_state_subscriptions(Ros2ControlStateBridge::Impl& impl) {
                 g->set_object_detected(msg->object_status == 2);
                 g->set_in_motion(msg->is_moving);
                 impl.on_state(out);
+                impl.cached_right_gripper = *g;
+                impl.has_right_gripper = true;
+                detail::publish_robot_state(impl, msg->header.stamp, msg->header.frame_id);
             });
     }
 
@@ -296,6 +339,113 @@ void setup_state_subscriptions(Ros2ControlStateBridge::Impl& impl) {
                 task->set_current_action(msg->current_node_id);
                 task->set_error_message(msg->message);
                 impl.on_state(out);
+            });
+    }
+
+    if (!impl.cfg.shutdown_state_topic.empty()) {
+        impl.shutdown_state_sub = impl.node->create_subscription<qyh_shutdown_msgs::msg::ShutdownState>(
+            impl.cfg.shutdown_state_topic, rclcpp::SensorDataQoS(),
+            [&impl](qyh_shutdown_msgs::msg::ShutdownState::ConstSharedPtr msg) {
+                if (!impl.on_state) return;
+                qyh::dataplane::StateChannelMessage out;
+                out.set_timestamp(static_cast<uint64_t>(rclcpp::Clock().now().seconds()) * 1000ULL);
+                auto* s = out.mutable_shutdown_state();
+                s->mutable_header()->set_frame_id("shutdown");
+                s->set_shutdown_in_progress(msg->shutdown_in_progress);
+                s->set_trigger_source(static_cast<uint32_t>(msg->trigger_source));
+                s->set_countdown_seconds(msg->countdown_seconds);
+                s->set_plc_connected(msg->plc_connected);
+                impl.on_state(out);
+            });
+    }
+
+    auto publish_vr = [&impl](const builtin_interfaces::msg::Time& stamp, const std::string& frame) {
+        if (!impl.on_state) return;
+        qyh::dataplane::StateChannelMessage out;
+        out.set_timestamp(static_cast<uint64_t>(stamp.sec) * 1000ULL
+                          + static_cast<uint64_t>(stamp.nanosec) / 1000000ULL);
+        auto* vr = out.mutable_vr_state();
+        fill_header(vr->mutable_header(), frame, stamp);
+        vr->set_connected(impl.vr_connected);
+        *vr->mutable_head_pose() = impl.vr_head_pose;
+        vr->set_left_controller_active(impl.vr_left_active);
+        vr->set_right_controller_active(impl.vr_right_active);
+        vr->set_left_clutch_engaged(impl.vr_left_clutch);
+        vr->set_right_clutch_engaged(impl.vr_right_clutch);
+        impl.on_state(out);
+    };
+
+    if (!impl.cfg.vr_head_pose_topic.empty()) {
+        impl.vr_head_pose_sub = impl.node->create_subscription<geometry_msgs::msg::PoseStamped>(
+            impl.cfg.vr_head_pose_topic, rclcpp::SensorDataQoS(),
+            [&impl, publish_vr](geometry_msgs::msg::PoseStamped::ConstSharedPtr msg) {
+                fill_pose(&impl.vr_head_pose, msg->pose);
+                impl.vr_connected = true;
+                publish_vr(msg->header.stamp, msg->header.frame_id);
+            });
+    }
+
+    if (!impl.cfg.vr_left_active_topic.empty()) {
+        impl.vr_left_active_sub = impl.node->create_subscription<std_msgs::msg::Bool>(
+            impl.cfg.vr_left_active_topic, rclcpp::SensorDataQoS(),
+            [&impl, publish_vr](std_msgs::msg::Bool::ConstSharedPtr msg) {
+                impl.vr_left_active = msg->data;
+                impl.vr_connected = true;
+                publish_vr(rclcpp::Clock().now(), "vr");
+            });
+    }
+
+    if (!impl.cfg.vr_right_active_topic.empty()) {
+        impl.vr_right_active_sub = impl.node->create_subscription<std_msgs::msg::Bool>(
+            impl.cfg.vr_right_active_topic, rclcpp::SensorDataQoS(),
+            [&impl, publish_vr](std_msgs::msg::Bool::ConstSharedPtr msg) {
+                impl.vr_right_active = msg->data;
+                impl.vr_connected = true;
+                publish_vr(rclcpp::Clock().now(), "vr");
+            });
+    }
+
+    if (!impl.cfg.vr_left_pose_topic.empty()) {
+        impl.vr_left_pose_sub = impl.node->create_subscription<geometry_msgs::msg::PoseStamped>(
+            impl.cfg.vr_left_pose_topic, rclcpp::SensorDataQoS(),
+            [&impl, publish_vr](geometry_msgs::msg::PoseStamped::ConstSharedPtr msg) {
+                fill_pose(&impl.vr_left_pose, msg->pose);
+                impl.vr_connected = true;
+                publish_vr(msg->header.stamp, msg->header.frame_id);
+            });
+    }
+
+    if (!impl.cfg.vr_right_pose_topic.empty()) {
+        impl.vr_right_pose_sub = impl.node->create_subscription<geometry_msgs::msg::PoseStamped>(
+            impl.cfg.vr_right_pose_topic, rclcpp::SensorDataQoS(),
+            [&impl, publish_vr](geometry_msgs::msg::PoseStamped::ConstSharedPtr msg) {
+                fill_pose(&impl.vr_right_pose, msg->pose);
+                impl.vr_connected = true;
+                publish_vr(msg->header.stamp, msg->header.frame_id);
+            });
+    }
+
+    if (!impl.cfg.vr_left_joy_topic.empty()) {
+        impl.vr_left_joy_sub = impl.node->create_subscription<sensor_msgs::msg::Joy>(
+            impl.cfg.vr_left_joy_topic, rclcpp::SensorDataQoS(),
+            [&impl, publish_vr](sensor_msgs::msg::Joy::ConstSharedPtr msg) {
+                impl.vr_connected = true;
+                if (msg->buttons.size() > 4) {
+                    impl.vr_left_clutch = msg->buttons[4] != 0;
+                }
+                publish_vr(rclcpp::Clock().now(), "vr");
+            });
+    }
+
+    if (!impl.cfg.vr_right_joy_topic.empty()) {
+        impl.vr_right_joy_sub = impl.node->create_subscription<sensor_msgs::msg::Joy>(
+            impl.cfg.vr_right_joy_topic, rclcpp::SensorDataQoS(),
+            [&impl, publish_vr](sensor_msgs::msg::Joy::ConstSharedPtr msg) {
+                impl.vr_connected = true;
+                if (msg->buttons.size() > 4) {
+                    impl.vr_right_clutch = msg->buttons[4] != 0;
+                }
+                publish_vr(rclcpp::Clock().now(), "vr");
             });
     }
 #else
