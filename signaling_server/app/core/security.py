@@ -2,11 +2,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import jwt
-from fastapi import Depends, HTTPException, Request
+from fastapi import HTTPException, Request
+from passlib.context import CryptContext
 
 from app.config import settings
 
 ALGORITHM = "HS256"
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 class TokenPayload:
@@ -27,10 +29,25 @@ def create_access_token(subject: str, role: str = "user") -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm=ALGORITHM)
 
 
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
+
+
 def decode_token(token: str) -> TokenPayload:
     try:
-        payload = jwt.decode(token, settings.jwt_secret, algorithms=[ALGORITHM])
-        return TokenPayload(sub=payload["sub"], role=payload.get("role", "user"))
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret,
+            algorithms=[ALGORITHM],
+        )
+        return TokenPayload(
+            sub=payload["sub"],
+            role=payload.get("role", "user"),
+        )
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
@@ -38,11 +55,12 @@ def decode_token(token: str) -> TokenPayload:
 def get_current_user(request: Request) -> TokenPayload:
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing Authorization header")
+        raise HTTPException(
+            status_code=401,
+            detail="Missing Authorization header",
+        )
     token = auth[7:]
     payload = decode_token(token)
-    if payload.role != "user":
-        raise HTTPException(status_code=401, detail="Invalid user token")
     return payload
 
 
