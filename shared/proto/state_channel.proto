@@ -15,5 +15,6 @@ message StateChannelMessage {
         ActuatorState actuator_state = 5;
         GripperState gripper_state = 6;
         ImuData imu = 7;
+        TaskState task_state = 8;
     }
 }

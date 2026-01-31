@@ -137,6 +137,60 @@ message GripperCommand {
     double force = 4;                   // 夹持力 (N)
 }
 
+// 夹爪激活/去激活
+message GripperActivate {
+    Header header = 1;
+    string gripper_id = 2;              // "left" 或 "right"
+    bool activate = 3;                  // true=激活, false=去激活
+}
+
+// 底盘手动运动命令
+message ChassisManualMotion {
+    Header header = 1;
+    bool forward = 2;
+    bool backward = 3;
+    bool left = 4;
+    bool right = 5;
+    bool rotate_left = 6;
+    bool rotate_right = 7;
+}
+
+// 底盘控制服务命令
+message ChassisControl {
+    Header header = 1;
+    string action = 2;                 // emergency_stop, release_emergency_stop,
+                                       // start_charging, stop_charging,
+                                       // enter_low_power, exit_low_power,
+                                       // start_manual, stop_manual,
+                                       // pause_mission, resume_mission, cancel_mission,
+                                       // stop_localization, system_reset
+}
+
+// 任务控制
+message TaskControl {
+    Header header = 1;
+    string action = 2;                 // execute, pause, resume, cancel
+    string task_id = 3;                // pause/resume/cancel
+    string task_json = 4;              // execute
+}
+
+// LED 控制
+message LedCommand {
+    Header header = 1;
+    string mode = 2;                   // color, blink, stop
+    uint32 r = 3;
+    uint32 g = 4;
+    uint32 b = 5;
+    uint32 w = 6;
+    string pattern = 7;                // blink pattern
+}
+
+// 关机控制
+message ShutdownCommand {
+    Header header = 1;
+    bool trigger = 2;
+}
+
 // ==================== 心跳 ====================
 
 // 心跳消息
