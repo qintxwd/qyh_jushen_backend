@@ -1,0 +1,11 @@
+robot:
+  id: "qyh-robot-001"
+  name: "QYH Robot"
+
+signaling:
+  server_url: "http://127.0.0.1:8000/api/v1/signaling"
+  robot_secret: "qyh-robot-secret"
+
+webrtc:
+  ice_servers:
+    - urls: "stun:stun.l.google.com:19302"
