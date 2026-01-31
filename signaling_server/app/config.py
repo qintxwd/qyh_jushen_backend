@@ -13,6 +13,7 @@ class Settings(BaseModel):
     jwt_secret: str = "qyh-signaling-secret-change-me"
     jwt_expire_minutes: int = 60 * 24
     robot_shared_secret: str = "qyh-robot-secret"
+    control_watchdog_timeout: float = 1.0
 
     default_admin_username: str = "admin"
     default_admin_password: str = "admin123"

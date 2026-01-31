@@ -1,11 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1 import auth, robots, session, signaling
+from app.api.v1 import auth, control, robots, session, signaling
 from app.config import settings
 from app.core.security import get_password_hash
 from app.database import Base, SessionLocal, engine
 from app.models.user import User, UserRole
+from app.safety.watchdog import watchdog
 
 app = FastAPI(title="QYH Signaling Server", version="2.1")
 
@@ -18,6 +19,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(control.router)
 app.include_router(robots.router)
 app.include_router(session.router)
 app.include_router(signaling.router)
@@ -47,6 +49,13 @@ def setup_database() -> None:
             db.commit()
     finally:
         db.close()
+    watchdog.timeout = settings.control_watchdog_timeout
+    watchdog.start()
+
+
+@app.on_event("shutdown")
+def shutdown_services() -> None:
+    watchdog.stop()
 
 
 @app.get("/health")
