@@ -2528,6 +2528,80 @@ class ROS2ServiceClient:
             logger.error(f"Failed to stop arm motion: {e}")
             return False
 
+    async def lift_control(self, command: int, value: float = 0.0) -> ServiceResponse:
+        """
+        控制升降柱
+        
+        Args:
+            command: LiftCommand 枚举值
+            value: 相关数值 (位置、速度等)
+        """
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 not initialized")
+            
+        try:
+            from qyh_lift_msgs.srv import LiftControl
+            
+            client = self._service_clients.get('lift_control')
+            if not client:
+                return ServiceResponse(False, "Lift control service not available")
+                
+            if not client.wait_for_service(timeout_sec=1.0):
+                return ServiceResponse(False, "Lift control service timeout")
+                
+            request = LiftControl.Request()
+            request.command = int(command)
+            request.value = float(value)
+            
+            future = client.call_async(request)
+            result = await self._wait_for_future(future, timeout=2.0)
+            
+            if result:
+                return ServiceResponse(result.success, result.message)
+            else:
+                return ServiceResponse(False, "Service call failed")
+                
+        except Exception as e:
+            logger.error(f"Lift control failed: {e}")
+            return ServiceResponse(False, str(e))
+
+    async def waist_control(self, command: int, value: float = 0.0) -> ServiceResponse:
+        """
+        控制腰部
+        
+        Args:
+            command: WaistCommand 枚举值
+            value: 相关数值 (角度、速度等)
+        """
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 not initialized")
+            
+        try:
+            from qyh_waist_msgs.srv import WaistControl
+            
+            client = self._service_clients.get('waist_control')
+            if not client:
+                return ServiceResponse(False, "Waist control service not available")
+                
+            if not client.wait_for_service(timeout_sec=1.0):
+                return ServiceResponse(False, "Waist control service timeout")
+                
+            request = WaistControl.Request()
+            request.command = int(command)
+            request.value = float(value)
+            
+            future = client.call_async(request)
+            result = await self._wait_for_future(future, timeout=2.0)
+            
+            if result:
+                return ServiceResponse(result.success, result.message)
+            else:
+                return ServiceResponse(False, "Service call failed")
+                
+        except Exception as e:
+            logger.error(f"Waist control failed: {e}")
+            return ServiceResponse(False, str(e))
+
     async def stop_all_actuators(self) -> bool:
         """
         停止所有执行器 (升降、腰部、头部)

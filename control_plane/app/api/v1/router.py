@@ -16,7 +16,7 @@ from fastapi import APIRouter
 
 from app.api.v1 import (
     auth, system, control, mode, tasks, presets, recording,
-    actions, robot, audit, chassis, led, vr, emergency, camera, arm
+    actions, robot, audit, chassis, led, vr, emergency, camera, arm, waist, lift
 )
 
 api_router = APIRouter()
@@ -69,3 +69,9 @@ api_router.include_router(camera.router, prefix="/camera", tags=["摄像头"])
 
 # 机械臂控制 (运动控制走 WebSocket: MSG_ARM_JOG/MSG_ARM_MOVE)
 api_router.include_router(arm.router, prefix="/arm", tags=["机械臂"])
+
+# 腰部控制
+api_router.include_router(waist.router, prefix="/waist", tags=["腰部"])
+
+# 升降柱控制
+api_router.include_router(lift.router, prefix="/lift", tags=["升降柱"])
