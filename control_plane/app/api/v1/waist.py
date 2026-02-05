@@ -37,14 +37,17 @@ async def get_waist_status(
     ros2: ROS2ServiceClient = Depends(get_ros2_client_dependency),
 ):
     """获取腰部实时状态"""
-    state = ros2.get_robot_state()
+    state = ros2.get_robot_state() or {}
     waist_state = state.get("waist", {})
+    
+    # 映射 ROS2 状态字段
+    is_moving = abs(waist_state.get("current_speed", 0.0)) > 0.001
     
     status = WaistStatus(
         angle=float(waist_state.get("current_angle", 0.0)),
-        is_moving=waist_state.get("is_moving", False),
-        error_code=waist_state.get("error_code", 0),
-        is_enabled=True  # 默认假设使能，实际应从 detailed status 获取
+        is_moving=is_moving,
+        error_code=waist_state.get("alarm", 0),
+        is_enabled=waist_state.get("enabled", True)
     )
     
     return success_response(data=status.dict())

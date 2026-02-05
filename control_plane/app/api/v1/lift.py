@@ -36,14 +36,17 @@ async def get_lift_status(
     ros2: ROS2ServiceClient = Depends(get_ros2_client_dependency),
 ):
     """获取升降柱实时状态"""
-    state = ros2.get_robot_state()
+    state = ros2.get_robot_state() or {}
     lift_state = state.get("lift", {})
+    
+    # 映射 ROS2 状态字段
+    is_moving = abs(lift_state.get("current_speed", 0.0)) > 0.001
     
     status = LiftStatus(
         height=float(lift_state.get("current_position", 0.0)),
-        is_moving=lift_state.get("is_moving", False),
-        error_code=lift_state.get("error_code", 0),
-        is_enabled=True
+        is_moving=is_moving,
+        error_code=lift_state.get("alarm", 0),
+        is_enabled=lift_state.get("enabled", True)
     )
     
     return success_response(data=status.dict())
