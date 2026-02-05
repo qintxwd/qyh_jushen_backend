@@ -371,14 +371,19 @@ async def get_arm_points(current_user: User = Depends(get_current_user)):
     
     points = []
     for item in items:
-        data = item.get("data", {})
+        # 兼容性处理：PresetManager 将 data 展开到了 item 根层级
+        # 但旧逻辑可能假设在 data 字段中
+        src = item
+        if "data" in item and isinstance(item["data"], dict) and item["data"]:
+            src = item["data"]
+            
         points.append({
             "id": item.get("id", ""),
             "name": item.get("name", ""),
             "description": item.get("description", ""),
             "is_builtin": item.get("is_builtin", False),
-            "left_joints": data.get("left_joints", [0.0] * 7),
-            "right_joints": data.get("right_joints", [0.0] * 7),
+            "left_joints": src.get("left_joints", [0.0] * 7),
+            "right_joints": src.get("right_joints", [0.0] * 7),
         })
     
     return success_response(
@@ -543,9 +548,13 @@ async def go_to_point(
     if not point:
         return error_response(ErrorCodes.RESOURCE_NOT_FOUND, f"点位 '{point_id}' 不存在")
     
-    data = point.get("data", {})
-    left_joints = data.get("left_joints", [0.0] * 7)
-    right_joints = data.get("right_joints", [0.0] * 7)
+    # 兼容性处理：数据通常在根层级，但也可能在 data 字段
+    src = point
+    if "data" in point and isinstance(point["data"], dict) and point["data"]:
+        src = point["data"]
+        
+    left_joints = src.get("left_joints", [0.0] * 7)
+    right_joints = src.get("right_joints", [0.0] * 7)
     
     ros2 = get_ros2_client()
     if not ros2:
