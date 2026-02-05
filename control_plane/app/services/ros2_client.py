@@ -1955,7 +1955,7 @@ class ROS2ServiceClient:
             
             request = Trigger.Request()
             future = client.call_async(request)
-            result = await self._wait_for_future(future, timeout=5.0)
+            result = await self._wait_for_future(future, timeout=20.0)
             
             if result is not None:
                 return ServiceResponse(result.success, result.message)
@@ -1979,7 +1979,7 @@ class ROS2ServiceClient:
             
             request = Trigger.Request()
             future = client.call_async(request)
-            result = await self._wait_for_future(future, timeout=5.0)
+            result = await self._wait_for_future(future, timeout=10.0)
             
             if result is not None:
                 return ServiceResponse(result.success, result.message)

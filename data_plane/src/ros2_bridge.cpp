@@ -665,6 +665,15 @@ void ROS2Bridge::jaka_robot_state_callback(const qyh_jaka_control_msgs::msg::Rob
     state.SerializeToArray(data.data(), static_cast<int>(data.size()));
     state_cache_.update_arm_state(data);
     
+    // 🔍 保存旧状态值，用于检测变化
+    bool old_enabled, old_connected, old_error;
+    {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        old_enabled = arm_enabled_;
+        old_connected = arm_connected_;
+        old_error = arm_error_;
+    }
+    
     // 更新基础状态缓存
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
@@ -673,8 +682,23 @@ void ROS2Bridge::jaka_robot_state_callback(const qyh_jaka_control_msgs::msg::Rob
         arm_error_ = msg->in_error;
     }
     
+    // 检测状态变化
+    bool enabled_changed = (old_enabled != msg->enabled);
+    bool connected_changed = (old_connected != msg->connected);
+    bool error_changed = (old_error != msg->in_error);
+    
     // Broadcast if needed, or rely on aggregation
     broadcast_state("arm_state", qyh::dataplane::MSG_ARM_STATE, data);
+    
+    // 【FIX】状态变化时立即广播basic_state，确保前端实时更新（特别是enabled状态）
+    if (enabled_changed || connected_changed || error_changed) {
+        std::cout << "[ROS2Bridge] ⚡ 机械臂状态变化: "
+                  << "enabled=" << (msg->enabled ? "✓" : "✗") 
+                  << " (was " << (old_enabled ? "✓" : "✗") << "), "
+                  << "connected=" << (msg->connected ? "✓" : "✗")
+                  << " → 立即推送状态栏更新" << std::endl;
+        broadcast_basic_state();
+    }
 }
 
 void ROS2Bridge::left_arm_state_callback(const sensor_msgs::msg::JointState::SharedPtr msg) {
