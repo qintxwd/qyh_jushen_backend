@@ -282,17 +282,21 @@ async def apply_preset(
     try:
         if preset_type == PresetType.ARM_POSE:
             # 机械臂预设 - 使用 MoveJ 服务
-            data = preset.get("data", {})
-            left_joints = data.get("left_joints", [0.0] * 7)
-            right_joints = data.get("right_joints", [0.0] * 7)
-            velocity = data.get("velocity", 0.5)
-            acceleration = data.get("acceleration", 0.3)
+            # 兼容性处理：即支持根字段也支持 data 嵌套字段
+            src = preset
+            if "left_joints" not in preset and "data" in preset and isinstance(preset["data"], dict):
+                src = preset.get("data", {})
+
+            left_joints = src.get("left_joints", [0.0] * 7)
+            right_joints = src.get("right_joints", [0.0] * 7)
+            velocity = src.get("velocity", 0.5)
+            acceleration = src.get("acceleration", 0.3)
             
             # 合并为 14 个关节位置
             joint_positions = left_joints + right_joints
             
             # 确定使用哪只手
-            side_str = data.get("side", "dual")
+            side_str = src.get("side", "dual")
             if side_str == "left":
                 robot_side = RobotSide.LEFT
             elif side_str == "right":
@@ -310,8 +314,12 @@ async def apply_preset(
             
         elif preset_type == PresetType.LIFT_HEIGHT:
             # 升降预设 - 使用 LiftControl 服务
-            data = preset.get("data", {})
-            height = data.get("height", 0.0)
+            # 兼容性处理
+            src = preset
+            if "height" not in preset and "data" in preset and isinstance(preset["data"], dict):
+                src = preset.get("data", {})
+                
+            height = src.get("height", 0.0)
             
             result = await ros2_client.lift_go_position(
                 position=height,
@@ -320,8 +328,12 @@ async def apply_preset(
             
         elif preset_type == PresetType.WAIST_ANGLE:
             # 腰部预设 - 使用 WaistControl 服务
-            data = preset.get("data", {})
-            angle = data.get("angle", 0.0)
+            # 兼容性处理
+            src = preset
+            if "angle" not in preset and "data" in preset and isinstance(preset["data"], dict):
+                src = preset.get("data", {})
+                
+            angle = src.get("angle", 0.0)
             
             result = await ros2_client.waist_go_angle(
                 angle=angle,
