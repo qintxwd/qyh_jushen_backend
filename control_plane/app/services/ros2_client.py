@@ -262,7 +262,7 @@ class ROS2ServiceClient:
                 ResumeTask,
             )
             from std_srvs.srv import Trigger as ShutdownTrigger
-            from qyh_jaka_control_msgs.srv import MoveJ, Jog, StartServo, StopServo
+            from qyh_jaka_control_msgs.srv import MoveJ, Jog, JogStop, StartServo, StopServo
             from std_srvs.srv import Trigger
             from qyh_lift_msgs.srv import LiftControl
             from qyh_waist_msgs.srv import WaistControl
@@ -342,7 +342,7 @@ class ROS2ServiceClient:
                 Jog, '/jaka/jog'
             )
             self._service_clients['arm_jog_stop'] = self._node.create_client(
-                Jog, '/jaka/jog_stop'
+                JogStop, '/jaka/jog_stop'
             )
             # 负载设置服务
             from qyh_jaka_control_msgs.srv import SetPayload
@@ -2114,9 +2114,8 @@ class ROS2ServiceClient:
             if not client or not client.wait_for_service(timeout_sec=5.0):
                 return ServiceResponse(False, "伺服启动服务不可用")
             
+            # StartServo.srv Request 部分为空，不需要设置任何字段
             request = StartServo.Request()
-            request.is_abs = True
-            request.cycle_time_ns = 8000000  # 8ms
             
             future = client.call_async(request)
             result = await self._wait_for_future(future, timeout=5.0)
