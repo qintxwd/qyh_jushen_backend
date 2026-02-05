@@ -78,6 +78,7 @@ class ErrorCodes:
     ROS2_NOT_CONNECTED = 6001
     ROBOT_IN_ERROR = 6002
     EMERGENCY_STOP_ACTIVE = 6003
+    ROS2_SERVICE_FAILED = 6004
 
 
 # ==================== 响应构造函数 ====================

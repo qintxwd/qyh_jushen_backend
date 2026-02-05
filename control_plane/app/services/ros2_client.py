@@ -132,10 +132,11 @@ class ROS2ServiceClient:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
+            cls._instance._node = None
         return cls._instance
-    
+
     def __init__(self):
-        if self._initialized:
+        if self._node is not None:
             return
 
         if not ROS2_AVAILABLE:
@@ -183,7 +184,7 @@ class ROS2ServiceClient:
         self._chassis_config_retry_interval = 5.0
         self._chassis_config_lock = threading.Lock()
         
-        self._initialized = True
+        # self._initialized will be set by initialize() method
     
     async def initialize(self) -> bool:
         """
@@ -222,6 +223,7 @@ class ROS2ServiceClient:
             await self._create_publishers()
             
             logger.info("ROS2 client initialized successfully")
+            self._initialized = True
             return True
             
         except Exception as e:
@@ -261,7 +263,6 @@ class ROS2ServiceClient:
             )
             from std_srvs.srv import Trigger as ShutdownTrigger
             from qyh_jaka_control_msgs.srv import MoveJ, Jog, StartServo, StopServo
-            from std_srvs.srv import Trigger, Jog, StartServo, StopServo
             from std_srvs.srv import Trigger
             from qyh_lift_msgs.srv import LiftControl
             from qyh_waist_msgs.srv import WaistControl
@@ -1383,7 +1384,7 @@ class ROS2ServiceClient:
             from qyh_standard_robot_msgs.srv import GoSetSpeedType
 
             client = self._service_clients.get('chassis_set_speed_level')
-            if not client or not client.wait_for_service(timeout_sec=2.0):
+            if not client or not client.wait_for_service(timeout_sec=5.0):
                 return ServiceResponse(False, "底盘速度服务不可用")
 
             request = GoSetSpeedType.Request()
@@ -1408,7 +1409,7 @@ class ROS2ServiceClient:
             from qyh_standard_robot_msgs.srv import GoSetSpeakerVolume
 
             client = self._service_clients.get('chassis_set_volume')
-            if not client or not client.wait_for_service(timeout_sec=2.0):
+            if not client or not client.wait_for_service(timeout_sec=5.0):
                 return ServiceResponse(False, "底盘音量服务不可用")
 
             request = GoSetSpeakerVolume.Request()
@@ -1595,7 +1596,7 @@ class ROS2ServiceClient:
             from qyh_bag_recorder.srv import StartRecording
             
             client = self._service_clients.get('start_recording')
-            if not client or not client.wait_for_service(timeout_sec=2.0):
+            if not client or not client.wait_for_service(timeout_sec=5.0):
                 return ServiceResponse(False, "录制服务不可用")
             
             request = StartRecording.Request()
@@ -1634,7 +1635,7 @@ class ROS2ServiceClient:
             from qyh_bag_recorder.srv import StopRecording
             
             client = self._service_clients.get('stop_recording')
-            if not client or not client.wait_for_service(timeout_sec=2.0):
+            if not client or not client.wait_for_service(timeout_sec=5.0):
                 return ServiceResponse(False, "录制服务不可用")
             
             request = StopRecording.Request()
@@ -1703,7 +1704,7 @@ class ROS2ServiceClient:
             from qyh_bag_recorder.srv import GetRecordingStatus
             
             client = self._service_clients.get('get_recording_status')
-            if not client or not client.wait_for_service(timeout_sec=2.0):
+            if not client or not client.wait_for_service(timeout_sec=5.0):
                 return RecordingStatus()
             
             request = GetRecordingStatus.Request()
@@ -1750,7 +1751,7 @@ class ROS2ServiceClient:
             from qyh_task_engine_msgs.srv import ExecuteTask
             
             client = self._service_clients.get('execute_task')
-            if not client or not client.wait_for_service(timeout_sec=2.0):
+            if not client or not client.wait_for_service(timeout_sec=5.0):
                 return ServiceResponse(False, "任务引擎服务不可用")
             
             request = ExecuteTask.Request()
@@ -1782,7 +1783,7 @@ class ROS2ServiceClient:
             from qyh_task_engine_msgs.srv import CancelTask
             
             client = self._service_clients.get('cancel_task')
-            if not client or not client.wait_for_service(timeout_sec=2.0):
+            if not client or not client.wait_for_service(timeout_sec=5.0):
                 return ServiceResponse(False, "任务引擎服务不可用")
             
             request = CancelTask.Request()
@@ -1809,7 +1810,7 @@ class ROS2ServiceClient:
             from qyh_task_engine_msgs.srv import PauseTask
             
             client = self._service_clients.get('pause_task')
-            if not client or not client.wait_for_service(timeout_sec=2.0):
+            if not client or not client.wait_for_service(timeout_sec=5.0):
                 return ServiceResponse(False, "任务引擎服务不可用")
             
             request = PauseTask.Request()
@@ -1836,7 +1837,7 @@ class ROS2ServiceClient:
             from qyh_task_engine_msgs.srv import ResumeTask
             
             client = self._service_clients.get('resume_task')
-            if not client or not client.wait_for_service(timeout_sec=2.0):
+            if not client or not client.wait_for_service(timeout_sec=5.0):
                 return ServiceResponse(False, "任务引擎服务不可用")
             
             request = ResumeTask.Request()
@@ -1869,7 +1870,7 @@ class ROS2ServiceClient:
             from std_srvs.srv import Trigger
             
             client = self._service_clients.get('shutdown')
-            if not client or not client.wait_for_service(timeout_sec=2.0):
+            if not client or not client.wait_for_service(timeout_sec=5.0):
                 return ServiceResponse(False, "关机服务不可用")
             
             request = Trigger.Request()
@@ -1949,7 +1950,7 @@ class ROS2ServiceClient:
             from std_srvs.srv import Trigger
             
             client = self._service_clients.get('arm_power_on')
-            if not client or not client.wait_for_service(timeout_sec=2.0):
+            if not client or not client.wait_for_service(timeout_sec=5.0):
                 return ServiceResponse(False, "机械臂上电服务不可用")
             
             request = Trigger.Request()
@@ -1973,7 +1974,7 @@ class ROS2ServiceClient:
             from std_srvs.srv import Trigger
             
             client = self._service_clients.get('arm_power_off')
-            if not client or not client.wait_for_service(timeout_sec=2.0):
+            if not client or not client.wait_for_service(timeout_sec=5.0):
                 return ServiceResponse(False, "机械臂下电服务不可用")
             
             request = Trigger.Request()
@@ -1997,7 +1998,7 @@ class ROS2ServiceClient:
             from std_srvs.srv import Trigger
             
             client = self._service_clients.get('arm_enable')
-            if not client or not client.wait_for_service(timeout_sec=2.0):
+            if not client or not client.wait_for_service(timeout_sec=5.0):
                 return ServiceResponse(False, "机械臂使能服务不可用")
             
             request = Trigger.Request()
@@ -2014,14 +2015,31 @@ class ROS2ServiceClient:
     
     async def arm_disable(self) -> ServiceResponse:
         """机械臂去使能"""
+        logger.info(f"🔧 [arm_disable] 开始执行")
+        logger.info(f"🔧 [arm_disable] _node is None: {self._node is None}")
+        logger.info(f"🔧 [arm_disable] _initialized: {self._initialized}")
+        
         if self._node is None:
+            logger.error(f"❌ [arm_disable] ROS2 client not initialized")
             return ServiceResponse(False, "ROS2 client not initialized")
         
         try:
             from std_srvs.srv import Trigger
             
+            logger.info(f"🔧 [arm_disable] 获取服务客户端...")
             client = self._service_clients.get('arm_disable')
-            if not client or not client.wait_for_service(timeout_sec=2.0):
+            logger.info(f"🔧 [arm_disable] client is None: {client is None}")
+            
+            if client is None:
+                logger.error(f"❌ [arm_disable] client is None, 服务客户端未创建")
+                return ServiceResponse(False, "机械臂去使能服务客户端未创建")
+            
+            logger.info(f"🔧 [arm_disable] 等待服务可用 (5秒超时)...")
+            service_available = client.wait_for_service(timeout_sec=5.0)
+            logger.info(f"🔧 [arm_disable] 服务可用: {service_available}")
+            
+            if not service_available:
+                logger.error(f"❌ [arm_disable] 服务在5秒内未可用")
                 return ServiceResponse(False, "机械臂去使能服务不可用")
             
             request = Trigger.Request()
@@ -2045,7 +2063,7 @@ class ROS2ServiceClient:
             from std_srvs.srv import Trigger
             
             client = self._service_clients.get('arm_clear_error')
-            if not client or not client.wait_for_service(timeout_sec=2.0):
+            if not client or not client.wait_for_service(timeout_sec=5.0):
                 return ServiceResponse(False, "清除错误服务不可用")
             
             request = Trigger.Request()
@@ -2069,7 +2087,7 @@ class ROS2ServiceClient:
             from std_srvs.srv import Trigger
             
             client = self._service_clients.get('arm_motion_abort')
-            if not client or not client.wait_for_service(timeout_sec=2.0):
+            if not client or not client.wait_for_service(timeout_sec=5.0):
                 return ServiceResponse(False, "急停服务不可用")
             
             request = Trigger.Request()
@@ -2093,7 +2111,7 @@ class ROS2ServiceClient:
             from qyh_jaka_control_msgs.srv import StartServo
             
             client = self._service_clients.get('arm_servo_start')
-            if not client or not client.wait_for_service(timeout_sec=2.0):
+            if not client or not client.wait_for_service(timeout_sec=5.0):
                 return ServiceResponse(False, "伺服启动服务不可用")
             
             request = StartServo.Request()
@@ -2120,7 +2138,7 @@ class ROS2ServiceClient:
             from qyh_jaka_control_msgs.srv import StopServo
             
             client = self._service_clients.get('arm_servo_stop')
-            if not client or not client.wait_for_service(timeout_sec=2.0):
+            if not client or not client.wait_for_service(timeout_sec=5.0):
                 return ServiceResponse(False, "伺服停止服务不可用")
             
             request = StopServo.Request()
@@ -2149,7 +2167,7 @@ class ROS2ServiceClient:
             from qyh_jaka_control_msgs.srv import SetPayload
             
             client = self._service_clients.get('arm_set_payload')
-            if not client or not client.wait_for_service(timeout_sec=2.0):
+            if not client or not client.wait_for_service(timeout_sec=5.0):
                 return ServiceResponse(False, "设置负载服务不可用")
             
             request = SetPayload.Request()
@@ -2193,11 +2211,10 @@ class ROS2ServiceClient:
         
         try:
             from qyh_jaka_control_msgs.srv import MoveJ, Jog, StartServo, StopServo
-            from std_srvs.srv import Trigger, Jog, StartServo, StopServo
             from std_srvs.srv import Trigger
             
             client = self._service_clients.get('arm_move_j')
-            if not client or not client.wait_for_service(timeout_sec=2.0):
+            if not client or not client.wait_for_service(timeout_sec=5.0):
                 return ServiceResponse(False, "机械臂控制服务不可用")
             
             request = MoveJ.Request()
@@ -2245,7 +2262,7 @@ class ROS2ServiceClient:
             from qyh_lift_msgs.srv import LiftControl
             
             client = self._service_clients.get('lift_control')
-            if not client or not client.wait_for_service(timeout_sec=2.0):
+            if not client or not client.wait_for_service(timeout_sec=5.0):
                 return ServiceResponse(False, "升降控制服务不可用")
             
             # 先设置速度
@@ -2299,7 +2316,7 @@ class ROS2ServiceClient:
             from qyh_waist_msgs.srv import WaistControl
             
             client = self._service_clients.get('waist_control')
-            if not client or not client.wait_for_service(timeout_sec=2.0):
+            if not client or not client.wait_for_service(timeout_sec=5.0):
                 return ServiceResponse(False, "腰部控制服务不可用")
             
             # 先设置速度
@@ -2358,7 +2375,7 @@ class ROS2ServiceClient:
             
             client_key = f'gripper_{side}'
             client = self._service_clients.get(client_key)
-            if not client or not client.wait_for_service(timeout_sec=2.0):
+            if not client or not client.wait_for_service(timeout_sec=5.0):
                 return ServiceResponse(False, f"{side}夹爪控制服务不可用")
             
             request = MoveGripper.Request()
@@ -2397,7 +2414,7 @@ class ROS2ServiceClient:
             from std_srvs.srv import SetBool
             
             client = self._service_clients.get('head_enable_torque')
-            if not client or not client.wait_for_service(timeout_sec=2.0):
+            if not client or not client.wait_for_service(timeout_sec=5.0):
                 return ServiceResponse(False, "头部控制服务不可用")
             
             request = SetBool.Request()

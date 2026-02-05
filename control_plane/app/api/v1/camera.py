@@ -212,10 +212,15 @@ async def get_camera_webrtc_info(
     """
     # TODO: 从 Media Plane 获取实际的 WebRTC 信息
     
+    # 从配置获取 Media Plane 地址
+    from app.config import settings
+    media_host = getattr(settings, 'MEDIA_PLANE_HOST', 'localhost')
+    media_port = getattr(settings, 'MEDIA_PLANE_PORT', 8080)
+    
     return success_response(
         data={
             "camera_id": camera_id,
-            "signaling_url": "ws://localhost:8080/webrtc",
+            "signaling_url": f"ws://{media_host}:{media_port}/webrtc",
             "ice_servers": [
                 {"urls": "stun:stun.l.google.com:19302"}
             ],

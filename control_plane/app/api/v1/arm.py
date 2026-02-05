@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 
 from app.dependencies import get_current_user, get_current_operator
 from app.models.user import User
-from app.services.ros2_client import get_ros2_client, RobotSide
+from app.services.ros2_client import get_ros2_client, get_ros2_client_dependency, RobotSide
 from app.schemas.response import (
     ApiResponse, success_response, error_response, ErrorCodes
 )
@@ -95,6 +95,8 @@ async def get_arm_state(current_user: User = Depends(get_current_user)):
     返回：连接状态、上电状态、使能状态、伺服状态、错误信息等
     """
     ros2 = get_ros2_client()
+    if not ros2._initialized:
+        await ros2.initialize()
     if ros2:
         state = ros2.get_jaka_robot_state()
         if state:
@@ -119,6 +121,8 @@ async def get_arm_state(current_user: User = Depends(get_current_user)):
 async def get_servo_status(current_user: User = Depends(get_current_user)):
     """获取伺服状态"""
     ros2 = get_ros2_client()
+    if not ros2._initialized:
+        await ros2.initialize()
     if ros2:
         status = ros2.get_servo_status()
         if status:
@@ -141,24 +145,28 @@ async def get_servo_status(current_user: User = Depends(get_current_user)):
 async def power_on(current_user: User = Depends(get_current_operator)):
     """上电 - 低频配置操作"""
     ros2 = get_ros2_client()
+    if not ros2._initialized:
+        await ros2.initialize()
     if ros2:
         result = await ros2.arm_power_on()
         if result.success:
             return success_response(message=result.message or "机械臂已上电")
-        return error_response(ErrorCodes.ROS2_SERVICE_FAILED, result.message)
-    return error_response(ErrorCodes.ROS2_NOT_CONNECTED, "ROS2 未连接")
+        return error_response(message=result.message, code=ErrorCodes.ROS2_SERVICE_FAILED)
+    return error_response(message="ROS2 未连接", code=ErrorCodes.ROS2_NOT_CONNECTED)
 
 
 @router.post("/power_off", response_model=ApiResponse)
 async def power_off(current_user: User = Depends(get_current_operator)):
     """下电 - 低频配置操作"""
     ros2 = get_ros2_client()
+    if not ros2._initialized:
+        await ros2.initialize()
     if ros2:
         result = await ros2.arm_power_off()
         if result.success:
             return success_response(message=result.message or "机械臂已下电")
-        return error_response(ErrorCodes.ROS2_SERVICE_FAILED, result.message)
-    return error_response(ErrorCodes.ROS2_NOT_CONNECTED, "ROS2 未连接")
+        return error_response(message=result.message, code=ErrorCodes.ROS2_SERVICE_FAILED)
+    return error_response(message="ROS2 未连接", code=ErrorCodes.ROS2_NOT_CONNECTED)
 
 
 # ==================== 使能控制（低频配置） ====================
@@ -167,24 +175,28 @@ async def power_off(current_user: User = Depends(get_current_operator)):
 async def enable_arm(current_user: User = Depends(get_current_operator)):
     """使能机械臂 - 低频配置操作"""
     ros2 = get_ros2_client()
+    if not ros2._initialized:
+        await ros2.initialize()
     if ros2:
         result = await ros2.arm_enable()
         if result.success:
             return success_response(message=result.message or "机械臂已使能")
-        return error_response(ErrorCodes.ROS2_SERVICE_FAILED, result.message)
-    return error_response(ErrorCodes.ROS2_NOT_CONNECTED, "ROS2 未连接")
+        return error_response(message=result.message, code=ErrorCodes.ROS2_SERVICE_FAILED)
+    return error_response(message="ROS2 未连接", code=ErrorCodes.ROS2_NOT_CONNECTED)
 
 
 @router.post("/disable", response_model=ApiResponse)
 async def disable_arm(current_user: User = Depends(get_current_operator)):
     """去使能机械臂 - 低频配置操作"""
     ros2 = get_ros2_client()
+    if not ros2._initialized:
+        await ros2.initialize()
     if ros2:
         result = await ros2.arm_disable()
         if result.success:
             return success_response(message=result.message or "机械臂已去使能")
-        return error_response(ErrorCodes.ROS2_SERVICE_FAILED, result.message)
-    return error_response(ErrorCodes.ROS2_NOT_CONNECTED, "ROS2 未连接")
+        return error_response(message=result.message, code=ErrorCodes.ROS2_SERVICE_FAILED)
+    return error_response(message="ROS2 未连接", code=ErrorCodes.ROS2_NOT_CONNECTED)
 
 
 # ==================== 错误处理（低频配置） ====================
@@ -193,12 +205,14 @@ async def disable_arm(current_user: User = Depends(get_current_operator)):
 async def clear_error(current_user: User = Depends(get_current_operator)):
     """清除错误 - 低频配置操作"""
     ros2 = get_ros2_client()
+    if not ros2._initialized:
+        await ros2.initialize()
     if ros2:
         result = await ros2.arm_clear_error()
         if result.success:
             return success_response(message=result.message or "错误已清除")
-        return error_response(ErrorCodes.ROS2_SERVICE_FAILED, result.message)
-    return error_response(ErrorCodes.ROS2_NOT_CONNECTED, "ROS2 未连接")
+        return error_response(message=result.message, code=ErrorCodes.ROS2_SERVICE_FAILED)
+    return error_response(message="ROS2 未连接", code=ErrorCodes.ROS2_NOT_CONNECTED)
 
 
 @router.post("/motion_abort", response_model=ApiResponse)
@@ -210,12 +224,14 @@ async def motion_abort(current_user: User = Depends(get_current_operator)):
     HTTP 接口作为备用通道，用于 WebSocket 断开时
     """
     ros2 = get_ros2_client()
+    if not ros2._initialized:
+        await ros2.initialize()
     if ros2:
         result = await ros2.arm_motion_abort()
         if result.success:
             return success_response(message=result.message or "急停已执行")
-        return error_response(ErrorCodes.ROS2_SERVICE_FAILED, result.message)
-    return error_response(ErrorCodes.ROS2_NOT_CONNECTED, "ROS2 未连接")
+        return error_response(message=result.message, code=ErrorCodes.ROS2_SERVICE_FAILED)
+    return error_response(message="ROS2 未连接", code=ErrorCodes.ROS2_NOT_CONNECTED)
 
 
 # ==================== 伺服模式控制（低频配置） ====================
@@ -224,24 +240,28 @@ async def motion_abort(current_user: User = Depends(get_current_operator)):
 async def start_servo(current_user: User = Depends(get_current_operator)):
     """启动伺服模式 - 低频配置操作"""
     ros2 = get_ros2_client()
+    if not ros2._initialized:
+        await ros2.initialize()
     if ros2:
         result = await ros2.arm_servo_start()
         if result.success:
             return success_response(message=result.message or "伺服模式已启动")
-        return error_response(ErrorCodes.ROS2_SERVICE_FAILED, result.message)
-    return error_response(ErrorCodes.ROS2_NOT_CONNECTED, "ROS2 未连接")
+        return error_response(message=result.message, code=ErrorCodes.ROS2_SERVICE_FAILED)
+    return error_response(message="ROS2 未连接", code=ErrorCodes.ROS2_NOT_CONNECTED)
 
 
 @router.post("/servo/stop", response_model=ApiResponse)
 async def stop_servo(current_user: User = Depends(get_current_operator)):
     """停止伺服模式 - 低频配置操作"""
     ros2 = get_ros2_client()
+    if not ros2._initialized:
+        await ros2.initialize()
     if ros2:
         result = await ros2.arm_servo_stop()
         if result.success:
             return success_response(message=result.message or "伺服模式已停止")
-        return error_response(ErrorCodes.ROS2_SERVICE_FAILED, result.message)
-    return error_response(ErrorCodes.ROS2_NOT_CONNECTED, "ROS2 未连接")
+        return error_response(message=result.message, code=ErrorCodes.ROS2_SERVICE_FAILED)
+    return error_response(message="ROS2 未连接", code=ErrorCodes.ROS2_NOT_CONNECTED)
 
 
 # ==================== 负载管理（低频配置） ====================
@@ -261,7 +281,7 @@ async def set_gripper_payload_config(
     """设置夹爪负载配置"""
     if save_gripper_payload_config(config.left_gripper_mass, config.right_gripper_mass):
         return success_response(message="夹爪负载配置已保存")
-    return error_response(ErrorCodes.INTERNAL_ERROR, "保存夹爪负载配置失败")
+    return error_response(message="保存夹爪负载配置失败", code=ErrorCodes.INTERNAL_ERROR)
 
 
 @router.post("/payload/apply_gripper", response_model=ApiResponse)
@@ -274,13 +294,15 @@ async def apply_gripper_payload(
     mass = config["left_gripper_mass"] if robot_id == 0 else config["right_gripper_mass"]
     
     ros2 = get_ros2_client()
+    if not ros2._initialized:
+        await ros2.initialize()
     if ros2:
         result = await ros2.arm_set_payload(robot_id=robot_id, mass=mass)
         if result.success:
             key = "left" if robot_id == 0 else "right"
             _current_object_mass[key] = 0.0
             return success_response(message=f"夹爪负载已应用: {mass} kg")
-        return error_response(ErrorCodes.ROS2_SERVICE_FAILED, result.message)
+        return error_response(message=result.message, code=ErrorCodes.ROS2_SERVICE_FAILED)
     
     return success_response(message=f"夹爪负载已应用: {mass} kg (模拟)")
 
@@ -297,6 +319,8 @@ async def set_object_payload(
     total_mass = gripper_mass + object_mass
     
     ros2 = get_ros2_client()
+    if not ros2._initialized:
+        await ros2.initialize()
     if ros2:
         result = await ros2.arm_set_payload(robot_id=robot_id, mass=total_mass)
         if result.success:
@@ -305,7 +329,7 @@ async def set_object_payload(
             return success_response(
                 message=f"负载已更新: 夹爪={gripper_mass}kg + 物品={object_mass}kg = {total_mass}kg"
             )
-        return error_response(ErrorCodes.ROS2_SERVICE_FAILED, result.message)
+        return error_response(message=result.message, code=ErrorCodes.ROS2_SERVICE_FAILED)
     
     key = "left" if robot_id == 0 else "right"
     _current_object_mass[key] = object_mass
@@ -376,11 +400,11 @@ async def create_arm_point(
     
     ros2 = get_ros2_client()
     if not ros2:
-        return error_response(ErrorCodes.ROS2_NOT_CONNECTED, "ROS2 未连接")
+        return error_response(message="ROS2 未连接", code=ErrorCodes.ROS2_NOT_CONNECTED)
     
     state = ros2.get_joint_states()
     if not state:
-        return error_response(ErrorCodes.ROS2_SERVICE_FAILED, "无法获取关节数据")
+        return error_response(message="无法获取关节数据", code=ErrorCodes.ROS2_SERVICE_FAILED)
     
     left_joints = state.get("left_arm", {}).get("joints", [0.0] * 7)
     right_joints = state.get("right_arm", {}).get("joints", [0.0] * 7)
@@ -441,11 +465,11 @@ async def update_arm_point(
     if update_joints:
         ros2 = get_ros2_client()
         if not ros2:
-            return error_response(ErrorCodes.ROS2_NOT_CONNECTED, "ROS2 未连接")
+            return error_response(message="ROS2 未连接", code=ErrorCodes.ROS2_NOT_CONNECTED)
         
         state = ros2.get_joint_states()
         if not state:
-            return error_response(ErrorCodes.ROS2_SERVICE_FAILED, "无法获取关节数据")
+            return error_response(message="无法获取关节数据", code=ErrorCodes.ROS2_SERVICE_FAILED)
         
         update_side = side or "both"
         if update_side in ["left", "both"]:
@@ -464,7 +488,7 @@ async def update_arm_point(
         
         if updated:
             return success_response(message=f"点位已更新")
-        return error_response(ErrorCodes.INTERNAL_ERROR, "更新失败")
+        return error_response(message="更新失败", code=ErrorCodes.INTERNAL_ERROR)
     except ValueError as e:
         return error_response(ErrorCodes.INVALID_PARAMETER, str(e))
 
@@ -482,7 +506,7 @@ async def delete_arm_point(
         success = preset_manager.delete(PresetType.ARM_POSE, point_id)
         if success:
             return success_response(message="点位已删除")
-        return error_response(ErrorCodes.RESOURCE_NOT_FOUND, "点位不存在")
+        return error_response(message="点位不存在", code=ErrorCodes.RESOURCE_NOT_FOUND)
     except ValueError as e:
         return error_response(ErrorCodes.INVALID_PARAMETER, str(e))
 
@@ -525,7 +549,7 @@ async def go_to_point(
     
     ros2 = get_ros2_client()
     if not ros2:
-        return error_response(ErrorCodes.ROS2_NOT_CONNECTED, "ROS2 未连接")
+        return error_response(message="ROS2 未连接", code=ErrorCodes.ROS2_NOT_CONNECTED)
     
     results = []
     

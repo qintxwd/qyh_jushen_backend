@@ -4,6 +4,9 @@ QYH Jushen Control Plane - 安全模块
 JWT 签发、校验、密码哈希
 """
 from datetime import datetime, timedelta
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Optional, Dict, Any
 
 from jose import JWTError, jwt
@@ -52,11 +55,11 @@ def create_access_token(
         "iat": datetime.utcnow(),
     })
     
-    print(f"[AUTH] 🔐 创建Token:")
-    print(f"[AUTH]   密钥前20字符: {settings.SECRET_KEY[:20]}...")
-    print(f"[AUTH]   算法: {settings.ALGORITHM}")
-    print(f"[AUTH]   载荷: sub={to_encode.get('sub')}, username={to_encode.get('username')}, role={to_encode.get('role')}")
-    print(f"[AUTH]   过期时间: {expire}")
+    logger.debug(f"[AUTH] 🔐 创建Token:")
+    logger.debug(f"[AUTH]   密钥前20字符: {settings.SECRET_KEY[:20]}...")
+    logger.debug(f"[AUTH]   算法: {settings.ALGORITHM}")
+    logger.debug(f"[AUTH]   载荷: sub={to_encode.get('sub')}, username={to_encode.get('username')}, role={to_encode.get('role')}")
+    logger.debug(f"[AUTH]   过期时间: {expire}")
     
     encoded_jwt = jwt.encode(
         to_encode,
@@ -64,8 +67,8 @@ def create_access_token(
         algorithm=settings.ALGORITHM,
     )
     
-    print(f"[AUTH]   Token长度: {len(encoded_jwt)}")
-    print(f"[AUTH]   Token前50字符: {encoded_jwt[:50]}...")
+    logger.debug(f"[AUTH]   Token长度: {len(encoded_jwt)}")
+    logger.debug(f"[AUTH]   Token前50字符: {encoded_jwt[:50]}...")
     
     return encoded_jwt
 
@@ -83,11 +86,11 @@ def decode_access_token(token: str) -> Dict[str, Any]:
     Raises:
         JWTError: Token 无效或已过期
     """
-    print(f"[AUTH] 🔓 解码Token:")
-    print(f"[AUTH]   Token长度: {len(token)}")
-    print(f"[AUTH]   Token前50字符: {token[:50]}...")
-    print(f"[AUTH]   使用密钥前20字符: {settings.SECRET_KEY[:20]}...")
-    print(f"[AUTH]   算法: {settings.ALGORITHM}")
+    logger.debug(f"[AUTH] 🔓 解码Token:")
+    logger.debug(f"[AUTH]   Token长度: {len(token)}")
+    logger.debug(f"[AUTH]   Token前50字符: {token[:50]}...")
+    logger.debug(f"[AUTH]   使用密钥前20字符: {settings.SECRET_KEY[:20]}...")
+    logger.debug(f"[AUTH]   算法: {settings.ALGORITHM}")
     
     try:
         payload = jwt.decode(
@@ -95,10 +98,10 @@ def decode_access_token(token: str) -> Dict[str, Any]:
             settings.SECRET_KEY,
             algorithms=[settings.ALGORITHM],
         )
-        print(f"[AUTH]   ✅ 解码成功! sub={payload.get('sub')}, username={payload.get('username')}")
+        logger.debug(f"[AUTH]   ✅ 解码成功! sub={payload.get('sub')}, username={payload.get('username')}")
         return payload
     except JWTError as e:
-        print(f"[AUTH]   ❌ 解码失败: {type(e).__name__}: {e}")
+        logger.debug(f"[AUTH]   ❌ 解码失败: {type(e).__name__}: {e}")
         raise
 
 
