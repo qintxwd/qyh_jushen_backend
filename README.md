@@ -131,6 +131,13 @@ qyh_jushen_backend/
 
 ## 快速开始
 
+### 一键编译与启动
+
+```bash
+./build_all.sh
+./start.sh
+```
+
 ### 开发环境
 
 ```bash

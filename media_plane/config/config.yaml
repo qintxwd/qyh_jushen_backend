@@ -15,7 +15,7 @@ server:
   jwt_secret: "${JWT_SECRET}"
   # 是否要求认证（开发模式可关闭）
   require_auth: true
-  # Media Token 校验
+  # 共享登录 Token: 保持 auth_* 为空；如需专用 Media Token 再设置
   auth_audience: ""
   auth_issuer: ""
   auth_scope: ""

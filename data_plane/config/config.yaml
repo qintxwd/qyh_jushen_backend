@@ -13,7 +13,7 @@ auth:
   # JWT 密钥（从环境变量读取）
   jwt_secret: "${JWT_SECRET}"
   jwt_algorithm: "HS256"
-  # Token 受众限制（若 Token 含 aud，需匹配该值）
+  # Token 受众限制（若 Token 含 aud，需匹配该值；为空则不校验 aud）
   auth_audience: "data_plane"
   # 拒绝包含该 scope 的 Token（防止 Media Token 误用）
   reject_scope: "media"

@@ -105,6 +105,16 @@ trap cleanup SIGINT SIGTERM EXIT
 
 echo "✅ 已加载全局配置: ROBOT_NAME=general, VERSION=1.0"
 
+# Ensure build artifacts exist (build_all.sh produces arm64/)
+if [ ! -d "$WORK_DIR/arm64" ]; then
+    echo "❌ 未找到 arm64 产物，请先运行 ./build_all.sh"
+    exit 1
+fi
+if [ ! -f "$WORK_DIR/arm64/data_plane/data_plane_server" ] || [ ! -f "$WORK_DIR/arm64/media_plane/media_plane_server" ] || [ ! -d "$WORK_DIR/arm64/control_plane/app" ]; then
+    echo "❌ 未找到完整编译产物，请先运行 ./build_all.sh"
+    exit 1
+fi
+
 # Detect venv
 VENV_PYTHON="$WORK_DIR/venv/bin/python"
 if [ ! -f "$VENV_PYTHON" ]; then
