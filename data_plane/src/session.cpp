@@ -42,13 +42,7 @@ Session::Session(tcp::socket&& socket,
 }
 
 Session::~Session() {
-    // 清理 VR 会话（如果是 VR 客户端）
-    VRSessionManager::instance().on_disconnect(session_id_, "session_closed");
-    
-    if (control_sync_) {
-        control_sync_->disassociate_session(session_id_);
-    }
-    server_.remove_session(session_id_);
+    cleanup("session_closed");
 }
 
 void Session::start() {
@@ -68,6 +62,8 @@ void Session::close() {
     
     beast::error_code ec;
     ws_.close(websocket::close_code::normal, ec);
+
+    cleanup("close");
 }
 
 void Session::send(std::shared_ptr<const std::vector<uint8_t>> data) {
@@ -147,6 +143,7 @@ void Session::do_accept() {
 void Session::on_accept(beast::error_code ec) {
     if (ec) {
         std::cerr << "WebSocket accept error: " << ec.message() << std::endl;
+        cleanup("accept_error");
         return;
     }
     
@@ -169,11 +166,13 @@ void Session::do_read() {
 void Session::on_read(beast::error_code ec, std::size_t bytes_transferred) {
     if (ec == websocket::error::closed) {
         std::cout << "Session " << session_id_ << " closed by client" << std::endl;
+        cleanup("client_closed");
         return;
     }
     
     if (ec) {
         std::cerr << "Read error: " << ec.message() << std::endl;
+        close();
         return;
     }
     
@@ -220,6 +219,7 @@ void Session::on_write(beast::error_code ec, std::size_t bytes_transferred) {
         std::cerr << "Write error: " << ec.message() << std::endl;
         std::lock_guard<std::mutex> lock(write_mutex_);
         writing_ = false;
+        cleanup("write_error");
         return;
     }
     
@@ -255,6 +255,23 @@ std::string Session::generate_session_id() {
     }
     
     return ss.str();
+}
+
+void Session::cleanup(const std::string& reason) {
+    bool expected = false;
+    if (!cleaned_.compare_exchange_strong(expected, true)) {
+        return;
+    }
+
+    handler_.on_disconnect(session_id_);
+
+    VRSessionManager::instance().on_disconnect(session_id_, reason);
+
+    if (control_sync_) {
+        control_sync_->disassociate_session(session_id_);
+    }
+
+    server_.remove_session(session_id_);
 }
 
 } // namespace qyh::dataplane

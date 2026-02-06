@@ -556,6 +556,12 @@ void MessageHandler::set_timestamp(qyh::dataplane::Timestamp* timestamp) {
     timestamp->set_nanos(static_cast<int32_t>(nanos));
 }
 
+void MessageHandler::on_disconnect(const std::string& session_id) {
+    if (watchdog_) {
+        watchdog_->unregister(session_id);
+    }
+}
+
 // ==================== 新增消息处理函数 ====================
 
 void MessageHandler::handle_navigation_control(std::shared_ptr<Session> session,

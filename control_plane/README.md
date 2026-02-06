@@ -124,6 +124,9 @@ control_plane/
 - VR_INTERNAL_TOKEN: VR 内部接口鉴权 Token
 - TRUST_PROXY: 是否信任 X-Forwarded-For
 
+说明:
+- Data Plane 需配置同一个 Token（配置项 `control_sync.internal_token` 或环境变量 `CONTROL_PLANE_INTERNAL_TOKEN`）
+
 ## API 概览
 
 ### 认证 `/api/v1/auth`

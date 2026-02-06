@@ -136,7 +136,28 @@ watchdog:
 state_publish:
   robot_state_hz: 30
   joint_state_hz: 100
+
+control_sync:
+  # Control Plane 基础地址（与 Data Plane 同机时使用 127.0.0.1）
+  control_plane_url: "http://127.0.0.1:8000"
+  # Control Plane 内部接口鉴权 Token（需与 Control Plane 的 VR_INTERNAL_TOKEN 一致）
+  internal_token: ""
+  # 同步间隔（毫秒）
+  sync_interval_ms: 1000
+  # 请求超时（毫秒）
+  timeout_ms: 5000
+  # 是否启用同步
+  enabled: true
 ```
+
+### 内部接口鉴权
+
+Data Plane 在上报 VR 连接状态时会调用 Control Plane 的内部接口。
+若 Control Plane 配置了 `VR_INTERNAL_TOKEN`，必须在 Data Plane 配置相同的 Token。
+
+支持的配置方式：
+- 配置文件: `control_sync.internal_token`
+- 环境变量: `CONTROL_PLANE_INTERNAL_TOKEN`
 
 ## WebSocket 协议
 

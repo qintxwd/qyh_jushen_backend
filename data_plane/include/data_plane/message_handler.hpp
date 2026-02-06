@@ -76,6 +76,11 @@ public:
      * @brief 设置控制权同步服务
      */
     void set_control_sync(ControlSyncService* service) { control_sync_ = service; }
+
+    /**
+     * @brief 处理会话断开后的清理
+     */
+    void on_disconnect(const std::string& session_id);
     
 private:
     // ==================== 消息处理函数 ====================

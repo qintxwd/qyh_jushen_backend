@@ -112,6 +112,11 @@ public:
      * @param url Control Plane 的 URL (如 "http://localhost:8000")
      */
     void set_control_plane_url(const std::string& url);
+
+    /**
+     * @brief 设置 Control Plane 内部鉴权 Token
+     */
+    void set_internal_token(const std::string& token);
     
 private:
     VRSessionManager() = default;
@@ -134,7 +139,8 @@ private:
     VRConnectionCallback connection_callback_;
     
     // Control Plane URL
-    std::string control_plane_url_ = "http://localhost:8000";
+    std::string control_plane_url_ = "http://127.0.0.1:8000";
+    std::string internal_token_;
 };
 
 /**

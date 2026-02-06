@@ -18,6 +18,7 @@
 #include <mutex>
 #include <chrono>
 #include <functional>
+#include <atomic>
 
 namespace qyh::dataplane {
 
@@ -230,6 +231,11 @@ private:
      * @brief 生成会话 ID
      */
     static std::string generate_session_id();
+
+    /**
+     * @brief 清理会话资源并解除注册
+     */
+    void cleanup(const std::string& reason);
     
 private:
     websocket::stream<beast::tcp_stream> ws_;
@@ -258,6 +264,7 @@ private:
     mutable std::mutex heartbeat_mutex_;
 
     ControlSyncService* control_sync_ = nullptr;
+    std::atomic<bool> cleaned_{false};
 };
 
 } // namespace qyh::dataplane

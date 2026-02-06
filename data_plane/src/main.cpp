@@ -63,6 +63,7 @@ int main(int argc, char* argv[]) {
         // 控制权同步
         qyh::dataplane::ControlSyncService control_sync({
             config.control_sync.control_plane_url,
+            config.control_sync.internal_token,
             config.control_sync.sync_interval_ms,
             config.control_sync.timeout_ms,
             config.control_sync.enabled
@@ -75,6 +76,8 @@ int main(int argc, char* argv[]) {
         // 初始化 VR 会话管理器
         qyh::dataplane::VRSessionManager::instance().set_control_plane_url(
             config.control_sync.control_plane_url);
+        qyh::dataplane::VRSessionManager::instance().set_internal_token(
+            config.control_sync.internal_token);
         
         // 创建 ROS2 桥接
         qyh::dataplane::ROS2Bridge ros2_bridge(config, state_cache);

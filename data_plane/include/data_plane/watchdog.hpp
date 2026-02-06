@@ -12,6 +12,7 @@
 #include <mutex>
 #include <functional>
 #include <thread>
+#include <unordered_map>
 
 namespace qyh::dataplane {
 

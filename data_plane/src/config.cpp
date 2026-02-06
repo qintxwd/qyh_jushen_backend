@@ -67,6 +67,7 @@ bool Config::load_from_file(const std::string& path) {
         if (config["control_sync"]) {
             auto cs = config["control_sync"];
             if (cs["control_plane_url"]) control_sync.control_plane_url = cs["control_plane_url"].as<std::string>();
+            if (cs["internal_token"]) control_sync.internal_token = expand_env(cs["internal_token"].as<std::string>());
             if (cs["sync_interval_ms"]) control_sync.sync_interval_ms = cs["sync_interval_ms"].as<int>();
             if (cs["timeout_ms"]) control_sync.timeout_ms = cs["timeout_ms"].as<int>();
             if (cs["enabled"]) control_sync.enabled = cs["enabled"].as<bool>();
@@ -112,6 +113,10 @@ void Config::load_from_env() {
 
     if (const char* val = std::getenv("CONTROL_PLANE_URL")) {
         control_sync.control_plane_url = val;
+    }
+
+    if (const char* val = std::getenv("CONTROL_PLANE_INTERNAL_TOKEN")) {
+        control_sync.internal_token = val;
     }
 }
 

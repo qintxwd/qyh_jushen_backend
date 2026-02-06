@@ -60,7 +60,8 @@ struct StatePublishConfig {
  * @brief 控制权同步配置
  */
 struct ControlSyncConfig {
-    std::string control_plane_url = "http://localhost:8000";
+    std::string control_plane_url = "http://127.0.0.1:8000";
+    std::string internal_token;
     int sync_interval_ms = 1000;
     int timeout_ms = 5000;
     bool enabled = true;

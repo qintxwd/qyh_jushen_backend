@@ -69,7 +69,8 @@ ParsedUrl parse_url(const std::string& url, const std::string& path) {
  * @brief 发送 HTTP POST 请求（异步，不阻塞）
  */
 void http_post_async(const std::string& url, const std::string& path,
-                     const nlohmann::json& body) {
+                     const nlohmann::json& body,
+                     const std::string& token) {
     // 在独立线程中执行，不阻塞主线程
     std::thread([url, path, body]() {
         auto parsed = parse_url(url, path);
@@ -92,6 +93,9 @@ void http_post_async(const std::string& url, const std::string& path,
             };
             req.set(http::field::host, parsed.host);
             req.set(http::field::content_type, "application/json");
+            if (!token.empty()) {
+                req.set(http::field::authorization, "Bearer " + token);
+            }
             req.body() = body.dump();
             req.prepare_payload();
             
@@ -221,10 +225,23 @@ void VRSessionManager::set_control_plane_url(const std::string& url) {
     control_plane_url_ = url;
 }
 
+void VRSessionManager::set_internal_token(const std::string& token) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    internal_token_ = token;
+}
+
 void VRSessionManager::notify_control_plane(bool connected,
                                              const VRClientInfo& info,
                                              const std::string& reason) {
-    if (control_plane_url_.empty()) {
+    std::string url;
+    std::string token;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        url = control_plane_url_;
+        token = internal_token_;
+    }
+
+    if (url.empty()) {
         return;
     }
     
@@ -235,16 +252,16 @@ void VRSessionManager::notify_control_plane(bool connected,
         body["version"] = info.version;
         body["session_id"] = info.session_id;
         
-        http_post_async(control_plane_url_, 
-                        "/api/v1/vr/internal/connected", body);
+        http_post_async(url,
+                "/api/v1/vr/internal/connected", body, token);
     } else {
         // POST /internal/vr/disconnected
         nlohmann::json body;
         body["session_id"] = info.session_id;
         body["reason"] = reason;
         
-        http_post_async(control_plane_url_,
-                        "/api/v1/vr/internal/disconnected", body);
+        http_post_async(url,
+                        "/api/v1/vr/internal/disconnected", body, token);
     }
 }
 

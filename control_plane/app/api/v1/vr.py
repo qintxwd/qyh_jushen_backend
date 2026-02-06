@@ -10,6 +10,7 @@ VR 采用专用通道设计:
 - POST /internal/connected: Data Plane 上报 VR 连接
 - POST /internal/disconnected: Data Plane 上报 VR 断开
 """
+import ipaddress
 import logging
 from datetime import datetime
 from typing import Optional
@@ -23,6 +24,13 @@ from app.config import settings
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _is_loopback_address(host: str) -> bool:
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 # ==================== 数据模型 ====================
@@ -136,6 +144,13 @@ async def vr_connected(
 
     注意: 此接口应仅允许内部调用，生产环境需添加鉴权
     """
+    client_ip = http_request.client.host if http_request.client else "unknown"
+    if not _is_loopback_address(client_ip):
+        return error_response(
+            code=ErrorCodes.PERMISSION_DENIED,
+            message="Loopback access required",
+        )
+
     if settings.VR_INTERNAL_TOKEN:
         auth_header = http_request.headers.get("Authorization", "")
         token = auth_header.removeprefix("Bearer ").strip()
@@ -144,7 +159,6 @@ async def vr_connected(
                 code=ErrorCodes.PERMISSION_DENIED,
                 message="Unauthorized",
             )
-    client_ip = http_request.client.host if http_request.client else "unknown"
     logger.info(f"VR connected notification from {client_ip}")
 
     info = VRClientInfo(
@@ -172,6 +186,13 @@ async def vr_disconnected(
     - heartbeat_timeout: 心跳超时 (Watchdog 触发)
     - error: 连接错误
     """
+    client_ip = http_request.client.host if http_request.client else "unknown"
+    if not _is_loopback_address(client_ip):
+        return error_response(
+            code=ErrorCodes.PERMISSION_DENIED,
+            message="Loopback access required",
+        )
+
     if settings.VR_INTERNAL_TOKEN:
         auth_header = http_request.headers.get("Authorization", "")
         token = auth_header.removeprefix("Bearer ").strip()
@@ -180,7 +201,6 @@ async def vr_disconnected(
                 code=ErrorCodes.PERMISSION_DENIED,
                 message="Unauthorized",
             )
-    client_ip = http_request.client.host if http_request.client else "unknown"
     logger.info(f"VR disconnected notification from {client_ip}")
 
     vr_state.set_disconnected(request.reason)

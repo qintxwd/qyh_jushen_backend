@@ -54,7 +54,8 @@ public:
      * @brief 配置
      */
     struct Config {
-        std::string control_plane_url = "http://localhost:8000";
+        std::string control_plane_url = "http://127.0.0.1:8000";
+        std::string internal_token;
         int sync_interval_ms = 1000;        // 同步间隔
         int timeout_ms = 5000;              // 请求超时
         bool enabled = true;

@@ -222,6 +222,9 @@ bool ControlSyncService::fetch_control_status() {
         http::request<http::string_body> req{http::verb::get, parsed.target, 11};
         req.set(http::field::host, parsed.host);
         req.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
+        if (!config_.internal_token.empty()) {
+            req.set(http::field::authorization, "Bearer " + config_.internal_token);
+        }
 
         http::write(stream, req);
 
