@@ -14,6 +14,7 @@ import hashlib
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, List
+import threading
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -40,6 +41,7 @@ class RecordingState:
     """录制状态管理（临时实现，待 ROS2 集成后替换）"""
     
     def __init__(self):
+        self._lock = threading.Lock()
         self._is_recording = False
         self._action_name = ""
         self._user_name = ""
@@ -56,24 +58,30 @@ class RecordingState:
         topics: List[str],
         bag_path: str
     ):
-        self._is_recording = True
-        self._action_name = action_name
-        self._user_name = user_name
-        self._version = version
-        self._topics = topics
-        self._bag_path = bag_path
-        self._started_at = datetime.now()
+        with self._lock:
+            self._is_recording = True
+            self._action_name = action_name
+            self._user_name = user_name
+            self._version = version
+            self._topics = topics
+            self._bag_path = bag_path
+            self._started_at = datetime.now()
     
     def stop(self) -> tuple[str, float]:
         """停止录制，返回 (bag_path, duration_seconds)"""
-        bag_path = self._bag_path
-        duration = 0.0
-        if self._started_at:
-            duration = (datetime.now() - self._started_at).total_seconds()
-        self.reset()
-        return bag_path, duration
+        with self._lock:
+            bag_path = self._bag_path
+            duration = 0.0
+            if self._started_at:
+                duration = (datetime.now() - self._started_at).total_seconds()
+            self._reset_unsafe()
+            return bag_path, duration
     
     def reset(self):
+        with self._lock:
+            self._reset_unsafe()
+
+    def _reset_unsafe(self):
         self._is_recording = False
         self._action_name = ""
         self._user_name = ""
@@ -83,23 +91,24 @@ class RecordingState:
         self._started_at = None
     
     def get_status(self) -> RecordingStatus:
-        duration = 0.0
-        if self._started_at:
-            duration = (datetime.now() - self._started_at).total_seconds()
-        
-        status_str = "recording" if self._is_recording else "idle"
-        
-        return RecordingStatus(
-            is_recording=self._is_recording,
-            status=status_str,
-            action_name=self._action_name,
-            user_name=self._user_name,
-            version=self._version,
-            duration_seconds=duration,
-            bag_path=self._bag_path,
-            topics=self._topics,
-            started_at=self._started_at.isoformat() if self._started_at else None,
-        )
+        with self._lock:
+            duration = 0.0
+            if self._started_at:
+                duration = (datetime.now() - self._started_at).total_seconds()
+
+            status_str = "recording" if self._is_recording else "idle"
+
+            return RecordingStatus(
+                is_recording=self._is_recording,
+                status=status_str,
+                action_name=self._action_name,
+                user_name=self._user_name,
+                version=self._version,
+                duration_seconds=duration,
+                bag_path=self._bag_path,
+                topics=self._topics,
+                started_at=self._started_at.isoformat() if self._started_at else None,
+            )
 
 
 # 全局录制状态（单例）

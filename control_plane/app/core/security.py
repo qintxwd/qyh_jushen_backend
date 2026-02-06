@@ -55,10 +55,14 @@ def create_access_token(
         "iat": datetime.utcnow(),
     })
     
-    logger.debug(f"[AUTH] 🔐 创建Token:")
-    logger.debug(f"[AUTH]   密钥前20字符: {settings.SECRET_KEY[:20]}...")
+    logger.debug("[AUTH] 🔐 创建Token:")
     logger.debug(f"[AUTH]   算法: {settings.ALGORITHM}")
-    logger.debug(f"[AUTH]   载荷: sub={to_encode.get('sub')}, username={to_encode.get('username')}, role={to_encode.get('role')}")
+    logger.debug(
+        "[AUTH]   载荷: sub=%s, username=%s, role=%s",
+        to_encode.get("sub"),
+        to_encode.get("username"),
+        to_encode.get("role"),
+    )
     logger.debug(f"[AUTH]   过期时间: {expire}")
     
     encoded_jwt = jwt.encode(
@@ -68,7 +72,6 @@ def create_access_token(
     )
     
     logger.debug(f"[AUTH]   Token长度: {len(encoded_jwt)}")
-    logger.debug(f"[AUTH]   Token前50字符: {encoded_jwt[:50]}...")
     
     return encoded_jwt
 
@@ -86,10 +89,8 @@ def decode_access_token(token: str) -> Dict[str, Any]:
     Raises:
         JWTError: Token 无效或已过期
     """
-    logger.debug(f"[AUTH] 🔓 解码Token:")
+    logger.debug("[AUTH] 🔓 解码Token:")
     logger.debug(f"[AUTH]   Token长度: {len(token)}")
-    logger.debug(f"[AUTH]   Token前50字符: {token[:50]}...")
-    logger.debug(f"[AUTH]   使用密钥前20字符: {settings.SECRET_KEY[:20]}...")
     logger.debug(f"[AUTH]   算法: {settings.ALGORITHM}")
     
     try:

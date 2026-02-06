@@ -377,14 +377,19 @@ async def get_stations(
         try:
             with open(map_json, 'r', encoding='utf-8') as f:
                 map_data = json.load(f)
-                raw_stations = map_data.get("stations", [])
+                raw_stations = map_data.get("data", {}).get("station", [])
+                if not raw_stations:
+                    raw_stations = map_data.get("stations", [])
                 for s in raw_stations:
+                    x_mm = s.get("pos.x", s.get("x", 0))
+                    y_mm = s.get("pos.y", s.get("y", 0))
+                    yaw_mrad = s.get("pos.yaw", s.get("yaw", 0))
                     stations.append({
                         "id": s.get("id", 0),
                         "name": s.get("name", ""),
-                        "x": s.get("pos.x", s.get("x", 0)),
-                        "y": s.get("pos.y", s.get("y", 0)),
-                        "yaw": s.get("pos.yaw", s.get("yaw", 0)),
+                        "x": x_mm / 1000.0,
+                        "y": y_mm / 1000.0,
+                        "yaw": yaw_mrad / 1000.0,
                     })
         except Exception as e:
             return error_response(
@@ -533,7 +538,10 @@ async def navigate_to_station(
         try:
             with open(map_json, 'r', encoding='utf-8') as f:
                 map_data = json.load(f)
-                for s in map_data.get("stations", []):
+                stations = map_data.get("data", {}).get("station", [])
+                if not stations:
+                    stations = map_data.get("stations", [])
+                for s in stations:
                     if request.station_id is not None and s.get("id") == request.station_id:
                         target_station = s
                         break
@@ -553,9 +561,12 @@ async def navigate_to_station(
         )
     
     # 提取坐标
-    x = target_station.get("pos.x", target_station.get("x", 0))
-    y = target_station.get("pos.y", target_station.get("y", 0))
-    yaw = target_station.get("pos.yaw", target_station.get("yaw", 0))
+    x_mm = target_station.get("pos.x", target_station.get("x", 0))
+    y_mm = target_station.get("pos.y", target_station.get("y", 0))
+    yaw_mrad = target_station.get("pos.yaw", target_station.get("yaw", 0))
+    x = x_mm / 1000.0
+    y = y_mm / 1000.0
+    yaw = yaw_mrad / 1000.0
     
     ros2_client = get_ros2_client()
     
