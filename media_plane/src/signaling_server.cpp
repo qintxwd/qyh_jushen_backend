@@ -11,6 +11,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <chrono>
 #include <iostream>
 #include <random>
 #include <sstream>
@@ -40,8 +41,10 @@ SignalingSession::SignalingSession(tcp::socket&& socket, SignalingServer& server
     : ws_(std::move(socket))
     , server_(server)
     , peer_id_(generate_peer_id())
+    , auth_timer_(ws_.get_executor())
 {
     ws_.binary(false);  // JSON 文本模式
+    ws_.read_message_max(server_.max_message_bytes());
 }
 
 SignalingSession::~SignalingSession() {
@@ -55,6 +58,7 @@ void SignalingSession::start() {
 
 void SignalingSession::close() {
     beast::error_code ec;
+    auth_timer_.cancel(ec);
     ws_.close(websocket::close_code::normal, ec);
 }
 
@@ -104,6 +108,19 @@ void SignalingSession::on_accept(beast::error_code ec) {
     welcome["require_auth"] = server_.require_auth();
     welcome["available_sources"] = server_.get_available_sources();
     send(welcome.dump());
+
+    if (server_.require_auth() && server_.auth_timeout_sec() > 0) {
+        auth_timer_.expires_after(std::chrono::seconds(server_.auth_timeout_sec()));
+        auth_timer_.async_wait([self = shared_from_this()](const beast::error_code& timer_ec) {
+            if (timer_ec) {
+                return;
+            }
+            if (!self->authenticated_) {
+                self->send_error("auth_timeout", "Authentication timed out");
+                self->close();
+            }
+        });
+    }
     
     do_read();
 }
@@ -182,7 +199,7 @@ void SignalingSession::handle_message(const std::string& message) {
             
             std::string user_id, username;
             if (server_.verify_token(token, user_id, username)) {
-                authenticated_ = true;
+                mark_authenticated();
                 user_id_ = user_id;
                 username_ = username;
                 
@@ -369,6 +386,12 @@ void SignalingSession::handle_message(const std::string& message) {
     }
 }
 
+void SignalingSession::mark_authenticated() {
+    authenticated_ = true;
+    beast::error_code ec;
+    auth_timer_.cancel(ec);
+}
+
 // ==================== SignalingServer ====================
 
 SignalingServer::SignalingServer(net::io_context& io_context, const Config& config)
@@ -378,9 +401,9 @@ SignalingServer::SignalingServer(net::io_context& io_context, const Config& conf
 {
     // 创建 JWT 验证器
     std::string jwt_secret = config_.server.jwt_secret;
+    require_auth_ = config_.server.require_auth;
     if (!jwt_secret.empty()) {
         jwt_verifier_ = std::make_unique<JwtVerifier>(jwt_secret);
-        require_auth_ = config_.server.require_auth;
     }
 }
 
@@ -438,22 +461,29 @@ void SignalingServer::stop() {
     
     beast::error_code ec;
     acceptor_.close(ec);
-    
-    std::lock_guard<std::mutex> lock(sessions_mutex_);
-    for (auto& [id, session] : sessions_) {
+
+    std::vector<std::shared_ptr<SignalingSession>> sessions_copy;
+    {
+        std::lock_guard<std::mutex> lock(sessions_mutex_);
+        sessions_copy.reserve(sessions_.size());
+        for (auto& [id, session] : sessions_) {
+            sessions_copy.push_back(session);
+        }
+    }
+    for (auto& session : sessions_copy) {
         session->close();
     }
-    sessions_.clear();
+    {
+        std::lock_guard<std::mutex> lock(sessions_mutex_);
+        sessions_.clear();
+    }
 }
 
 bool SignalingServer::verify_token(const std::string& token, 
                                     std::string& user_id, 
                                     std::string& username) {
     if (!jwt_verifier_) {
-        // 没有配置 JWT 验证器，直接通过
-        user_id = "anonymous";
-        username = "Anonymous";
-        return true;
+        return false;
     }
     
         auto user_info_opt = jwt_verifier_->verify(token);
@@ -499,8 +529,12 @@ void SignalingServer::on_accept(beast::error_code ec, tcp::socket socket) {
             std::cerr << "Accept error: " << ec.message() << std::endl;
         }
     } else {
+        if (connection_count() >= max_connections()) {
+            socket.close();
+        } else {
         auto session = std::make_shared<SignalingSession>(std::move(socket), *this);
         session->start();
+        }
     }
     
     if (running_) {

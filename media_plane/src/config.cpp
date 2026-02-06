@@ -9,8 +9,11 @@
 #include <fstream>
 #include <cstdlib>
 #include <iostream>
+#include <regex>
 
 namespace qyh::mediaplane {
+
+static std::string expand_env(const std::string& value);
 
 bool Config::load_from_file(const std::string& path) {
     try {
@@ -28,7 +31,9 @@ bool Config::load_from_file(const std::string& path) {
             if (s["host"]) server.host = s["host"].as<std::string>();
             if (s["signaling_port"]) server.signaling_port = s["signaling_port"].as<uint16_t>();
             if (s["max_connections"]) server.max_connections = s["max_connections"].as<size_t>();
-            if (s["jwt_secret"]) server.jwt_secret = s["jwt_secret"].as<std::string>();
+            if (s["max_message_bytes"]) server.max_message_bytes = s["max_message_bytes"].as<size_t>();
+            if (s["auth_timeout_sec"]) server.auth_timeout_sec = s["auth_timeout_sec"].as<int>();
+            if (s["jwt_secret"]) server.jwt_secret = expand_env(s["jwt_secret"].as<std::string>());
             if (s["require_auth"]) server.require_auth = s["require_auth"].as<bool>();
         }
         
@@ -136,6 +141,14 @@ void Config::load_from_env() {
     if (const char* val = std::getenv("MEDIA_PLANE_HOST")) {
         server.host = val;
     }
+
+    if (const char* val = std::getenv("MEDIA_PLANE_MAX_MESSAGE_BYTES")) {
+        server.max_message_bytes = static_cast<size_t>(std::stoull(val));
+    }
+
+    if (const char* val = std::getenv("MEDIA_PLANE_AUTH_TIMEOUT_SEC")) {
+        server.auth_timeout_sec = std::stoi(val);
+    }
     
     if (const char* val = std::getenv("VIDEO_BITRATE")) {
         encoding.bitrate = std::stoi(val);
@@ -161,6 +174,28 @@ void Config::load_from_env() {
     if (const char* val = std::getenv("REQUIRE_AUTH")) {
         server.require_auth = (std::string(val) == "true" || std::string(val) == "1");
     }
+}
+
+static std::string expand_env(const std::string& value) {
+    std::regex env_regex(R"(\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*))");
+
+    std::string result = value;
+    std::smatch match;
+
+    while (std::regex_search(result, match, env_regex)) {
+        std::string var_name = match[1].matched ? match[1].str() : match[2].str();
+        std::string replacement;
+
+        if (const char* val = std::getenv(var_name.c_str())) {
+            replacement = val;
+        }
+
+        result = result.substr(0, match.position()) +
+                 replacement +
+                 result.substr(match.position() + match.length());
+    }
+
+    return result;
 }
 
 } // namespace qyh::mediaplane

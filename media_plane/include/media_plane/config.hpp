@@ -60,6 +60,8 @@ struct ServerConfig {
     std::string host = "0.0.0.0";
     uint16_t signaling_port = 8888;
     size_t max_connections = 10;
+    size_t max_message_bytes = 1024 * 1024;
+    int auth_timeout_sec = 10;
     
     // JWT 认证配置
     std::string jwt_secret;     // JWT 密钥（与 Control Plane 共享）

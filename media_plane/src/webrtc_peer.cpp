@@ -204,8 +204,18 @@ void WebRTCPeer::configure_ice_servers() {
         g_object_set(webrtcbin_, "stun-server", stun.c_str(), nullptr);
         break;  // webrtcbin 只支持一个 STUN
     }
-    
-    // TODO: 配置 TURN 服务器
+
+    // 配置 TURN 服务器（只取第一个）
+    for (const auto& turn : config_.webrtc.turn_servers) {
+        g_object_set(webrtcbin_, "turn-server", turn.c_str(), nullptr);
+        break;
+    }
+
+    GstWebRTCICETransportPolicy policy = GST_WEBRTC_ICE_TRANSPORT_POLICY_ALL;
+    if (config_.webrtc.ice_transport_policy == "relay") {
+        policy = GST_WEBRTC_ICE_TRANSPORT_POLICY_RELAY;
+    }
+    g_object_set(webrtcbin_, "ice-transport-policy", policy, nullptr);
 }
 
 void WebRTCPeer::create_offer() {

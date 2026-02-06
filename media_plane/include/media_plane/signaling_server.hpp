@@ -10,6 +10,7 @@
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/steady_timer.hpp>
 
 #include <memory>
 #include <unordered_map>
@@ -60,6 +61,8 @@ private:
     void on_read(beast::error_code ec, std::size_t bytes);
     void do_write();
     void on_write(beast::error_code ec, std::size_t bytes);
+
+    void mark_authenticated();
     
     void handle_message(const std::string& message);
     
@@ -78,6 +81,8 @@ private:
     bool authenticated_ = false;
     std::string user_id_;
     std::string username_;
+
+    net::steady_timer auth_timer_;
 };
 
 /**
@@ -111,6 +116,10 @@ public:
      */
     bool require_auth() const { return require_auth_; }
     void set_require_auth(bool require) { require_auth_ = require; }
+
+    int auth_timeout_sec() const { return config_.server.auth_timeout_sec; }
+    size_t max_message_bytes() const { return config_.server.max_message_bytes; }
+    size_t max_connections() const { return config_.server.max_connections; }
     
     /**
      * @brief 发送 SDP 到指定 peer
