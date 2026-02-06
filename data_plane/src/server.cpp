@@ -10,6 +10,7 @@
 #include "data_plane/control_sync.hpp"
 #include "data_plane/logger.hpp"
 
+#include <algorithm>
 #include <iostream>
 
 namespace qyh::dataplane {
@@ -19,6 +20,11 @@ Server::Server(net::io_context& io_context, const Config& config, MessageHandler
     , acceptor_(io_context)
     , config_(config)
     , handler_(handler)
+    , connection_manager_([&config]() {
+          ConnectionManagerConfig cm_config;
+          cm_config.max_connections = static_cast<int>(config.server.max_connections);
+          return cm_config;
+      }())
 {
 }
 
@@ -82,12 +88,22 @@ void Server::stop() {
     beast::error_code ec;
     acceptor_.close(ec);
     
-    // 关闭所有会话
-    std::lock_guard<std::mutex> lock(sessions_mutex_);
-    for (auto& [id, session] : sessions_) {
+    // 关闭所有会话（避免持锁调用 close 导致死锁）
+    std::vector<std::shared_ptr<Session>> sessions_copy;
+    {
+        std::lock_guard<std::mutex> lock(sessions_mutex_);
+        sessions_copy.reserve(sessions_.size());
+        for (auto& [id, session] : sessions_) {
+            sessions_copy.push_back(session);
+        }
+    }
+    for (auto& session : sessions_copy) {
         session->close();
     }
-    sessions_.clear();
+    {
+        std::lock_guard<std::mutex> lock(sessions_mutex_);
+        sessions_.clear();
+    }
 }
 
 void Server::do_accept() {
@@ -103,16 +119,27 @@ void Server::on_accept(beast::error_code ec, tcp::socket socket) {
             LOG_ERROR("Accept error: " << ec.message());
         }
     } else {
-        // 检查连接数限制
-        if (session_count() >= config_.server.max_connections) {
-            LOG_WARN("Max connections reached, rejecting");
+        // 解析远端地址
+        beast::error_code ep_ec;
+        auto remote = socket.remote_endpoint(ep_ec);
+        std::string remote_str = ep_ec ? "unknown" : remote.address().to_string();
+
+        // 连接治理：限流/黑名单/优先级驱逐
+        auto accept_result = connection_manager_.try_accept(remote_str, "unknown");
+        if (!accept_result.accepted) {
+            LOG_WARN("Rejecting connection from " << remote_str
+                     << ": " << accept_result.message);
             socket.close();
         } else {
             // 创建新会话
-            beast::error_code ep_ec;
-            auto remote = socket.remote_endpoint(ep_ec);
-            std::string remote_str = ep_ec ? "unknown" : remote.address().to_string();
-            auto session = std::make_shared<Session>(std::move(socket), *this, handler_);
+            auto session = std::make_shared<Session>(
+                std::move(socket),
+                *this,
+                handler_,
+                remote_str,
+                &connection_manager_,
+                std::chrono::seconds(std::max(0, config_.auth.auth_timeout_sec))
+            );
             if (control_sync_) {
                 session->set_control_sync(control_sync_);
             }

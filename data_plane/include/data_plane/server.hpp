@@ -19,6 +19,8 @@
 #include <string>
 #include <vector>
 
+#include "data_plane/connection_manager.hpp"
+
 namespace qyh::dataplane {
 
 namespace beast = boost::beast;
@@ -124,6 +126,8 @@ private:
     MessageHandler& handler_;
 
     ControlSyncService* control_sync_ = nullptr;
+
+    ConnectionManager connection_manager_;
     
     std::unordered_map<std::string, std::shared_ptr<Session>> sessions_;
     mutable std::mutex sessions_mutex_;

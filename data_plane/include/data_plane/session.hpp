@@ -9,6 +9,7 @@
 #include <boost/beast/websocket.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/strand.hpp>
+#include <boost/asio/steady_timer.hpp>
 
 #include <memory>
 #include <string>
@@ -20,6 +21,7 @@
 #include <functional>
 #include <atomic>
 
+#include "data_plane/connection_manager.hpp"
 namespace qyh::dataplane {
 
 namespace beast = boost::beast;
@@ -69,7 +71,10 @@ public:
      */
     Session(tcp::socket&& socket, 
             Server& server,
-            MessageHandler& handler);
+            MessageHandler& handler,
+            const std::string& remote_address,
+            ConnectionManager* connection_manager,
+            std::chrono::seconds auth_timeout);
     
     ~Session();
     
@@ -109,6 +114,11 @@ public:
      * @brief 设置会话状态
      */
     void set_state(SessionState state) { state_ = state; }
+
+    /**
+     * @brief 标记认证成功并取消超时
+     */
+    void mark_authenticated();
     
     /**
      * @brief 获取用户信息
@@ -195,6 +205,11 @@ public:
      * @brief 设置控制权同步服务
      */
     void set_control_sync(ControlSyncService* service) { control_sync_ = service; }
+
+    /**
+     * @brief 更新连接信息（鉴权成功后）
+     */
+    void update_connection_info(ConnectionPriority priority);
     
 private:
     /**
@@ -241,6 +256,8 @@ private:
     websocket::stream<beast::tcp_stream> ws_;
     Server& server_;
     MessageHandler& handler_;
+    std::string remote_address_;
+    ConnectionManager* connection_manager_ = nullptr;
     
     std::string session_id_;
     SessionState state_ = SessionState::CONNECTING;
@@ -262,6 +279,9 @@ private:
     
     std::chrono::steady_clock::time_point last_heartbeat_;
     mutable std::mutex heartbeat_mutex_;
+
+    net::steady_timer auth_timer_;
+    std::chrono::seconds auth_timeout_{0};
 
     ControlSyncService* control_sync_ = nullptr;
     std::atomic<bool> cleaned_{false};

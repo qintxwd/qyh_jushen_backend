@@ -135,6 +135,26 @@ void ConnectionManager::update_priority(const std::string& session_id,
     }
 }
 
+void ConnectionManager::update_connection_info(const std::string& session_id,
+                                                const std::optional<std::string>& client_type,
+                                                const std::optional<int64_t>& user_id,
+                                                ConnectionPriority priority) {
+    std::lock_guard<std::mutex> lock(connections_mutex_);
+    auto it = connections_.find(session_id);
+    if (it == connections_.end()) {
+        return;
+    }
+
+    if (client_type.has_value()) {
+        it->second.client_type = *client_type;
+    }
+    if (user_id.has_value()) {
+        it->second.user_id = *user_id;
+    }
+    it->second.priority = priority;
+    it->second.last_activity = std::chrono::steady_clock::now();
+}
+
 void ConnectionManager::update_activity(const std::string& session_id) {
     std::lock_guard<std::mutex> lock(connections_mutex_);
     auto it = connections_.find(session_id);

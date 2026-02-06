@@ -123,6 +123,14 @@ public:
      */
     void update_priority(const std::string& session_id,
                          ConnectionPriority priority);
+
+    /**
+     * @brief 更新连接信息
+     */
+    void update_connection_info(const std::string& session_id,
+                                const std::optional<std::string>& client_type,
+                                const std::optional<int64_t>& user_id,
+                                ConnectionPriority priority);
     
     /**
      * @brief 更新连接活动时间

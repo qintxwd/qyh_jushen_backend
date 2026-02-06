@@ -14,6 +14,7 @@
 #include "data_plane/control_sync.hpp"
 #include "data_plane/vr_session.hpp"
 #include "data_plane/server.hpp"
+#include "data_plane/connection_manager.hpp"
 
 #include "data_plane/ros2_bridge.hpp"
 #include "data_plane/watchdog.hpp"
@@ -167,7 +168,13 @@ void MessageHandler::handle_auth_request(std::shared_ptr<Session> session,
     if (!config_.auth.enabled) {
         std::cout << "[MessageHandler] Auth disabled, auto-passing session " 
                   << session->session_id() << std::endl;
-        session->set_state(SessionState::AUTHENTICATED);
+        session->set_client_type(auth_req.client_type());
+        session->set_client_version(auth_req.client_version());
+        session->mark_authenticated();
+        session->update_connection_info(
+            auth_req.client_type() == "vr" ? ConnectionPriority::CRITICAL
+                                            : ConnectionPriority::NORMAL
+        );
         send_auth_response(session, true);
         return;
     }
@@ -198,7 +205,15 @@ void MessageHandler::handle_auth_request(std::shared_ptr<Session> session,
     session->set_user_info(*user_info);
     session->set_client_type(auth_req.client_type());
     session->set_client_version(auth_req.client_version());
-    session->set_state(SessionState::AUTHENTICATED);
+    session->mark_authenticated();
+
+    ConnectionPriority priority = ConnectionPriority::NORMAL;
+    if (auth_req.client_type() == "vr") {
+        priority = ConnectionPriority::CRITICAL;
+    } else if (user_info->role == "admin" || user_info->role == "operator") {
+        priority = ConnectionPriority::HIGH;
+    }
+    session->update_connection_info(priority);
 
     if (control_sync_) {
         control_sync_->associate_session(session->session_id(), user_info->user_id);

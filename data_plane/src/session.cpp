@@ -19,11 +19,18 @@ namespace qyh::dataplane {
 
 Session::Session(tcp::socket&& socket, 
                  Server& server,
-                 MessageHandler& handler)
+                 MessageHandler& handler,
+                 const std::string& remote_address,
+                 ConnectionManager* connection_manager,
+                 std::chrono::seconds auth_timeout)
     : ws_(std::move(socket))
     , server_(server)
     , handler_(handler)
+    , remote_address_(remote_address)
+    , connection_manager_(connection_manager)
     , session_id_(generate_session_id())
+    , auth_timer_(ws_.get_executor())
+    , auth_timeout_(auth_timeout)
 {
     // 设置 WebSocket 选项
     ws_.binary(true);  // 使用二进制模式
@@ -48,6 +55,18 @@ Session::~Session() {
 void Session::start() {
     // 注册会话
     server_.add_session(session_id_, shared_from_this());
+
+    if (connection_manager_) {
+        ConnectionInfo info;
+        info.session_id = session_id_;
+        info.client_type = client_type_;
+        info.remote_address = remote_address_;
+        info.user_id = user_info_.user_id;
+        info.priority = ConnectionPriority::LOW;
+        info.connected_at = std::chrono::steady_clock::now();
+        info.last_activity = info.connected_at;
+        connection_manager_->register_connection(session_id_, info);
+    }
     
     // 执行 WebSocket 握手
     do_accept();
@@ -88,6 +107,24 @@ void Session::send(std::shared_ptr<const std::vector<uint8_t>> data) {
             self->do_write();
         });
     }
+}
+
+void Session::mark_authenticated() {
+    state_ = SessionState::AUTHENTICATED;
+    beast::error_code ec;
+    auth_timer_.cancel(ec);
+}
+
+void Session::update_connection_info(ConnectionPriority priority) {
+    if (!connection_manager_) {
+        return;
+    }
+    connection_manager_->update_connection_info(
+        session_id_,
+        client_type_.empty() ? std::nullopt : std::optional<std::string>(client_type_),
+        user_info_.user_id ? std::optional<int64_t>(user_info_.user_id) : std::nullopt,
+        priority
+    );
 }
 
 void Session::send(const std::vector<uint8_t>& data) {
@@ -151,6 +188,18 @@ void Session::on_accept(beast::error_code ec) {
     
     // 初始化心跳
     update_heartbeat();
+
+    if (auth_timeout_.count() > 0) {
+        auth_timer_.expires_after(auth_timeout_);
+        auth_timer_.async_wait([self = shared_from_this()](const beast::error_code& timer_ec) {
+            if (timer_ec) {
+                return;
+            }
+            if (self->state() == SessionState::CONNECTING) {
+                self->close();
+            }
+        });
+    }
     
     // 开始读取消息
     do_read();
@@ -179,6 +228,10 @@ void Session::on_read(beast::error_code ec, std::size_t bytes_transferred) {
     // 处理消息
     auto data = static_cast<const uint8_t*>(read_buffer_.data().data());
     std::vector<uint8_t> message(data, data + bytes_transferred);
+
+    if (connection_manager_) {
+        connection_manager_->record_message(session_id_, false, bytes_transferred);
+    }
     
     handler_.handle_message(shared_from_this(), message);
     
@@ -241,6 +294,10 @@ void Session::on_write(beast::error_code ec, std::size_t bytes_transferred) {
     if (has_more) {
         do_write();
     }
+
+    if (connection_manager_) {
+        connection_manager_->record_message(session_id_, true, bytes_transferred);
+    }
 }
 
 std::string Session::generate_session_id() {
@@ -263,12 +320,19 @@ void Session::cleanup(const std::string& reason) {
         return;
     }
 
+    beast::error_code ec;
+    auth_timer_.cancel(ec);
+
     handler_.on_disconnect(session_id_);
 
     VRSessionManager::instance().on_disconnect(session_id_, reason);
 
     if (control_sync_) {
         control_sync_->disassociate_session(session_id_);
+    }
+
+    if (connection_manager_) {
+        connection_manager_->unregister_connection(session_id_);
     }
 
     server_.remove_session(session_id_);
