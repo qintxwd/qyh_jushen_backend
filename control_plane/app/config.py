@@ -9,6 +9,8 @@ import os
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+DEFAULT_JWT_SECRET = "yb9hQ2-sQip-9sROU3ERwhFgoIos8pQ7_GZu8QIneto"
+
 
 class Settings(BaseSettings):
     """应用配置"""
@@ -55,7 +57,7 @@ class Settings(BaseSettings):
         return url
     
     # ==================== JWT 认证 ====================
-    SECRET_KEY: str = os.getenv("JWT_SECRET", "yb9hQ2-sQip-9sROU3ERwhFgoIos8pQ7_GZu8QIneto")
+    SECRET_KEY: str = os.getenv("JWT_SECRET", DEFAULT_JWT_SECRET)
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     TOKEN_REFRESH_THRESHOLD_MINUTES: int = 10
@@ -79,10 +81,19 @@ class Settings(BaseSettings):
     
     # ==================== 日志 ====================
     LOG_LEVEL: str = "INFO"
+
+    # ==================== 代理与内部接口 ====================
+    TRUST_PROXY: bool = False
+    VR_INTERNAL_TOKEN: str = ""
     
     # ==================== 机器人信息 ====================
     ROBOT_ID: str = "jushen-001"
     ROBOT_NAME: str = "巨神-001"
+
+    # ==================== 默认管理员 ====================
+    AUTO_CREATE_ADMIN: bool = True
+    DEFAULT_ADMIN_USERNAME: str = "admin"
+    DEFAULT_ADMIN_PASSWORD: str = "admin123"
 
 
 @lru_cache()

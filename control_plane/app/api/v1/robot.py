@@ -556,15 +556,25 @@ async def get_package_file(
     获取 ROS 包内的资源文件 (mesh, texture 等)
     """
     workspace_root = os.path.expanduser("~/qyh-robot-system/qyh_jushen_ws")
+
+    requested_path = Path(file_path)
+    if requested_path.is_absolute() or ".." in requested_path.parts:
+        return Response(status_code=400, content="Invalid file path")
     
-    potential_paths = [
-        os.path.join(workspace_root, "install", package_name, "share", package_name, file_path),
-        os.path.join(workspace_root, "src", package_name, file_path),
-        os.path.join(workspace_root, "install", "share", package_name, file_path),
+    base_dirs = [
+        os.path.join(workspace_root, "install", package_name, "share", package_name),
+        os.path.join(workspace_root, "src", package_name),
+        os.path.join(workspace_root, "install", "share", package_name),
     ]
 
-    for path_str in potential_paths:
-        path = Path(path_str)
+    for base_dir_str in base_dirs:
+        base_dir = Path(base_dir_str).resolve()
+        path = (base_dir / requested_path).resolve()
+        try:
+            if os.path.commonpath([str(path), str(base_dir)]) != str(base_dir):
+                continue
+        except ValueError:
+            continue
         if path.exists() and path.is_file():
             media_type = None
             suffix = path.suffix.lower()

@@ -54,7 +54,9 @@ class ErrorCodes:
     PERMISSION_DENIED = 1004
     RESOURCE_NOT_FOUND = 1005
     INVALID_PARAMS = 1006
+    INVALID_PARAMETER = 1006
     OPERATION_FAILED = 1007
+    FORBIDDEN = 1008
     
     # 认证错误 (2xxx)
     AUTH_INVALID_CREDENTIALS = 2001
@@ -84,6 +86,7 @@ class ErrorCodes:
     EMERGENCY_STOP_ACTIVE = 6003
     ROS2_SERVICE_FAILED = 6004
     ROS2_ERROR = 6005
+    ROS_SERVICE_FAILED = 6004
 
 
 # ==================== 响应构造函数 ====================

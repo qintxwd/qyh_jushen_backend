@@ -18,7 +18,8 @@ from pydantic import BaseModel, Field
 
 from app.dependencies import get_current_user
 from app.models.user import User
-from app.schemas.response import ApiResponse, success_response
+from app.schemas.response import ApiResponse, success_response, error_response, ErrorCodes
+from app.config import settings
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -135,7 +136,14 @@ async def vr_connected(
 
     注意: 此接口应仅允许内部调用，生产环境需添加鉴权
     """
-    # TODO: 验证请求来自 Data Plane (内部 Token 或 IP 白名单)
+    if settings.VR_INTERNAL_TOKEN:
+        auth_header = http_request.headers.get("Authorization", "")
+        token = auth_header.removeprefix("Bearer ").strip()
+        if token != settings.VR_INTERNAL_TOKEN:
+            return error_response(
+                code=ErrorCodes.PERMISSION_DENIED,
+                message="Unauthorized",
+            )
     client_ip = http_request.client.host if http_request.client else "unknown"
     logger.info(f"VR connected notification from {client_ip}")
 
@@ -164,7 +172,14 @@ async def vr_disconnected(
     - heartbeat_timeout: 心跳超时 (Watchdog 触发)
     - error: 连接错误
     """
-    # TODO: 验证请求来自 Data Plane
+    if settings.VR_INTERNAL_TOKEN:
+        auth_header = http_request.headers.get("Authorization", "")
+        token = auth_header.removeprefix("Bearer ").strip()
+        if token != settings.VR_INTERNAL_TOKEN:
+            return error_response(
+                code=ErrorCodes.PERMISSION_DENIED,
+                message="Unauthorized",
+            )
     client_ip = http_request.client.host if http_request.client else "unknown"
     logger.info(f"VR disconnected notification from {client_ip}")
 

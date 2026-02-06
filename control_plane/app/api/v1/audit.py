@@ -10,7 +10,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_db, get_current_user, get_current_admin
+from app.database import get_async_db
+from app.dependencies import get_current_user, get_current_admin
 from app.models import User
 from app.schemas import success_response, error_response, ErrorCodes
 from app.schemas.audit import (
@@ -46,7 +47,7 @@ async def list_audit_logs(
     ip_address: Optional[str] = Query(None, description="IP地址"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -56,7 +57,7 @@ async def list_audit_logs(
     - 管理员可以查看所有日志
     """
     # 非管理员只能查看自己的日志
-    if not current_user.is_admin:
+    if current_user.role != "admin":
         user_id = current_user.id
     
     query = AuditLogQuery(
@@ -117,7 +118,7 @@ async def list_resource_types(
 )
 async def get_statistics(
     days: int = Query(7, ge=1, le=90, description="统计天数"),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_admin),
 ):
     """
@@ -136,7 +137,7 @@ async def get_statistics(
 )
 async def get_my_recent_actions(
     limit: int = Query(10, ge=1, le=50, description="数量限制"),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user),
 ):
     """获取当前用户的最近操作"""
@@ -153,7 +154,7 @@ async def get_my_recent_actions(
 )
 async def get_audit_log(
     log_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user),
 ):
     """获取日志详情"""
@@ -166,9 +167,9 @@ async def get_audit_log(
         )
     
     # 非管理员只能查看自己的日志
-    if not current_user.is_admin and log.user_id != current_user.id:
+    if current_user.role != "admin" and log.user_id != current_user.id:
         return error_response(
-            code=ErrorCodes.FORBIDDEN,
+            code=ErrorCodes.PERMISSION_DENIED,
             message="无权查看此日志",
         )
     
@@ -186,7 +187,7 @@ async def get_audit_log(
 )
 async def cleanup_logs(
     days: int = Query(90, ge=30, le=365, description="保留天数"),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_admin),
 ):
     """

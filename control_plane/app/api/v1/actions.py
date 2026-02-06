@@ -47,6 +47,7 @@ router = APIRouter()
 
 # 基础模型动作目录
 MODEL_ACTIONS_BASE = Path(os.path.expanduser("~/qyh-robot-system/model_actions"))
+ACTION_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
 
 # ============================================================================
@@ -130,6 +131,15 @@ def _extract_topics(collection: dict) -> List[str]:
             topics.append(topic)
     
     return topics
+
+
+def _validate_action_id(action_id: str):
+    if not ACTION_ID_PATTERN.fullmatch(action_id):
+        return error_response(
+            code=ErrorCodes.INVALID_PARAMS,
+            message="动作 ID 仅允许小写字母、数字、下划线和短横线",
+        )
+    return None
 
 
 def _build_action_summary(
@@ -289,6 +299,14 @@ async def create_action(
     
     可选择基于模板创建
     """
+    invalid = _validate_action_id(request.id)
+    if invalid:
+        return invalid
+    if request.template:
+        invalid_template = _validate_action_id(request.template)
+        if invalid_template:
+            return invalid_template
+
     model_actions_dir = get_model_actions_dir(robot_name, robot_version)
     action_dir = model_actions_dir / request.id
     
@@ -377,6 +395,9 @@ async def get_action(
     current_user: User = Depends(get_current_user),
 ):
     """获取动作详细信息"""
+    invalid = _validate_action_id(action_id)
+    if invalid:
+        return invalid
     rn = robot_name or DEFAULT_ROBOT_NAME
     rv = robot_version or DEFAULT_ROBOT_VERSION
     model_actions_dir = get_model_actions_dir(rn, rv)
@@ -438,6 +459,9 @@ async def update_action(
     current_user: User = Depends(get_current_operator),
 ):
     """更新动作配置"""
+    invalid = _validate_action_id(action_id)
+    if invalid:
+        return invalid
     model_actions_dir = get_model_actions_dir(robot_name, robot_version)
     action_dir = model_actions_dir / action_id
     action_file = action_dir / "action.yaml"
@@ -450,6 +474,8 @@ async def update_action(
     
     try:
         data = _load_action_yaml(action_file)
+        if 'metadata' not in data or not isinstance(data['metadata'], dict):
+            data['metadata'] = {}
         
         # 更新元数据
         if request.name is not None:
@@ -502,6 +528,9 @@ async def delete_action(
     - delete_data=False: 仅删除 action.yaml
     - delete_data=True: 删除整个目录（包括数据和模型）
     """
+    invalid = _validate_action_id(action_id)
+    if invalid:
+        return invalid
     model_actions_dir = get_model_actions_dir(robot_name, robot_version)
     action_dir = model_actions_dir / action_id
     
@@ -542,6 +571,9 @@ async def get_action_topics(
     current_user: User = Depends(get_current_user),
 ):
     """获取动作需要录制的话题列表"""
+    invalid = _validate_action_id(action_id)
+    if invalid:
+        return invalid
     model_actions_dir = get_model_actions_dir(robot_name, robot_version)
     action_file = model_actions_dir / action_id / "action.yaml"
     
@@ -579,6 +611,9 @@ async def get_action_episodes(
     current_user: User = Depends(get_current_user),
 ):
     """获取动作的轨迹文件列表"""
+    invalid = _validate_action_id(action_id)
+    if invalid:
+        return invalid
     model_actions_dir = get_model_actions_dir(robot_name, robot_version)
     action_dir = model_actions_dir / action_id
     
@@ -589,6 +624,7 @@ async def get_action_episodes(
         )
     
     episodes = []
+    base_dir = model_actions_dir
     
     # 扫描 HDF5 文件
     episodes_dir = action_dir / "data" / "episodes"
@@ -596,10 +632,15 @@ async def get_action_episodes(
         for hdf5_file in episodes_dir.glob("*.hdf5"):
             try:
                 stat = hdf5_file.stat()
+                rel_path = None
+                try:
+                    rel_path = str(hdf5_file.relative_to(base_dir))
+                except ValueError:
+                    rel_path = hdf5_file.name
                 episodes.append({
                     "id": hashlib.md5(str(hdf5_file).encode()).hexdigest()[:12],
                     "name": hdf5_file.name,
-                    "path": str(hdf5_file),
+                    "path": rel_path,
                     "type": "hdf5",
                     "size_mb": round(stat.st_size / (1024 * 1024), 2),
                     "created_at": datetime.fromtimestamp(stat.st_ctime).isoformat(),
@@ -618,10 +659,15 @@ async def get_action_episodes(
                         f.stat().st_size for f in bag_dir.rglob("*") if f.is_file()
                     )
                     stat = bag_dir.stat()
+                    rel_path = None
+                    try:
+                        rel_path = str(bag_dir.relative_to(base_dir))
+                    except ValueError:
+                        rel_path = bag_dir.name
                     episodes.append({
                         "id": hashlib.md5(str(bag_dir).encode()).hexdigest()[:12],
                         "name": bag_dir.name,
-                        "path": str(bag_dir),
+                        "path": rel_path,
                         "type": "bag",
                         "size_mb": round(total_size / (1024 * 1024), 2),
                         "created_at": datetime.fromtimestamp(stat.st_ctime).isoformat(),
@@ -648,6 +694,9 @@ async def delete_episode(
     current_user: User = Depends(get_current_operator),
 ):
     """删除指定的轨迹文件"""
+    invalid = _validate_action_id(action_id)
+    if invalid:
+        return invalid
     import shutil
     
     # 先获取轨迹列表
@@ -710,6 +759,9 @@ async def update_episode_count(
     current_user: User = Depends(get_current_operator),
 ):
     """更新动作的轨迹数量统计"""
+    invalid = _validate_action_id(action_id)
+    if invalid:
+        return invalid
     model_actions_dir = get_model_actions_dir(robot_name, robot_version)
     action_dir = model_actions_dir / action_id
     action_file = action_dir / "action.yaml"
@@ -766,6 +818,9 @@ async def mark_action_trained(
     current_user: User = Depends(get_current_operator),
 ):
     """标记动作为已训练状态"""
+    invalid = _validate_action_id(action_id)
+    if invalid:
+        return invalid
     model_actions_dir = get_model_actions_dir(robot_name, robot_version)
     action_dir = model_actions_dir / action_id
     action_file = action_dir / "action.yaml"
@@ -827,6 +882,9 @@ async def get_inference_config(
     
     只有 trained 状态的动作才能获取推理配置
     """
+    invalid = _validate_action_id(action_id)
+    if invalid:
+        return invalid
     model_actions_dir = get_model_actions_dir(robot_name, robot_version)
     action_dir = model_actions_dir / action_id
     action_file = action_dir / "action.yaml"

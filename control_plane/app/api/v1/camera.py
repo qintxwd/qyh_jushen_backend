@@ -213,14 +213,22 @@ async def get_camera_webrtc_info(
     # TODO: 从 Media Plane 获取实际的 WebRTC 信息
     
     # 从配置获取 Media Plane 地址
+    from urllib.parse import urlparse
     from app.config import settings
-    media_host = getattr(settings, 'MEDIA_PLANE_HOST', 'localhost')
-    media_port = getattr(settings, 'MEDIA_PLANE_PORT', 8080)
+    
+    parsed = urlparse(settings.WEBRTC_SIGNALING_URL)
+    netloc = parsed.netloc or parsed.path
+    scheme = parsed.scheme.lower()
+    if scheme in ("https", "wss"):
+        ws_scheme = "wss"
+    else:
+        ws_scheme = "ws"
+    signaling_url = f"{ws_scheme}://{netloc}/webrtc"
     
     return success_response(
         data={
             "camera_id": camera_id,
-            "signaling_url": f"ws://{media_host}:{media_port}/webrtc",
+            "signaling_url": signaling_url,
             "ice_servers": [
                 {"urls": "stun:stun.l.google.com:19302"}
             ],

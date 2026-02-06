@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import settings
+from app.config import settings, DEFAULT_JWT_SECRET
 from app.database import init_db, SessionLocal
 from app.api.v1.router import api_router
 from app.api.health import router as health_router
@@ -17,6 +17,9 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # ==================== 启动 ====================
     print(f"🚀 启动 {settings.APP_NAME} v{settings.APP_VERSION}...")
+
+    if settings.SECRET_KEY == DEFAULT_JWT_SECRET and not settings.DEBUG:
+        raise RuntimeError("JWT_SECRET must be set in production")
     
     # 初始化数据库
     init_db()
@@ -35,20 +38,26 @@ async def create_default_admin():
     """创建默认管理员账户（如果不存在）"""
     from app.models.user import User
     from app.core.security import get_password_hash
-    
+    if not settings.AUTO_CREATE_ADMIN:
+        return
+    if settings.DEFAULT_ADMIN_PASSWORD == "admin123" and not settings.DEBUG:
+        raise RuntimeError("DEFAULT_ADMIN_PASSWORD must be set in production")
+
     db = SessionLocal()
     try:
-        admin = db.query(User).filter(User.username == "admin").first()
+        admin = db.query(User).filter(
+            User.username == settings.DEFAULT_ADMIN_USERNAME
+        ).first()
         if not admin:
             admin = User(
-                username="admin",
+                username=settings.DEFAULT_ADMIN_USERNAME,
                 email="admin@example.com",
-                hashed_password=get_password_hash("admin123"),
+                hashed_password=get_password_hash(settings.DEFAULT_ADMIN_PASSWORD),
                 role="admin",
             )
             db.add(admin)
             db.commit()
-            print("✅ 创建默认管理员: admin / admin123")
+            print("✅ 创建默认管理员账户")
         else:
             print("ℹ️  管理员账户已存在")
     finally:
@@ -72,8 +81,8 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
-    allow_origin_regex=r"https?://.*",
-    allow_credentials=True,
+    allow_origin_regex=None,
+    allow_credentials=settings.CORS_ORIGINS != "*",
     allow_methods=["*"],
     allow_headers=["*"],
 )

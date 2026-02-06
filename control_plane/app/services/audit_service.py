@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import Request
 
 from app.models import AuditLog, User
+from app.config import settings
 from app.schemas.audit import (
     AuditLogEntry,
     AuditLogQuery,
@@ -57,7 +58,10 @@ class AuditService:
         user_agent = None
         if request:
             # 获取真实 IP（考虑代理）
-            forwarded = request.headers.get("X-Forwarded-For")
+            if settings.TRUST_PROXY:
+                forwarded = request.headers.get("X-Forwarded-For")
+            else:
+                forwarded = None
             if forwarded:
                 ip_address = forwarded.split(",")[0].strip()
             else:
@@ -335,7 +339,10 @@ def audit_log_sync(
     ip_address = None
     user_agent = None
     if request:
-        forwarded = request.headers.get("X-Forwarded-For")
+        if settings.TRUST_PROXY:
+            forwarded = request.headers.get("X-Forwarded-For")
+        else:
+            forwarded = None
         if forwarded:
             ip_address = forwarded.split(",")[0].strip()
         else:
