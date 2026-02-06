@@ -118,29 +118,41 @@ server:
   host: "0.0.0.0"
   signaling_port: 8888
   max_connections: 10
+  max_message_bytes: 1048576
+  auth_timeout_sec: 10
+  jwt_secret: "${JWT_SECRET}"
+  require_auth: true
+  auth_audience: ""
+  auth_issuer: ""
+  auth_scope: ""
 
-video_sources:
-  - name: "head_camera"
-    device: "/dev/video0"
-    type: "v4l2"
-    enabled: true
-  - name: "left_hand_camera"
-    device: "/dev/video2"
-    type: "v4l2"
-    enabled: true
-  - name: "right_hand_camera"
-    device: "/dev/video4"
-    type: "v4l2"
-    enabled: true
+video:
+  default_source: "head_camera"
+  sources:
+    - name: "head_camera"
+      type: "ros2"
+      topic: "/head_camera/color/image_raw"
+      enabled: true
+    - name: "left_camera"
+      type: "ros2"
+      topic: "/left_camera/color/image_raw"
+      enabled: true
+    - name: "right_camera"
+      type: "ros2"
+      topic: "/right_camera/color/image_raw"
+      enabled: true
+    - name: "test_pattern"
+      type: "test"
+      enabled: true
 
-encoding:
-  codec: "h264"
-  hardware_encoder: true
-  width: 1280
-  height: 720
-  framerate: 30
-  bitrate: 4000         # kbps
-  keyframe_interval: 30
+  encoding:
+    codec: "h264"
+    hardware_encoder: true
+    width: 1280
+    height: 720
+    framerate: 30
+    bitrate: 4000         # kbps
+    keyframe_interval: 30
 
 webrtc:
   stun_servers:
@@ -158,6 +170,11 @@ logging:
 ```
 
 ## WebRTC 信令协议
+
+### 认证流程
+
+当 `require_auth: true` 时，客户端使用登录获得的 JWT Token
+在信令通道发送 `auth` 消息。
 
 ### 连接流程
 

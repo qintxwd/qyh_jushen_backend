@@ -37,6 +37,8 @@ bool Config::load_from_file(const std::string& path) {
             auto a = config["auth"];
             if (a["jwt_secret"]) auth.jwt_secret = expand_env(a["jwt_secret"].as<std::string>());
             if (a["jwt_algorithm"]) auth.jwt_algorithm = a["jwt_algorithm"].as<std::string>();
+            if (a["auth_audience"]) auth.auth_audience = a["auth_audience"].as<std::string>();
+            if (a["reject_scope"]) auth.reject_scope = a["reject_scope"].as<std::string>();
             if (a["auth_timeout_sec"]) auth.auth_timeout_sec = a["auth_timeout_sec"].as<int>();
             if (a["enabled"]) auth.enabled = a["enabled"].as<bool>();
         }
@@ -93,6 +95,14 @@ void Config::load_from_env() {
     // 环境变量覆盖
     if (const char* val = std::getenv("JWT_SECRET")) {
         auth.jwt_secret = val;
+    }
+
+    if (const char* val = std::getenv("DATA_PLANE_AUTH_AUDIENCE")) {
+        auth.auth_audience = val;
+    }
+
+    if (const char* val = std::getenv("DATA_PLANE_REJECT_SCOPE")) {
+        auth.reject_scope = val;
     }
     
     if (const char* val = std::getenv("DATA_PLANE_PORT")) {

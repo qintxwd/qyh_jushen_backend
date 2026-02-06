@@ -35,6 +35,9 @@ bool Config::load_from_file(const std::string& path) {
             if (s["auth_timeout_sec"]) server.auth_timeout_sec = s["auth_timeout_sec"].as<int>();
             if (s["jwt_secret"]) server.jwt_secret = expand_env(s["jwt_secret"].as<std::string>());
             if (s["require_auth"]) server.require_auth = s["require_auth"].as<bool>();
+            if (s["auth_audience"]) server.auth_audience = s["auth_audience"].as<std::string>();
+            if (s["auth_issuer"]) server.auth_issuer = s["auth_issuer"].as<std::string>();
+            if (s["auth_scope"]) server.auth_scope = s["auth_scope"].as<std::string>();
         }
         
         // Video Sources 配置
@@ -173,6 +176,18 @@ void Config::load_from_env() {
     
     if (const char* val = std::getenv("REQUIRE_AUTH")) {
         server.require_auth = (std::string(val) == "true" || std::string(val) == "1");
+    }
+
+    if (const char* val = std::getenv("MEDIA_PLANE_AUTH_AUDIENCE")) {
+        server.auth_audience = val;
+    }
+
+    if (const char* val = std::getenv("MEDIA_PLANE_AUTH_ISSUER")) {
+        server.auth_issuer = val;
+    }
+
+    if (const char* val = std::getenv("MEDIA_PLANE_AUTH_SCOPE")) {
+        server.auth_scope = val;
     }
 }
 

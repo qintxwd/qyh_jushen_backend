@@ -13,6 +13,10 @@ auth:
   # JWT 密钥（从环境变量读取）
   jwt_secret: "${JWT_SECRET}"
   jwt_algorithm: "HS256"
+  # Token 受众限制（若 Token 含 aud，需匹配该值）
+  auth_audience: "data_plane"
+  # 拒绝包含该 scope 的 Token（防止 Media Token 误用）
+  reject_scope: "media"
   # 连接建立后的鉴权超时（秒）
   auth_timeout_sec: 10
   # 是否启用鉴权（开发模式可关闭）

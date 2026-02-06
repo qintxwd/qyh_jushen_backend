@@ -52,6 +52,8 @@ struct SessionUserInfo {
     std::string username;
     std::string role;
     std::vector<std::string> permissions;
+    std::string audience;
+    std::string scope;
     
     bool has_permission(const std::string& perm) const {
         return std::find(permissions.begin(), permissions.end(), perm) != permissions.end();

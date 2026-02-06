@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     TOKEN_REFRESH_THRESHOLD_MINUTES: int = 10
-    
+
     # ==================== 其他服务地址 ====================
     WEBSOCKET_SERVER_URL: str = "ws://127.0.0.1:8765"
     WEBRTC_SIGNALING_URL: str = "http://127.0.0.1:8888"

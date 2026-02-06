@@ -20,6 +20,9 @@ struct UserInfo {
     std::string user_id;
     std::string username;
     std::string role;           // admin, operator, viewer
+    std::string audience;
+    std::string issuer;
+    std::string scope;
     std::chrono::system_clock::time_point expires_at;
     
     bool is_expired() const {
@@ -41,7 +44,10 @@ public:
      * @brief 构造函数
      * @param secret JWT 密钥（与 Control Plane 共享）
      */
-    explicit JwtVerifier(const std::string& secret);
+    explicit JwtVerifier(const std::string& secret,
+                         const std::string& audience = "",
+                         const std::string& issuer = "",
+                         const std::string& scope = "");
     
     /**
      * @brief 验证 Token
@@ -57,6 +63,9 @@ public:
     
 private:
     std::string secret_;
+    std::string audience_;
+    std::string issuer_;
+    std::string scope_;
     
     /**
      * @brief Base64 URL 解码
@@ -68,6 +77,8 @@ private:
      */
     bool verify_signature(const std::string& header_payload,
                           const std::string& signature) const;
+
+    bool verify_claims(const UserInfo& info) const;
 };
 
 /**
@@ -78,7 +89,10 @@ private:
  */
 class SimpleJwtVerifier {
 public:
-    explicit SimpleJwtVerifier(const std::string& secret);
+    explicit SimpleJwtVerifier(const std::string& secret,
+                               const std::string& audience = "",
+                               const std::string& issuer = "",
+                               const std::string& scope = "");
     
     /**
      * @brief 验证 Token
@@ -87,6 +101,9 @@ public:
     
 private:
     std::string secret_;
+    std::string audience_;
+    std::string issuer_;
+    std::string scope_;
 };
 
 } // namespace qyh::mediaplane

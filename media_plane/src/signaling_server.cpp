@@ -403,7 +403,12 @@ SignalingServer::SignalingServer(net::io_context& io_context, const Config& conf
     std::string jwt_secret = config_.server.jwt_secret;
     require_auth_ = config_.server.require_auth;
     if (!jwt_secret.empty()) {
-        jwt_verifier_ = std::make_unique<JwtVerifier>(jwt_secret);
+        jwt_verifier_ = std::make_unique<JwtVerifier>(
+            jwt_secret,
+            config_.server.auth_audience,
+            config_.server.auth_issuer,
+            config_.server.auth_scope
+        );
     }
 }
 

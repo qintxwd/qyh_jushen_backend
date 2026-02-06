@@ -12,9 +12,13 @@ server:
   
   # JWT 认证配置
   # jwt_secret 建议通过环境变量 JWT_SECRET 设置
-  jwt_secret: ""
+  jwt_secret: "${JWT_SECRET}"
   # 是否要求认证（开发模式可关闭）
-  require_auth: false
+  require_auth: true
+  # Media Token 校验
+  auth_audience: ""
+  auth_issuer: ""
+  auth_scope: ""
 
 video:
   # 默认视频源

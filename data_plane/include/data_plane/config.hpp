@@ -27,6 +27,8 @@ struct ServerConfig {
 struct AuthConfig {
     std::string jwt_secret;
     std::string jwt_algorithm = "HS256";
+    std::string auth_audience = "data_plane";
+    std::string reject_scope = "media";
     int auth_timeout_sec = 10;
     bool enabled = true;
 };

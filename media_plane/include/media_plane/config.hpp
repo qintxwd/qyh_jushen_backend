@@ -66,6 +66,9 @@ struct ServerConfig {
     // JWT 认证配置
     std::string jwt_secret;     // JWT 密钥（与 Control Plane 共享）
     bool require_auth = false;  // 是否要求认证（开发模式可关闭）
+    std::string auth_audience;
+    std::string auth_issuer;
+    std::string auth_scope;
 };
 
 /**

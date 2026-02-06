@@ -17,9 +17,14 @@
 
 namespace qyh::dataplane {
 
-JWTValidator::JWTValidator(const std::string& secret, const std::string& algorithm)
+JWTValidator::JWTValidator(const std::string& secret,
+                           const std::string& algorithm,
+                           const std::string& audience,
+                           const std::string& reject_scope)
     : secret_(secret)
     , algorithm_(algorithm)
+    , audience_(audience)
+    , reject_scope_(reject_scope)
 {
 }
 
@@ -41,6 +46,12 @@ std::optional<SessionUserInfo> JWTValidator::validate(const std::string& token) 
     }
     std::string payload_json = base64url_decode(payload_b64);
     auto result = parse_payload(payload_json);
+    if (!result) {
+        return std::nullopt;
+    }
+    if (!verify_claims(*result)) {
+        return std::nullopt;
+    }
     return result;
 }
 
@@ -165,6 +176,16 @@ std::optional<SessionUserInfo> JWTValidator::parse_payload(const std::string& pa
         if (json.contains("role") && json["role"].is_string()) {
             info.role = json["role"].get<std::string>();
         }
+        if (json.contains("aud")) {
+            if (json["aud"].is_string()) {
+                info.audience = json["aud"].get<std::string>();
+            } else if (json["aud"].is_array() && !json["aud"].empty()) {
+                info.audience = json["aud"][0].get<std::string>();
+            }
+        }
+        if (json.contains("scope") && json["scope"].is_string()) {
+            info.scope = json["scope"].get<std::string>();
+        }
         if (json.contains("permissions") && json["permissions"].is_array()) {
             for (const auto& perm : json["permissions"]) {
                 if (perm.is_string()) {
@@ -181,6 +202,20 @@ std::optional<SessionUserInfo> JWTValidator::parse_payload(const std::string& pa
         return std::nullopt;
     }
     return info;
+}
+
+bool JWTValidator::verify_claims(const SessionUserInfo& info) const {
+    if (!audience_.empty() && !info.audience.empty() && info.audience != audience_) {
+        return false;
+    }
+
+    if (!reject_scope_.empty() && !info.scope.empty()) {
+        if (info.scope.find(reject_scope_) != std::string::npos) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 } // namespace qyh::dataplane

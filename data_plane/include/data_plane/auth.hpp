@@ -22,7 +22,9 @@ public:
      * @param algorithm 算法（默认 HS256）
      */
     explicit JWTValidator(const std::string& secret, 
-                          const std::string& algorithm = "HS256");
+                          const std::string& algorithm = "HS256",
+                          const std::string& audience = "",
+                          const std::string& reject_scope = "");
     
     /**
      * @brief 验证 JWT Token
@@ -54,10 +56,14 @@ private:
      * @brief 解析 JSON payload
      */
     std::optional<SessionUserInfo> parse_payload(const std::string& payload_json);
+
+    bool verify_claims(const SessionUserInfo& info) const;
     
 private:
     std::string secret_;
     std::string algorithm_;
+    std::string audience_;
+    std::string reject_scope_;
 };
 
 } // namespace qyh::dataplane

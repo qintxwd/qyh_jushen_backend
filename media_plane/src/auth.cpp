@@ -21,8 +21,14 @@ namespace qyh::mediaplane {
 
 // ==================== JwtVerifier ====================
 
-JwtVerifier::JwtVerifier(const std::string& secret)
+JwtVerifier::JwtVerifier(const std::string& secret,
+                         const std::string& audience,
+                         const std::string& issuer,
+                         const std::string& scope)
     : secret_(secret)
+    , audience_(audience)
+    , issuer_(issuer)
+    , scope_(scope)
 {
 }
 
@@ -113,6 +119,19 @@ std::optional<UserInfo> JwtVerifier::verify(const std::string& token) const {
         if (payload.contains("role")) {
             info.role = payload["role"].get<std::string>();
         }
+        if (payload.contains("aud")) {
+            if (payload["aud"].is_string()) {
+                info.audience = payload["aud"].get<std::string>();
+            } else if (payload["aud"].is_array() && !payload["aud"].empty()) {
+                info.audience = payload["aud"][0].get<std::string>();
+            }
+        }
+        if (payload.contains("iss")) {
+            info.issuer = payload["iss"].get<std::string>();
+        }
+        if (payload.contains("scope")) {
+            info.scope = payload["scope"].get<std::string>();
+        }
         
         // 检查过期时间
         if (payload.contains("exp")) {
@@ -124,6 +143,10 @@ std::optional<UserInfo> JwtVerifier::verify(const std::string& token) const {
             }
         }
         
+        if (!verify_claims(info)) {
+            return std::nullopt;
+        }
+
         return info;
         
     } catch (const json::exception& e) {
@@ -163,16 +186,47 @@ bool JwtVerifier::verify_signature(const std::string& header_payload,
     return CRYPTO_memcmp(sig_bytes.data(), digest, digest_len) == 0;
 }
 
+bool JwtVerifier::verify_claims(const UserInfo& info) const {
+    if (!audience_.empty()) {
+        if (info.audience != audience_) {
+            return false;
+        }
+    }
+
+    if (!issuer_.empty()) {
+        if (info.issuer != issuer_) {
+            return false;
+        }
+    }
+
+    if (!scope_.empty()) {
+        if (info.scope.empty()) {
+            return false;
+        }
+        if (info.scope.find(scope_) == std::string::npos) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 // ==================== SimpleJwtVerifier ====================
 
-SimpleJwtVerifier::SimpleJwtVerifier(const std::string& secret)
+SimpleJwtVerifier::SimpleJwtVerifier(const std::string& secret,
+                                     const std::string& audience,
+                                     const std::string& issuer,
+                                     const std::string& scope)
     : secret_(secret)
+    , audience_(audience)
+    , issuer_(issuer)
+    , scope_(scope)
 {
 }
 
 std::optional<UserInfo> SimpleJwtVerifier::verify(const std::string& token) const {
     // 使用 JwtVerifier 的验证逻辑
-    JwtVerifier verifier(secret_);
+    JwtVerifier verifier(secret_, audience_, issuer_, scope_);
     return verifier.verify(token);
 }
 

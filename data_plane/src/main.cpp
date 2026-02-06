@@ -56,8 +56,12 @@ int main(int argc, char* argv[]) {
         
         // 创建组件
         qyh::dataplane::StateCache state_cache;
-        qyh::dataplane::JWTValidator validator(config.auth.jwt_secret, 
-                                                config.auth.jwt_algorithm);
+        qyh::dataplane::JWTValidator validator(
+            config.auth.jwt_secret,
+            config.auth.jwt_algorithm,
+            config.auth.auth_audience,
+            config.auth.reject_scope
+        );
         qyh::dataplane::MessageHandler handler(config, validator, state_cache);
 
         // 控制权同步

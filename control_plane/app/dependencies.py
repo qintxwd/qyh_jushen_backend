@@ -11,6 +11,7 @@ from jose import JWTError
 from app.database import get_db
 from app.models.user import User
 from app.core.security import decode_access_token
+from app.config import settings
 
 
 # HTTP Bearer 认证方案
@@ -36,6 +37,14 @@ async def get_current_user(
         token = credentials.credentials
         payload = decode_access_token(token)
         user_id: str = payload.get("sub")
+
+        aud = payload.get("aud")
+        if isinstance(aud, list):
+            aud = aud[0] if aud else None
+        scope = payload.get("scope", "")
+
+        if aud == settings.MEDIA_TOKEN_AUDIENCE or settings.MEDIA_TOKEN_SCOPE in scope:
+            raise credentials_exception
         
         if user_id is None:
             raise credentials_exception
@@ -107,6 +116,14 @@ def get_optional_user(
         token = credentials.credentials
         payload = decode_access_token(token)
         user_id: str = payload.get("sub")
+
+        aud = payload.get("aud")
+        if isinstance(aud, list):
+            aud = aud[0] if aud else None
+        scope = payload.get("scope", "")
+
+        if aud == settings.MEDIA_TOKEN_AUDIENCE or settings.MEDIA_TOKEN_SCOPE in scope:
+            return None
         
         if user_id is None:
             return None
