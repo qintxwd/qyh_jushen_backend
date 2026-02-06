@@ -109,6 +109,21 @@ control_plane/
 └── pyproject.toml
 ```
 
+## 环境变量
+
+核心配置:
+- SECRET_KEY 或 JWT_SECRET: JWT 密钥（生产必须设置）
+- CORS_ORIGINS: 允许的前端域名列表
+- WEBSOCKET_SERVER_URL: Data Plane 地址
+- WEBRTC_SIGNALING_URL: Media Plane 地址
+
+安全相关:
+- AUTO_CREATE_ADMIN: 是否自动创建默认管理员
+- DEFAULT_ADMIN_USERNAME: 默认管理员用户名
+- DEFAULT_ADMIN_PASSWORD: 默认管理员密码（生产必须设置）
+- VR_INTERNAL_TOKEN: VR 内部接口鉴权 Token
+- TRUST_PROXY: 是否信任 X-Forwarded-For
+
 ## API 概览
 
 ### 认证 `/api/v1/auth`
