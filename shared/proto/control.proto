@@ -109,6 +109,8 @@ message ArmJogCommand {
     string jog_mode = 3;                // "joint" (关节空间) 或 "cartesian" (笛卡尔空间)
     int32 axis_index = 4;               // 轴索引 (0-5)
     double direction = 5;               // 方向和速度 (-1.0 到 1.0)
+    bool is_step = 6;                   // 是否为步进点动
+    double step_size = 7;               // 步进值 (rad 或 m)
 }
 
 // ==================== 机械臂控制 ====================

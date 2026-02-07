@@ -622,15 +622,76 @@ void ROS2Bridge::publish_arm_move_command(const ArmMoveCommand& cmd) {
 
 void ROS2Bridge::publish_arm_jog_command(const ArmJogCommand& cmd) {
     // Jog 模式：持续发送小增量位置或速度
-    // 这里简化实现，实际应该发送到专用的 Jog 话题
     
     std::cout << "[ROS2Bridge] Arm jog: side=" << cmd.arm_side() 
               << ", mode=" << cmd.jog_mode()
               << ", axis=" << cmd.axis_index()
               << ", direction=" << cmd.direction() << std::endl;
     
-    // TODO: 实现真正的 Jog 逻辑
-    // 可以发送到 JAKA SDK 的 Jog 接口或 MoveIt 的 servo 接口
+    // Step Jog Logic
+    if (cmd.is_step() && cmd.step_size() > 0) {
+        std::string side = cmd.arm_side();
+        std::shared_ptr<const std::vector<uint8_t>> state_bytes;
+        
+        if (side == "left") {
+            state_bytes = state_cache_.get_left_arm_state();
+        } else {
+            state_bytes = state_cache_.get_right_arm_state();
+        }
+
+        if (!state_bytes || state_bytes->empty()) {
+             std::cerr << "[ROS2Bridge] Cannot step jog: No state for " << side << " arm" << std::endl;
+             return;
+        }
+
+        qyh::dataplane::JointState joint_state;
+        if (!joint_state.ParseFromArray(state_bytes->data(), static_cast<int>(state_bytes->size()))) {
+            std::cerr << "[ROS2Bridge] Failed to parse joint state for step jog" << std::endl;
+            return;
+        }
+
+        int axis = cmd.axis_index();
+        if (axis < 0 || axis >= joint_state.positions_size()) {
+             std::cerr << "[ROS2Bridge] Invalid axis index " << axis << " (size=" << joint_state.positions_size() << ")" << std::endl;
+             return;
+        }
+
+        double current_pos = joint_state.positions(axis);
+        // Direction sign: -1.0 or 1.0 from direction command
+        double sign = (cmd.direction() >= 0) ? 1.0 : -1.0;
+        double target_pos = current_pos + (cmd.step_size() * sign);
+
+        // Construct Trajectory (MoveJ) using current joints + target update
+        trajectory_msgs::msg::JointTrajectory traj;
+        traj.header.stamp = node_->now();
+        
+        for (const auto& name : joint_state.names()) {
+            traj.joint_names.push_back(name);
+        }
+        
+        trajectory_msgs::msg::JointTrajectoryPoint point;
+        for (int i = 0; i < joint_state.positions_size(); ++i) {
+            if (i == axis) {
+                point.positions.push_back(target_pos);
+            } else {
+                point.positions.push_back(joint_state.positions(i));
+            }
+        }
+        
+        // Duration for step: 0.5s is usually enough for small steps
+        point.time_from_start = rclcpp::Duration::from_seconds(0.5);
+        traj.points.push_back(point);
+        
+        if (side == "left") {
+            left_arm_cmd_pub_->publish(traj);
+        } else {
+            right_arm_cmd_pub_->publish(traj);
+        }
+        
+        std::cout << "[ROS2Bridge] Step Jog Executed: Axis " << axis 
+                  << " " << current_pos << " -> " << target_pos << std::endl;
+    }
+    // else: Continuous Jog TODO
 }
 
 void ROS2Bridge::publish_watchdog_heartbeat() {
