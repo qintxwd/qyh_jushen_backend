@@ -280,6 +280,7 @@ class ROS2ServiceClient:
                 ControlStopCharging,
                 ControlStartManualControl,
                 ControlStopManualControl,
+                ControlEmergencyStop,
                 ControlReleaseEmergencyStop,
                 ControlEnterLowPowerMode,
                 ControlExitLowPowerMode,
@@ -448,6 +449,12 @@ class ROS2ServiceClient:
                 self._node.create_client(
                     ControlStopManualControl,
                     'control_stop_manual_control',
+                )
+            )
+            self._service_clients['chassis_emergency_stop'] = (
+                self._node.create_client(
+                    ControlEmergencyStop,
+                    'control_emergency_stop',
                 )
             )
             self._service_clients['chassis_release_emergency'] = (
@@ -2758,39 +2765,57 @@ class ROS2ServiceClient:
 
     async def publish_emergency_stop(self) -> bool:
         """
-        发布紧急停止命令 (零速度)
+        触发底盘紧急停止
         
-        向 /cmd_vel 发布零速度消息，立即停止底盘运动。
+        调用底盘的 control_emergency_stop 服务，触发真正的急停。
+        同时发布零速度到 /cmd_vel 作为备份。
         
         Returns:
-            bool: 是否成功发布
+            bool: 是否成功触发急停
         """
-        if self._node is None or self._emergency_stop_publisher is None:
-            logger.error("Cannot publish emergency stop: ROS2 not initialized")
+        if self._node is None:
+            logger.error("Cannot trigger emergency stop: ROS2 not initialized")
             return False
         
+        success = False
+        
         try:
-            from geometry_msgs.msg import Twist
+            # 1. 首先调用底盘急停服务
+            client = self._service_clients.get('chassis_emergency_stop')
+            if client and client.wait_for_service(timeout_sec=0.5):
+                from qyh_standard_robot_msgs.srv import ControlEmergencyStop
+                request = ControlEmergencyStop.Request()
+                future = client.call_async(request)
+                result = await self._wait_for_future(future, timeout=2.0)
+                if result and result.success:
+                    logger.warning("Emergency stop triggered via control_emergency_stop service")
+                    success = True
+                else:
+                    logger.warning("control_emergency_stop service returned failure")
+            else:
+                logger.warning("control_emergency_stop service not available")
             
-            # 创建零速度消息
-            stop_msg = Twist()
-            stop_msg.linear.x = 0.0
-            stop_msg.linear.y = 0.0
-            stop_msg.linear.z = 0.0
-            stop_msg.angular.x = 0.0
-            stop_msg.angular.y = 0.0
-            stop_msg.angular.z = 0.0
+            # 2. 同时发布零速度到 /cmd_vel 作为备份
+            if self._emergency_stop_publisher is not None:
+                from geometry_msgs.msg import Twist
+                stop_msg = Twist()
+                stop_msg.linear.x = 0.0
+                stop_msg.linear.y = 0.0
+                stop_msg.linear.z = 0.0
+                stop_msg.angular.x = 0.0
+                stop_msg.angular.y = 0.0
+                stop_msg.angular.z = 0.0
+                
+                for _ in range(3):
+                    self._emergency_stop_publisher.publish(stop_msg)
+                    await asyncio.sleep(0.01)
+                
+                logger.info("Zero velocity also published to /cmd_vel as backup")
             
-            # 发布多次以确保可靠性
-            for _ in range(3):
-                self._emergency_stop_publisher.publish(stop_msg)
-                await asyncio.sleep(0.01)
-            
-            logger.warning("Emergency stop published to /cmd_vel")
-            return True
+            return success
             
         except Exception as e:
-            logger.error(f"Failed to publish emergency stop: {e}")
+            logger.error(f"Failed to trigger emergency stop: {e}")
             return False
 
     async def stop_arm_motion(self) -> bool:
