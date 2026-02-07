@@ -16,6 +16,7 @@
 #include "common.pb.h"
 
 #include <iostream>
+#include <algorithm>
 
 namespace {
 
@@ -200,14 +201,9 @@ bool ROS2Bridge::init() {
             "/waist/command", control_qos
         );
         
-        // 头部 Pan 命令
-        head_pan_cmd_pub_ = node_->create_publisher<std_msgs::msg::Float64>(
-            "/head/pan/command", control_qos
-        );
-        
-        // 头部 Tilt 命令
-        head_tilt_cmd_pub_ = node_->create_publisher<std_msgs::msg::Float64>(
-            "/head/tilt/command", control_qos
+        // 头部位置命令 (normalized [-1,1])
+        head_cmd_pub_ = node_->create_publisher<std_msgs::msg::Float64MultiArray>(
+            "/head/cmd_position", control_qos
         );
         
         // 导航目标
@@ -577,15 +573,24 @@ void ROS2Bridge::publish_head_command(const HeadCommand& cmd) {
     const std::string& command = cmd.command();
     
     if (command == "goto") {
-        // 发送偏航角
-        std_msgs::msg::Float64 yaw_msg;
-        yaw_msg.data = cmd.yaw();
-        head_pan_cmd_pub_->publish(yaw_msg);
+        // 将弧度转换为归一化位置 [-1, 1]
+        constexpr double kMaxPanRad = 1.5708;   // ±90°
+        constexpr double kMaxTiltRad = 0.7854;  // ±45°
         
-        // 发送俯仰角
-        std_msgs::msg::Float64 pitch_msg;
-        pitch_msg.data = cmd.pitch();
-        head_tilt_cmd_pub_->publish(pitch_msg);
+        double pan_norm = (kMaxPanRad != 0.0) ? (cmd.yaw() / kMaxPanRad) : 0.0;
+        double tilt_norm = (kMaxTiltRad != 0.0) ? (cmd.pitch() / kMaxTiltRad) : 0.0;
+        pan_norm = std::clamp(pan_norm, -1.0, 1.0);
+        tilt_norm = std::clamp(tilt_norm, -1.0, 1.0);
+        
+        // 速度因子 (0.0-1.0) -> 运动时间 (ms), 更快=更短
+        double speed = std::clamp(cmd.speed(), 0.0, 1.0);
+        double duration_ms = 100.0 + (1.0 - speed) * 900.0;  // 100..1000ms
+        duration_ms = std::clamp(duration_ms, 50.0, 2000.0);
+        
+        // HeadMotorNode 期望 [tilt, pan, duration_ms]
+        std_msgs::msg::Float64MultiArray msg;
+        msg.data = {tilt_norm, pan_norm, duration_ms};
+        head_cmd_pub_->publish(msg);
     } else if (command == "preset") {
         // TODO: 从预设点配置中查找位置
         std::cout << "[ROS2Bridge] Head preset: " << cmd.preset_name() << std::endl;

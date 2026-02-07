@@ -242,8 +242,7 @@ private:
 
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr lift_cmd_pub_;
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr waist_cmd_pub_;
-    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr head_pan_cmd_pub_;
-    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr head_tilt_cmd_pub_;
+    rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr head_cmd_pub_;
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr nav_goal_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr watchdog_heartbeat_pub_;
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr vr_intent_pub_;
