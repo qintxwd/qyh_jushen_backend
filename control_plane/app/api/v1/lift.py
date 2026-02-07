@@ -4,6 +4,7 @@ QYH Jushen Control Plane - 升降柱控制 API
 提供升降柱（Lift）的状态查询和运动控制
 """
 from fastapi import APIRouter, Depends
+from typing import Literal
 from pydantic import BaseModel, Field
 
 from app.dependencies import get_current_operator
@@ -27,6 +28,22 @@ class LiftStatus(BaseModel):
 class SetHeightRequest(BaseModel):
     """设置高度请求"""
     height: float = Field(..., ge=0.0, le=1.0, description="目标高度 (0-1.0米)")
+
+
+class SetSpeedRequest(BaseModel):
+    """设置速度请求"""
+    speed: float = Field(..., ge=0.0, description="目标速度")
+
+
+class ManualMoveRequest(BaseModel):
+    """手动移动请求"""
+    direction: Literal['up', 'down']
+    hold: bool = True
+
+
+class ElectromagnetRequest(BaseModel):
+    """电磁铁控制请求"""
+    enable: bool = Field(..., description="True=开启, False=关闭")
 
 
 # ==================== API 端点 ====================
@@ -85,6 +102,78 @@ async def stop_lift(
             code=ErrorCodes.ROS_SERVICE_FAILED,
             message=result.message or "升降停止失败"
         )
+
+
+@router.post("/speed", response_model=ApiResponse)
+async def set_lift_speed(
+    request: SetSpeedRequest,
+    current_user: User = Depends(get_current_operator),
+    ros2: ROS2ServiceClient = Depends(get_ros2_client_dependency)
+):
+    """设置升降柱速度"""
+    result = await ros2.lift_control(LiftCommand.SET_SPEED, request.speed)
+
+    if result.success:
+        return success_response(message=f"已设置升降速度: {request.speed}")
+    return error_response(
+        code=ErrorCodes.ROS_SERVICE_FAILED,
+        message=result.message or "设置升降速度失败"
+    )
+
+
+@router.post("/reset", response_model=ApiResponse)
+async def reset_lift_alarm(
+    current_user: User = Depends(get_current_operator),
+    ros2: ROS2ServiceClient = Depends(get_ros2_client_dependency)
+):
+    """复位升降柱报警"""
+    result = await ros2.lift_control(LiftCommand.RESET_ALARM)
+
+    if result.success:
+        return success_response(message="升降报警已复位")
+    return error_response(
+        code=ErrorCodes.ROS_SERVICE_FAILED,
+        message=result.message or "升降报警复位失败"
+    )
+
+
+@router.post("/manual", response_model=ApiResponse)
+async def manual_move_lift(
+    request: ManualMoveRequest,
+    current_user: User = Depends(get_current_operator),
+    ros2: ROS2ServiceClient = Depends(get_ros2_client_dependency)
+):
+    """手动移动升降柱"""
+    command = LiftCommand.MOVE_UP if request.direction == 'up' else LiftCommand.MOVE_DOWN
+    result = await ros2.lift_control(command, 0.0, hold=request.hold)
+
+    if result.success:
+        action = "上升" if request.direction == 'up' else "下降"
+        state = "开始" if request.hold else "停止"
+        return success_response(message=f"升降{action}{state}")
+    return error_response(
+        code=ErrorCodes.ROS_SERVICE_FAILED,
+        message=result.message or "升降手动控制失败"
+    )
+
+
+@router.post("/electromagnet", response_model=ApiResponse)
+async def set_lift_electromagnet(
+    request: ElectromagnetRequest,
+    current_user: User = Depends(get_current_operator),
+    ros2: ROS2ServiceClient = Depends(get_ros2_client_dependency)
+):
+    """电磁铁开关"""
+    value = 1.0 if request.enable else 0.0
+    result = await ros2.lift_control(LiftCommand.ELECTROMAGNET, value)
+
+    if result.success:
+        action = "开启" if request.enable else "关闭"
+        return success_response(message=f"电磁铁{action}")
+    return error_response(
+        code=ErrorCodes.ROS_SERVICE_FAILED,
+        message=result.message or "电磁铁控制失败"
+    )
 
 
 @router.post("/enable", response_model=ApiResponse)

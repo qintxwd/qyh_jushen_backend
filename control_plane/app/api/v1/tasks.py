@@ -21,7 +21,7 @@ from app.schemas.response import (
     paged_response,
     ErrorCodes,
 )
-from app.schemas.task import CreateTaskRequest, TaskInfo, TaskDetail
+from app.schemas.task import CreateTaskRequest, UpdateTaskRequest, TaskInfo, TaskDetail
 from app.services.ros2_client import get_ros2_client
 
 router = APIRouter()
@@ -141,6 +141,54 @@ async def get_task(
     return success_response(
         data=detail.model_dump(),
         message="获取成功"
+    )
+
+
+@router.put("/{task_id}", response_model=ApiResponse)
+async def update_task(
+    task_id: int,
+    request: UpdateTaskRequest,
+    current_user: User = Depends(get_current_operator),
+    db: Session = Depends(get_db),
+):
+    """
+    更新任务
+    """
+    task = db.query(Task).filter(Task.id == task_id).first()
+
+    if not task:
+        return error_response(
+            code=ErrorCodes.TASK_NOT_FOUND,
+            message="任务不存在"
+        )
+
+    if task.status in (TaskStatus.RUNNING.value, TaskStatus.PAUSED.value):
+        return error_response(
+            code=ErrorCodes.TASK_INVALID_STATE,
+            message="运行中或暂停中的任务无法更新"
+        )
+
+    if request.name is not None:
+        task.name = request.name
+
+    if request.description is not None:
+        task.description = request.description
+
+    if request.program is not None:
+        task.program = [action.model_dump() for action in request.program]
+        task.total_steps = len(request.program)
+        task.current_step = 0
+        task.status = TaskStatus.PENDING.value
+        task.started_at = None
+        task.completed_at = None
+        task.error_message = None
+
+    db.commit()
+    db.refresh(task)
+
+    return success_response(
+        data=task_to_info(task),
+        message="任务已更新"
     )
 
 

@@ -5,7 +5,7 @@ QYH Jushen Control Plane - 腰部控制 API
 """
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Literal
 
 from app.dependencies import get_current_operator
 from app.models.user import User
@@ -28,6 +28,17 @@ class WaistStatus(BaseModel):
 class SetAngleRequest(BaseModel):
     """设置角度请求"""
     angle: float = Field(..., ge=-30, le=90, description="目标角度 (-30~90度)")
+
+
+class SetSpeedRequest(BaseModel):
+    """设置速度请求"""
+    speed: float = Field(..., ge=0.0, description="目标速度")
+
+
+class ManualLeanRequest(BaseModel):
+    """手动前倾/后仰请求"""
+    direction: Literal['forward', 'back']
+    hold: bool = True
 
 
 # ==================== API 端点 ====================
@@ -123,3 +134,56 @@ async def enable_waist(
             code=ErrorCodes.ROS_SERVICE_FAILED,
             message=result.message or "操作失败"
         )
+
+
+@router.post("/speed", response_model=ApiResponse)
+async def set_waist_speed(
+    request: SetSpeedRequest,
+    current_user: User = Depends(get_current_operator),
+    ros2: ROS2ServiceClient = Depends(get_ros2_client_dependency)
+):
+    """设置腰部速度"""
+    result = await ros2.waist_control(WaistCommand.SET_SPEED, request.speed)
+
+    if result.success:
+        return success_response(message=f"已设置腰部速度: {request.speed}")
+    return error_response(
+        code=ErrorCodes.ROS_SERVICE_FAILED,
+        message=result.message or "设置腰部速度失败"
+    )
+
+
+@router.post("/reset", response_model=ApiResponse)
+async def reset_waist_alarm(
+    current_user: User = Depends(get_current_operator),
+    ros2: ROS2ServiceClient = Depends(get_ros2_client_dependency)
+):
+    """复位腰部报警"""
+    result = await ros2.waist_control(WaistCommand.RESET_ALARM)
+
+    if result.success:
+        return success_response(message="腰部报警已复位")
+    return error_response(
+        code=ErrorCodes.ROS_SERVICE_FAILED,
+        message=result.message or "腰部报警复位失败"
+    )
+
+
+@router.post("/lean", response_model=ApiResponse)
+async def manual_waist_lean(
+    request: ManualLeanRequest,
+    current_user: User = Depends(get_current_operator),
+    ros2: ROS2ServiceClient = Depends(get_ros2_client_dependency)
+):
+    """手动前倾/后仰腰部"""
+    command = WaistCommand.LEAN_FORWARD if request.direction == 'forward' else WaistCommand.LEAN_BACK
+    result = await ros2.waist_control(command, 0.0, hold=request.hold)
+
+    if result.success:
+        action = "前倾" if request.direction == 'forward' else "后仰"
+        state = "开始" if request.hold else "停止"
+        return success_response(message=f"腰部{action}{state}")
+    return error_response(
+        code=ErrorCodes.ROS_SERVICE_FAILED,
+        message=result.message or "腰部手动控制失败"
+    )

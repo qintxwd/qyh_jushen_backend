@@ -20,6 +20,13 @@ class CreateTaskRequest(BaseModel):
     program: List[TaskAction] = Field(..., min_length=1, description="任务程序（动作序列）")
 
 
+class UpdateTaskRequest(BaseModel):
+    """更新任务请求"""
+    name: Optional[str] = Field(None, min_length=1, max_length=100, description="任务名称")
+    description: Optional[str] = Field(None, description="任务描述")
+    program: Optional[List[TaskAction]] = Field(None, min_length=1, description="任务程序（动作序列）")
+
+
 class TaskInfo(BaseModel):
     """任务信息"""
     task_id: int

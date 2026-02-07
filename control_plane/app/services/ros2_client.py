@@ -2439,7 +2439,7 @@ class ROS2ServiceClient:
             logger.error(f"Failed to stop arm motion: {e}")
             return False
 
-    async def lift_control(self, command: int, value: float = 0.0) -> ServiceResponse:
+    async def lift_control(self, command: int, value: float = 0.0, hold: bool = False) -> ServiceResponse:
         """
         控制升降柱
         
@@ -2463,6 +2463,7 @@ class ROS2ServiceClient:
             request = LiftControl.Request()
             request.command = int(command)
             request.value = float(value)
+            request.hold = bool(hold)
             
             future = client.call_async(request)
             result = await self._wait_for_future(future, timeout=2.0)
@@ -2476,7 +2477,7 @@ class ROS2ServiceClient:
             logger.error(f"Lift control failed: {e}")
             return ServiceResponse(False, str(e))
 
-    async def waist_control(self, command: int, value: float = 0.0) -> ServiceResponse:
+    async def waist_control(self, command: int, value: float = 0.0, hold: bool = False) -> ServiceResponse:
         """
         控制腰部
         
@@ -2500,6 +2501,7 @@ class ROS2ServiceClient:
             request = WaistControl.Request()
             request.command = int(command)
             request.value = float(value)
+            request.hold = bool(hold)
             
             future = client.call_async(request)
             result = await self._wait_for_future(future, timeout=2.0)
