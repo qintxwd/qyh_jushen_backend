@@ -86,8 +86,22 @@ void Session::close() {
 }
 
 void Session::send(std::shared_ptr<const std::vector<uint8_t>> data) {
-    std::cout << "[Session] send() 调用, 数据大小: " << (data ? data->size() : 0) << " 字节" << std::endl;
     if (!data) return;
+
+    constexpr std::size_t kMaxPendingWrites = 512;
+    {
+        std::lock_guard<std::mutex> lock(write_mutex_);
+        if (write_queue_.size() >= kMaxPendingWrites) {
+            LOG_WARN(
+                "Session " << session_id_ << " outbound queue overflow ("
+                           << write_queue_.size() << "), closing slow client");
+            net::post(ws_.get_executor(), [self = shared_from_this()]() {
+                self->close();
+            });
+            return;
+        }
+    }
+    std::cout << "[Session] send() 调用, 数据大小: " << (data ? data->size() : 0) << " 字节" << std::endl;
 
     bool should_start_write = false;
     

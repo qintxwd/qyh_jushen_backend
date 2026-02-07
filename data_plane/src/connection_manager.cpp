@@ -61,7 +61,8 @@ ConnectionManager::AcceptResult ConnectionManager::try_accept(
             }
             
             std::string evicted = try_evict_low_priority(incoming_priority);
-            if (!evicted.empty()) {
+            if (!evicted.empty() &&
+                kick_connection(evicted, "Priority eviction")) {
                 result.accepted = true;
                 result.message = "Accepted after evicting lower priority connection";
                 ++total_accepted_;
@@ -102,13 +103,19 @@ void ConnectionManager::register_connection(const std::string& session_id,
 
 void ConnectionManager::unregister_connection(const std::string& session_id) {
     std::string ip;
+    bool removed = false;
     {
         std::lock_guard<std::mutex> lock(connections_mutex_);
         auto it = connections_.find(session_id);
         if (it != connections_.end()) {
             ip = it->second.remote_address;
             connections_.erase(it);
+            removed = true;
         }
+    }
+
+    if (!removed) {
+        return;
     }
     
     if (!ip.empty()) {

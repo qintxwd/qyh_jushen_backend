@@ -22,6 +22,9 @@ using json = nlohmann::json;
 namespace qyh::mediaplane {
 
 // ==================== SignalingSession ====================
+namespace {
+constexpr std::size_t kMaxPendingWrites = 128;
+}
 
 static std::string generate_peer_id() {
     std::random_device rd;
@@ -63,18 +66,37 @@ void SignalingSession::close() {
 }
 
 void SignalingSession::send(const std::string& message) {
+    bool should_start_write = false;
+    bool should_close = false;
+    std::size_t pending_writes = 0;
+
     {
         std::lock_guard<std::mutex> lock(write_mutex_);
-        write_queue_.push(message);
-    }
-    
-    net::post(ws_.get_executor(), [self = shared_from_this()]() {
-        std::lock_guard<std::mutex> lock(self->write_mutex_);
-        if (!self->writing_ && !self->write_queue_.empty()) {
-            self->writing_ = true;
-            self->do_write();
+        if (write_queue_.size() >= kMaxPendingWrites) {
+            should_close = true;
+            pending_writes = write_queue_.size();
+        } else {
+            write_queue_.push(message);
+            if (!writing_) {
+                writing_ = true;
+                should_start_write = true;
+            }
         }
-    });
+    }
+
+    if (should_close) {
+        std::cerr << "Signaling session " << peer_id_
+                  << " outbound queue overflow (" << pending_writes
+                  << "), closing slow client" << std::endl;
+        close();
+        return;
+    }
+
+    if (should_start_write) {
+        net::post(ws_.get_executor(), [self = shared_from_this()]() {
+            self->do_write();
+        });
+    }
 }
 
 void SignalingSession::send_error(const std::string& error, const std::string& details) {
@@ -152,31 +174,54 @@ void SignalingSession::on_read(beast::error_code ec, std::size_t bytes) {
 }
 
 void SignalingSession::do_write() {
-    if (write_queue_.empty()) {
-        writing_ = false;
-        return;
+    std::string message;
+    {
+        std::lock_guard<std::mutex> lock(write_mutex_);
+        if (write_queue_.empty()) {
+            writing_ = false;
+            return;
+        }
+        message = write_queue_.front();
     }
-    
-    auto& message = write_queue_.front();
-    
+
+    auto self = shared_from_this();
     ws_.async_write(
         net::buffer(message),
-        beast::bind_front_handler(&SignalingSession::on_write, shared_from_this())
+        [self, message = std::move(message)](
+            beast::error_code ec,
+            std::size_t bytes
+        ) {
+            self->on_write(ec, bytes);
+        }
     );
 }
 
 void SignalingSession::on_write(beast::error_code ec, std::size_t /*bytes*/) {
     if (ec) {
         std::cerr << "Write error: " << ec.message() << std::endl;
+        {
+            std::lock_guard<std::mutex> lock(write_mutex_);
+            writing_ = false;
+        }
+        close();
         return;
     }
-    
+
+    bool has_more = false;
     {
         std::lock_guard<std::mutex> lock(write_mutex_);
-        write_queue_.pop();
+        if (!write_queue_.empty()) {
+            write_queue_.pop();
+        }
+        has_more = !write_queue_.empty();
+        if (!has_more) {
+            writing_ = false;
+        }
     }
-    
-    do_write();
+
+    if (has_more) {
+        do_write();
+    }
 }
 
 void SignalingSession::handle_message(const std::string& message) {

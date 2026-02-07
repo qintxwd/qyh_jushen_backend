@@ -26,6 +26,27 @@ Server::Server(net::io_context& io_context, const Config& config, MessageHandler
           return cm_config;
       }())
 {
+    // Kick callback: close target session when connection manager decides to evict.
+    connection_manager_.set_kick_callback([this](const std::string& session_id,
+                                                  const std::string& reason) {
+        std::shared_ptr<Session> session;
+        {
+            std::lock_guard<std::mutex> lock(sessions_mutex_);
+            auto it = sessions_.find(session_id);
+            if (it != sessions_.end()) {
+                session = it->second;
+            }
+        }
+
+        if (!session) {
+            LOG_WARN("Kick requested for unknown session " << session_id
+                     << ", reason=" << reason);
+            return;
+        }
+
+        LOG_WARN("Kicking session " << session_id << ", reason=" << reason);
+        session->close();
+    });
 }
 
 Server::~Server() {

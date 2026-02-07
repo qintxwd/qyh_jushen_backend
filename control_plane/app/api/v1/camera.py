@@ -213,6 +213,19 @@ async def get_camera_webrtc_info(
     # TODO: 从 Media Plane 获取实际的 WebRTC 信息
     
     # 从配置获取 Media Plane 地址
+    config = _load_camera_config()
+    camera = None
+    for cam_data in config.get("cameras", []):
+        if cam_data.get("id") == camera_id:
+            camera = CameraInfo(**cam_data)
+            break
+
+    if camera is None:
+        return error_response(
+            code=ErrorCodes.RESOURCE_NOT_FOUND,
+            message=f"未找到摄像头: {camera_id}"
+        )
+
     from urllib.parse import urlparse
     from app.config import settings
     
@@ -227,7 +240,9 @@ async def get_camera_webrtc_info(
     
     return success_response(
         data={
-            "camera_id": camera_id,
+            "camera_id": camera.id,
+            "source": camera.id,
+            "topic": camera.topic,
             "signaling_url": signaling_url,
             "ice_servers": [
                 {"urls": "stun:stun.l.google.com:19302"}

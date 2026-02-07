@@ -17,6 +17,28 @@ from app.config import settings
 # HTTP Bearer 认证方案
 security = HTTPBearer()
 
+def _is_media_token(payload: dict) -> bool:
+    """Check whether a JWT is intended for Media Plane usage."""
+    aud = payload.get("aud")
+    if isinstance(aud, list):
+        aud = aud[0] if aud else None
+
+    scope = payload.get("scope", "")
+    if isinstance(scope, list):
+        scope = " ".join([s for s in scope if isinstance(s, str)])
+    elif not isinstance(scope, str):
+        scope = ""
+
+    media_audience = settings.MEDIA_TOKEN_AUDIENCE
+    media_scope = settings.MEDIA_TOKEN_SCOPE
+    scope_tokens = set(scope.replace(",", " ").split())
+
+    return (
+        bool(media_audience) and aud == media_audience
+    ) or (
+        bool(media_scope) and media_scope in scope_tokens
+    )
+
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
@@ -38,12 +60,7 @@ async def get_current_user(
         payload = decode_access_token(token)
         user_id: str = payload.get("sub")
 
-        aud = payload.get("aud")
-        if isinstance(aud, list):
-            aud = aud[0] if aud else None
-        scope = payload.get("scope", "")
-
-        if aud == settings.MEDIA_TOKEN_AUDIENCE or settings.MEDIA_TOKEN_SCOPE in scope:
+        if _is_media_token(payload):
             raise credentials_exception
         
         if user_id is None:
@@ -117,12 +134,7 @@ def get_optional_user(
         payload = decode_access_token(token)
         user_id: str = payload.get("sub")
 
-        aud = payload.get("aud")
-        if isinstance(aud, list):
-            aud = aud[0] if aud else None
-        scope = payload.get("scope", "")
-
-        if aud == settings.MEDIA_TOKEN_AUDIENCE or settings.MEDIA_TOKEN_SCOPE in scope:
+        if _is_media_token(payload):
             return None
         
         if user_id is None:

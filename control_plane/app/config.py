@@ -85,6 +85,8 @@ class Settings(BaseSettings):
     # ==================== 代理与内部接口 ====================
     TRUST_PROXY: bool = False
     VR_INTERNAL_TOKEN: str = ""
+    MEDIA_TOKEN_AUDIENCE: str = "media_plane"
+    MEDIA_TOKEN_SCOPE: str = "media"
     
     # ==================== 机器人信息 ====================
     ROBOT_ID: str = "jushen-001"
