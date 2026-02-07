@@ -123,6 +123,15 @@ public:
     
     /** @brief 获取 VR 系统状态 */
     std::optional<std::vector<uint8_t>> get_vr_system_state() const;
+
+    // ==================== 任务状态 ====================
+
+    /** @brief 更新任务状态 */
+    void update_task_state(const std::vector<uint8_t>& data);
+    void update_task_state(std::shared_ptr<const std::vector<uint8_t>> data);
+
+    /** @brief 获取任务状态 */
+    std::shared_ptr<const std::vector<uint8_t>> get_task_state() const;
     
     // ==================== 通用接口 ====================
     
@@ -151,6 +160,7 @@ private:
     std::shared_ptr<const std::vector<uint8_t>> waist_state_;
     std::shared_ptr<const std::vector<uint8_t>> head_pan_state_;
     std::shared_ptr<const std::vector<uint8_t>> head_tilt_state_;
+    std::shared_ptr<const std::vector<uint8_t>> task_state_;
     
     // 复杂类型如 map 仍需拷贝或使用 atomic_shared_ptr，此处保持原样或仅值类型优化
     std::unordered_map<std::string, std::vector<uint8_t>> gripper_states_;

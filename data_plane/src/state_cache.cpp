@@ -202,6 +202,23 @@ std::optional<std::vector<uint8_t>> StateCache::get_vr_system_state() const {
     return vr_system_state_;
 }
 
+// ==================== 任务状态 ====================
+
+void StateCache::update_task_state(std::shared_ptr<const std::vector<uint8_t>> data) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    task_state_ = data;
+    last_update_time_ = std::chrono::steady_clock::now();
+}
+
+void StateCache::update_task_state(const std::vector<uint8_t>& data) {
+    update_task_state(std::make_shared<std::vector<uint8_t>>(data));
+}
+
+std::shared_ptr<const std::vector<uint8_t>> StateCache::get_task_state() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return task_state_;
+}
+
 // ==================== 通用接口 ====================
 
 bool StateCache::is_stale(std::chrono::milliseconds max_age) const {
@@ -222,6 +239,7 @@ void StateCache::clear() {
     waist_state_.reset();
     head_pan_state_.reset();
     head_tilt_state_.reset();
+    task_state_.reset();
     gripper_states_.clear();
     vr_system_state_.clear();
 }

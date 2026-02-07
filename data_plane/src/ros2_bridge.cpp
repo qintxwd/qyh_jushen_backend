@@ -17,6 +17,36 @@
 
 #include <iostream>
 
+namespace {
+
+qyh::dataplane::TaskState::Status MapTaskStatus(const std::string& status) {
+    if (status == "running") return qyh::dataplane::TaskState::RUNNING;
+    if (status == "paused") return qyh::dataplane::TaskState::PAUSED;
+    if (status == "success") return qyh::dataplane::TaskState::COMPLETED;
+    if (status == "failure") return qyh::dataplane::TaskState::FAILED;
+    if (status == "cancelled") return qyh::dataplane::TaskState::CANCELLED;
+    return qyh::dataplane::TaskState::PENDING;
+}
+
+bool TryParseTaskId(const std::string& text, int64_t* value) {
+    if (!value || text.empty()) {
+        return false;
+    }
+    try {
+        size_t idx = 0;
+        long long parsed = std::stoll(text, &idx, 10);
+        if (idx != text.size()) {
+            return false;
+        }
+        *value = static_cast<int64_t>(parsed);
+        return true;
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+
+} // namespace
+
 namespace qyh::dataplane {
 
 ROS2Bridge::ROS2Bridge(const Config& config, StateCache& state_cache)
@@ -115,6 +145,12 @@ bool ROS2Bridge::init() {
         jaka_state_sub_ = node_->create_subscription<qyh_jaka_control_msgs::msg::RobotState>(
             "/jaka/robot_state", state_qos,
             std::bind(&ROS2Bridge::jaka_robot_state_callback, this, std::placeholders::_1)
+        );
+
+        // Task engine status
+        task_status_sub_ = node_->create_subscription<qyh_task_engine_msgs::msg::TaskStatus>(
+            "/task_engine/status", state_qos,
+            std::bind(&ROS2Bridge::task_status_callback, this, std::placeholders::_1)
         );
         
         // ==================== 创建发布者 ====================
@@ -817,6 +853,47 @@ void ROS2Bridge::right_gripper_state_callback(const qyh_gripper_msgs::msg::Gripp
     broadcast_state("gripper_state", qyh::dataplane::MSG_GRIPPER_STATE, data);
 }
 
+void ROS2Bridge::task_status_callback(const qyh_task_engine_msgs::msg::TaskStatus::SharedPtr msg) {
+    qyh::dataplane::TaskState state;
+
+    auto* header = state.mutable_header();
+    header->mutable_stamp()->set_seconds(msg->header.stamp.sec);
+    header->mutable_stamp()->set_nanos(msg->header.stamp.nanosec);
+    header->set_frame_id(msg->header.frame_id);
+
+    int64_t task_id = 0;
+    if (TryParseTaskId(msg->task_id, &task_id)) {
+        state.set_task_id(task_id);
+    } else {
+        state.set_task_id(0);
+    }
+
+    state.set_task_name(msg->task_name);
+    state.set_status(MapTaskStatus(msg->status));
+    state.set_current_step(static_cast<int32_t>(msg->completed_nodes));
+    state.set_total_steps(static_cast<int32_t>(msg->total_nodes));
+    state.set_progress(static_cast<double>(msg->progress));
+
+    if (!msg->current_node_id.empty()) {
+        state.set_current_action(msg->current_node_id);
+    }
+
+    if (!msg->message.empty()) {
+        if (state.status() == qyh::dataplane::TaskState::FAILED ||
+            state.status() == qyh::dataplane::TaskState::CANCELLED) {
+            state.set_error_message(msg->message);
+        } else if (state.current_action().empty()) {
+            state.set_current_action(msg->message);
+        }
+    }
+
+    std::vector<uint8_t> data(state.ByteSizeLong());
+    state.SerializeToArray(data.data(), static_cast<int>(data.size()));
+
+    state_cache_.update_task_state(data);
+    broadcast_state("task_state", qyh::dataplane::MSG_TASK_STATE, data);
+}
+
 void ROS2Bridge::standard_robot_status_callback(const qyh_standard_robot_msgs::msg::StandardRobotStatus::SharedPtr msg) {
     // 1. 更新电池和充电状态
     {
@@ -983,6 +1060,13 @@ void ROS2Bridge::broadcast_state(const std::string& topic_name,
             qyh::dataplane::ActuatorState actuator;
             if (actuator.ParseFromArray(payload.data(), static_cast<int>(payload.size()))) {
                 *ws_msg.mutable_actuator_state() = actuator;
+            }
+            break;
+        }
+        case qyh::dataplane::MSG_TASK_STATE: {
+            qyh::dataplane::TaskState task_state;
+            if (task_state.ParseFromArray(payload.data(), static_cast<int>(payload.size()))) {
+                *ws_msg.mutable_task_state() = task_state;
             }
             break;
         }

@@ -24,6 +24,7 @@
 #include <qyh_gripper_msgs/msg/gripper_state.hpp>
 #include <qyh_standard_robot_msgs/msg/standard_robot_status.hpp>
 #include <qyh_jaka_control_msgs/msg/robot_state.hpp>
+#include <qyh_task_engine_msgs/msg/task_status.hpp>
 
 #include <memory>
 #include <functional>
@@ -188,6 +189,7 @@ private:
     void right_gripper_state_callback(const qyh_gripper_msgs::msg::GripperState::SharedPtr msg);
     void standard_robot_status_callback(const qyh_standard_robot_msgs::msg::StandardRobotStatus::SharedPtr msg);
     void jaka_robot_state_callback(const qyh_jaka_control_msgs::msg::RobotState::SharedPtr msg);
+    void task_status_callback(const qyh_task_engine_msgs::msg::TaskStatus::SharedPtr msg);
     
     // ==================== 数据转换函数 ====================
     
@@ -219,6 +221,7 @@ private:
     rclcpp::Subscription<qyh_gripper_msgs::msg::GripperState>::SharedPtr right_gripper_sub_;
     rclcpp::Subscription<qyh_standard_robot_msgs::msg::StandardRobotStatus>::SharedPtr robot_status_sub_;
     rclcpp::Subscription<qyh_jaka_control_msgs::msg::RobotState>::SharedPtr jaka_state_sub_;
+    rclcpp::Subscription<qyh_task_engine_msgs::msg::TaskStatus>::SharedPtr task_status_sub_;
     
     // ==================== 发布者 ====================
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
