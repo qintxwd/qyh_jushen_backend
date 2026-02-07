@@ -5,12 +5,20 @@ server:
   signaling_port: 8888
   host: "0.0.0.0"
   max_connections: 10
+  # 单条信令消息最大大小（字节）
+  max_message_bytes: 1048576
+  # 认证超时（秒）
+  auth_timeout_sec: 10
   
   # JWT 认证配置
   # jwt_secret 建议通过环境变量 JWT_SECRET 设置
-  jwt_secret: ""
+  jwt_secret: "${JWT_SECRET}"
   # 是否要求认证（开发模式可关闭）
-  require_auth: false
+  require_auth: true
+  # 共享登录 Token: 保持 auth_* 为空；如需专用 Media Token 再设置
+  auth_audience: ""
+  auth_issuer: ""
+  auth_scope: ""
 
 video:
   # 默认视频源

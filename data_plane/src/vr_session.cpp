@@ -72,7 +72,7 @@ void http_post_async(const std::string& url, const std::string& path,
                      const nlohmann::json& body,
                      const std::string& token) {
     // 在独立线程中执行，不阻塞主线程
-    std::thread([url, path, body]() {
+    std::thread([url, path, body, token]() {
         auto parsed = parse_url(url, path);
         if (!parsed.valid) {
             LOG_ERROR("[VRSession] Invalid URL: " << url);

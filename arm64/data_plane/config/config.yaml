@@ -13,6 +13,10 @@ auth:
   # JWT 密钥（从环境变量读取）
   jwt_secret: "${JWT_SECRET}"
   jwt_algorithm: "HS256"
+  # Token 受众限制（若 Token 含 aud，需匹配该值；为空则不校验 aud）
+  auth_audience: "data_plane"
+  # 拒绝包含该 scope 的 Token（防止 Media Token 误用）
+  reject_scope: "media"
   # 连接建立后的鉴权超时（秒）
   auth_timeout_sec: 10
   # 是否启用鉴权（开发模式可关闭）
@@ -49,6 +53,8 @@ state_publish:
 control_sync:
   # Control Plane 基础地址
   control_plane_url: "http://127.0.0.1:8000"
+  # Control Plane 内部接口鉴权 Token (需与 Control Plane 的 VR_INTERNAL_TOKEN 一致)
+  internal_token: ""
   # 同步间隔（毫秒）
   sync_interval_ms: 1000
   # 请求超时（毫秒）
@@ -65,7 +71,7 @@ topics:
     chassis_state: "/chassis_state"
   # 发布话题
   publish:
-    vr_intent: "/vr_control_intent"
+    vr_intent: "/vr/control_intent"
     cmd_vel: "/cmd_vel"
     watchdog_heartbeat: "/watchdog/heartbeat"
 

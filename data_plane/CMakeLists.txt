@@ -53,6 +53,7 @@ if(ament_cmake_FOUND)
     find_package(qyh_gripper_msgs REQUIRED)
     find_package(qyh_standard_robot_msgs REQUIRED)
     find_package(qyh_jaka_control_msgs REQUIRED) # Add JAKA support
+    find_package(qyh_task_engine_msgs REQUIRED)
     
 else()
     message(FATAL_ERROR "ROS2 dependencies not found. Please source your ROS2 workspace.")
@@ -127,6 +128,7 @@ ament_target_dependencies(data_plane_server
     qyh_gripper_msgs
     qyh_standard_robot_msgs
     qyh_jaka_control_msgs
+    qyh_task_engine_msgs
 )
 
 # ==================== 安装 ====================

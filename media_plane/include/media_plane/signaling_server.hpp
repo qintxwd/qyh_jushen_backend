@@ -18,6 +18,7 @@
 #include <functional>
 #include <string>
 #include <queue>
+#include "media_plane/config.hpp"
 
 namespace qyh::mediaplane {
 
@@ -27,7 +28,6 @@ namespace net = boost::asio;
 using tcp = net::ip::tcp;
 
 // 前向声明
-class Config;
 class WebRTCPeer;
 class PipelineManager;
 class JwtVerifier;
