@@ -199,6 +199,59 @@ async def reset_chassis_config(
             message=f"重置配置失败: {str(e)}"
         )
     
+    # 尝试应用默认配置到硬件
+    try:
+        ros2 = get_ros2_client()
+        await ros2.set_chassis_speed_level(50)
+        await ros2.set_chassis_volume(50)
+        await ros2.set_chassis_obstacle_strategy(1)
+    except Exception:
+        pass  # 即使硬件同步失败，也返回成功（因为本地配置已重置）
+    
+    return success_response(message="底盘配置已重置")
+
+
+@router.post("/low-power/enter", response_model=ApiResponse)
+async def enter_low_power(
+    current_user: User = Depends(get_current_operator),
+):
+    """
+    进入低功耗模式
+    
+    需要操作员权限。
+    """
+    ros2 = get_ros2_client()
+    result = await ros2.enter_low_power_mode()
+    
+    if result.success:
+        return success_response(message="已发送进入低功耗模式命令")
+    else:
+        return error_response(
+            code=ErrorCodes.SERVICE_ERROR,
+            message=f"进入低功耗模式失败: {result.message}"
+        )
+
+
+@router.post("/low-power/exit", response_model=ApiResponse)
+async def exit_low_power(
+    current_user: User = Depends(get_current_operator),
+):
+    """
+    退出低功耗模式
+    
+    需要操作员权限。
+    """
+    ros2 = get_ros2_client()
+    result = await ros2.exit_low_power_mode()
+    
+    if result.success:
+        return success_response(message="已发送退出低功耗模式命令")
+    else:
+        return error_response(
+            code=ErrorCodes.SERVICE_ERROR,
+            message=f"退出低功耗模式失败: {result.message}"
+        )
+    
     config = ChassisConfig(**default_config)
     return success_response(
         data=config.model_dump(),

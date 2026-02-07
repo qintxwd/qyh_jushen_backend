@@ -341,18 +341,58 @@ async def apply_preset(
             )
             
         elif preset_type == PresetType.HEAD_POSITION:
-            # 头部预设 - 暂时不支持完整的位置控制
-            # 头部只有 enable_torque 服务，没有位置控制服务
-            # TODO: 需要头部位置控制服务
-            return success_response(
-                data={
-                    "preset_id": preset_id,
-                    "preset_name": preset.get("name"),
-                    "applied": False,
-                    "message": "头部预设暂不支持自动应用（需要头部位置控制服务）"
-                },
-                message=f"头部预设 '{preset.get('name')}' 暂不支持自动应用"
+            # 头部预设
+            src = preset
+            if "pan" not in preset and "data" in preset and isinstance(preset["data"], dict):
+                src = preset.get("data", {})
+                
+            pan = src.get("pan", 0.0)
+            tilt = src.get("tilt", 0.0)
+            speed = src.get("speed", 50.0)
+            
+            result = await ros2_client.head_move(
+                pan=float(pan),
+                tilt=float(tilt),
+                speed=float(speed)
             )
+
+        elif preset_type == PresetType.GRIPPER_POSITION:
+            # 夹爪预设 - 使用 MoveGripper 服务
+            src = preset
+            if "side" not in preset and "data" in preset and isinstance(preset["data"], dict):
+                src = preset.get("data", {})
+                
+            side = src.get("side", "left")
+            force = int(src.get("force", 50))
+            
+            error_msgs = []
+            
+            # 左手
+            if side in ("left", "dual", "both"):
+                pos = int(src.get("left_position", 0))
+                res = await ros2_client.gripper_move("left", pos, 100, force)
+                if not res.success:
+                    error_msgs.append(f"Left: {res.message}")
+            
+            # 右手
+            if side in ("right", "dual", "both"):
+                pos = int(src.get("right_position", 0))
+                res = await ros2_client.gripper_move("right", pos, 100, force)
+                if not res.success:
+                    error_msgs.append(f"Right: {res.message}")
+            
+            if error_msgs:
+                # 构造一个失败对象
+                class SimpleResult:
+                    success = False
+                    message = "; ".join(error_msgs)
+                result = SimpleResult()
+            else:
+                # 构造一个成功对象
+                class SimpleResult:
+                    success = True
+                    message = "夹爪动作已执行"
+                result = SimpleResult()
             
         else:
             return error_response(
@@ -495,6 +535,26 @@ async def capture_current_state(
             captured_data = {
                 "angle": float(angle),
             }
+
+        elif request.preset_type == PresetType.GRIPPER_POSITION:
+            side = request.side or "dual"
+            
+            left_state = state.get("left_gripper", {})
+            right_state = state.get("right_gripper", {})
+            
+            captured_data = {
+                "side": side,
+                "force": 50, # 默认力度
+            }
+            
+            # get_robot_state 返回 normalized position (0.0-1.0)
+            if side in ("left", "dual"):
+                pos = left_state.get("position", 0.0)
+                captured_data["left_position"] = int(pos * 255)
+                
+            if side in ("right", "dual"):
+                pos = right_state.get("position", 0.0)
+                captured_data["right_position"] = int(pos * 255)
             
         else:
             return error_response(

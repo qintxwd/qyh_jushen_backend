@@ -281,6 +281,8 @@ class ROS2ServiceClient:
                 ControlStartManualControl,
                 ControlStopManualControl,
                 ControlReleaseEmergencyStop,
+                ControlEnterLowPowerMode,
+                ControlExitLowPowerMode,
             )
             
             # 录制服务
@@ -452,6 +454,18 @@ class ROS2ServiceClient:
                 self._node.create_client(
                     ControlReleaseEmergencyStop,
                     'control_release_emergency_stop',
+                )
+            )
+            self._service_clients['chassis_enter_low_power'] = (
+                self._node.create_client(
+                    ControlEnterLowPowerMode,
+                    'control_enter_low_power_mode',
+                )
+            )
+            self._service_clients['chassis_exit_low_power'] = (
+                self._node.create_client(
+                    ControlExitLowPowerMode,
+                    'control_exit_low_power_mode',
                 )
             )
             
@@ -1484,6 +1498,124 @@ class ROS2ServiceClient:
             return ServiceResponse(False, str(e))
 
     async def set_chassis_volume(self, volume: int) -> ServiceResponse:
+        """设置底盘扬声器音量"""
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
+
+        try:
+            from qyh_standard_robot_msgs.srv import GoSetSpeakerVolume
+
+            client = self._service_clients.get('chassis_set_volume')
+            if not client or not client.wait_for_service(timeout_sec=5.0):
+                return ServiceResponse(False, "底盘音量服务不可用")
+
+            request = GoSetSpeakerVolume.Request()
+            request.volume = int(volume)
+
+            future = client.call_async(request)
+            result = await self._wait_for_future(future, timeout=5.0)
+
+            if result is not None:
+                return ServiceResponse(result.success, result.message)
+            return ServiceResponse(False, "服务调用超时")
+        except Exception as e:
+            logger.error(f"set_chassis_volume error: {e}")
+            return ServiceResponse(False, str(e))
+
+    async def enter_low_power_mode(self) -> ServiceResponse:
+        """进入低功耗模式"""
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
+
+        try:
+            from qyh_standard_robot_msgs.srv import ControlEnterLowPowerMode
+
+            client = self._service_clients.get('chassis_enter_low_power')
+            if not client or not client.wait_for_service(timeout_sec=5.0):
+                return ServiceResponse(False, "进入低功耗模式服务不可用")
+
+            request = ControlEnterLowPowerMode.Request()
+            
+            future = client.call_async(request)
+            result = await self._wait_for_future(future, timeout=5.0)
+
+            if result is not None:
+                return ServiceResponse(result.success, result.message)
+            return ServiceResponse(False, "服务调用超时")
+        except Exception as e:
+            logger.error(f"enter_low_power_mode error: {e}")
+            return ServiceResponse(False, str(e))
+
+    async def exit_low_power_mode(self) -> ServiceResponse:
+        """退出低功耗模式"""
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
+
+        try:
+            from qyh_standard_robot_msgs.srv import ControlExitLowPowerMode
+
+            client = self._service_clients.get('chassis_exit_low_power')
+            if not client or not client.wait_for_service(timeout_sec=5.0):
+                return ServiceResponse(False, "退出低功耗模式服务不可用")
+
+            request = ControlExitLowPowerMode.Request()
+            
+            future = client.call_async(request)
+            result = await self._wait_for_future(future, timeout=5.0)
+
+            if result is not None:
+                return ServiceResponse(result.success, result.message)
+            return ServiceResponse(False, "服务调用超时")
+        except Exception as e:
+            logger.error(f"exit_low_power_mode error: {e}")
+            return ServiceResponse(False, str(e))
+
+    async def head_move(
+        self,
+        pan: float,
+        tilt: float,
+        speed: float = 50.0
+    ) -> ServiceResponse:
+        """
+        头部运动控制
+        
+        Args:
+            pan: 水平角度 (弧度)
+            tilt: 垂直角度 (弧度)
+            speed: 速度 (0-100)
+        """
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
+        
+        if not self.head_cmd_pub:
+             return ServiceResponse(False, "头部控制发布器未初始化")
+
+        try:
+            from std_msgs.msg import Float64MultiArray
+            
+            # 转换弧度到归一化值 (-1.0 到 1.0)
+            # Pan: ±90° (±1.5708 rad)
+            # Tilt: ±45° (±0.7854 rad)
+            pan_norm = max(-1.0, min(1.0, float(pan) / 1.5708))
+            tilt_norm = max(-1.0, min(1.0, float(tilt) / 0.7854))
+            
+            # 计算时长 duration_ms
+            # speed 100 -> 100ms
+            # speed 0 -> 2000ms
+            speed_val = max(0.0, min(100.0, float(speed)))
+            duration_ms = 100.0 + (100.0 - speed_val) * 19.0
+            
+            msg = Float64MultiArray()
+            # 协议顺序: [tilt, pan, duration]
+            msg.data = [float(tilt_norm), float(pan_norm), float(duration_ms)]
+            
+            self.head_cmd_pub.publish(msg)
+            
+            return ServiceResponse(True, "头部运动指令已发送")
+            
+        except Exception as e:
+            logger.error(f"head_move error: {e}")
+            return ServiceResponse(False, str(e))
         """设置底盘扬声器音量"""
         if self._node is None:
             return ServiceResponse(False, "ROS2 client not initialized")
