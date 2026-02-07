@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Query
 from app.dependencies import get_current_user, get_current_operator
 from app.models.user import User
 from app.services.preset_manager import preset_manager
-from app.services.ros2_client import get_ros2_client, RobotSide
+from app.services.ros2_client import get_ros2_client, get_ros2_client_dependency, RobotSide, ROS2ServiceClient
 from app.schemas.preset import (
     PresetType,
     CreatePresetRequest,
@@ -256,6 +256,7 @@ async def apply_preset(
     preset_id: str,
     request: ApplyPresetRequest,
     current_user: User = Depends(get_current_operator),
+    ros2_client: ROS2ServiceClient = Depends(get_ros2_client_dependency),
 ):
     """
     应用预设
@@ -275,8 +276,6 @@ async def apply_preset(
             message=f"预设 '{preset_id}' 不存在"
         )
     
-    # 获取 ROS2 客户端
-    ros2_client = get_ros2_client()
     result = None
     
     try:

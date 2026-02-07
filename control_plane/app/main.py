@@ -24,6 +24,15 @@ async def lifespan(app: FastAPI):
     # 初始化数据库
     init_db()
     print("✅ 数据库初始化完成")
+
+    # 初始化 ROS2 客户端
+    try:
+        from app.services.ros2_client import get_ros2_client
+        ros2 = get_ros2_client()
+        await ros2.initialize()
+        print("✅ ROS2 客户端初始化完成")
+    except Exception as e:
+        print(f"⚠️ ROS2 客户端初始化失败: {e}")
     
     # 创建默认管理员
     await create_default_admin()
