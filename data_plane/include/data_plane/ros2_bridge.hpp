@@ -13,7 +13,6 @@
 #include <geometry_msgs/msg/twist.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <std_msgs/msg/bool.hpp>
-#include <std_msgs/msg/float64.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <trajectory_msgs/msg/joint_trajectory.hpp>
@@ -22,6 +21,7 @@
 #include <qyh_lift_msgs/msg/lift_state.hpp>
 #include <qyh_lift_msgs/srv/lift_control.hpp>
 #include <qyh_waist_msgs/msg/waist_state.hpp>
+#include <qyh_waist_msgs/srv/waist_control.hpp>
 #include <qyh_gripper_msgs/msg/gripper_state.hpp>
 #include <qyh_gripper_msgs/srv/move_gripper.hpp>
 #include <qyh_gripper_msgs/srv/activate_gripper.hpp>
@@ -242,7 +242,7 @@ private:
     // rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr right_gripper_cmd_pub_;
 
     rclcpp::Client<qyh_lift_msgs::srv::LiftControl>::SharedPtr lift_control_client_;
-    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr waist_cmd_pub_;
+    rclcpp::Client<qyh_waist_msgs::srv::WaistControl>::SharedPtr waist_control_client_;
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr head_cmd_pub_;
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr nav_goal_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr watchdog_heartbeat_pub_;

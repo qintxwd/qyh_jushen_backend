@@ -27,7 +27,7 @@ class WaistStatus(BaseModel):
 
 class SetAngleRequest(BaseModel):
     """设置角度请求"""
-    angle: float = Field(..., ge=-30, le=90, description="目标角度 (-30~90度)")
+    angle: float = Field(..., ge=0, le=45, description="目标角度 (0~45度)")
 
 
 class SetSpeedRequest(BaseModel):

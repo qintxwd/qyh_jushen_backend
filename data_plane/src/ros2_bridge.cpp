@@ -197,9 +197,9 @@ bool ROS2Bridge::init() {
             "/lift_control"
         );
         
-        // 腰部命令
-        waist_cmd_pub_ = node_->create_publisher<std_msgs::msg::Float64>(
-            "/waist/command", control_qos
+        // 腰部控制服务
+        waist_control_client_ = node_->create_client<qyh_waist_msgs::srv::WaistControl>(
+            "/waist/control"
         );
         
         // 头部位置命令 (normalized [-1,1])
@@ -571,23 +571,35 @@ void ROS2Bridge::publish_lift_command(const LiftCommand& cmd) {
 
 void ROS2Bridge::publish_waist_command(const WaistCommand& cmd) {
     const std::string& command = cmd.command();
-    
-    if (command == "stop") {
-        std_msgs::msg::Float64 msg;
-        msg.data = 0.0;
-        waist_cmd_pub_->publish(msg);
-    } else if (command == "goto") {
-        std_msgs::msg::Float64 msg;
-        msg.data = cmd.target_angle();
-        waist_cmd_pub_->publish(msg);
+
+    if (!waist_control_client_) {
+        return;
+    }
+    if (!waist_control_client_->service_is_ready()) {
+        return;
+    }
+
+    auto send_request = [&](uint8_t cmd_type, float value, bool hold) {
+        auto request = std::make_shared<qyh_waist_msgs::srv::WaistControl::Request>();
+        request->command = cmd_type;
+        request->value = value;
+        request->hold = hold;
+        waist_control_client_->async_send_request(request);
+    };
+
+    constexpr double kRadToDeg = 180.0 / 3.141592653589793;
+
+    if (command == "goto") {
+        const float angle_deg = static_cast<float>(cmd.target_angle() * kRadToDeg);
+        send_request(qyh_waist_msgs::srv::WaistControl::Request::CMD_GO_ANGLE, angle_deg, false);
     } else if (command == "left") {
-        std_msgs::msg::Float64 msg;
-        msg.data = std::abs(cmd.speed());  // 正速度 = 向左
-        waist_cmd_pub_->publish(msg);
+        send_request(qyh_waist_msgs::srv::WaistControl::Request::CMD_LEAN_FORWARD, 0.0f, true);
     } else if (command == "right") {
-        std_msgs::msg::Float64 msg;
-        msg.data = -std::abs(cmd.speed());  // 负速度 = 向右
-        waist_cmd_pub_->publish(msg);
+        send_request(qyh_waist_msgs::srv::WaistControl::Request::CMD_LEAN_BACK, 0.0f, true);
+    } else if (command == "upright") {
+        send_request(qyh_waist_msgs::srv::WaistControl::Request::CMD_GO_UPRIGHT, 0.0f, false);
+    } else if (command == "stop") {
+        send_request(qyh_waist_msgs::srv::WaistControl::Request::CMD_STOP, 0.0f, false);
     }
 }
 
@@ -912,6 +924,27 @@ void ROS2Bridge::waist_state_callback(const qyh_waist_msgs::msg::WaistState::Sha
     
     state_cache_.update_waist_state(data);
     broadcast_state("actuator_state", qyh::dataplane::MSG_ACTUATOR_STATE, data);
+
+    bool old_enabled = false;
+    bool old_connected = false;
+    bool old_error = false;
+    {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        old_enabled = waist_enabled_;
+        old_connected = waist_connected_;
+        old_error = waist_error_;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        waist_connected_ = msg->connected;
+        waist_enabled_ = msg->enabled;
+        waist_error_ = msg->alarm;
+    }
+
+    if (old_enabled != msg->enabled || old_connected != msg->connected || old_error != msg->alarm) {
+        broadcast_basic_state();
+    }
 }
 
 void ROS2Bridge::head_state_callback(const sensor_msgs::msg::JointState::SharedPtr msg) {
