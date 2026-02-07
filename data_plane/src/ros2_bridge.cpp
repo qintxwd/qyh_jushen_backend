@@ -180,14 +180,14 @@ bool ROS2Bridge::init() {
             "/right_arm/ee_target", control_qos
         );
         
-        // 左夹爪命令
-        left_gripper_cmd_pub_ = node_->create_publisher<std_msgs::msg::Float64>(
-            "/left_gripper/command", control_qos
+        // 左夹爪客户端
+        left_gripper_client_ = node_->create_client<qyh_gripper_msgs::srv::MoveGripper>(
+            "/left/move_gripper"
         );
         
-        // 右夹爪命令
-        right_gripper_cmd_pub_ = node_->create_publisher<std_msgs::msg::Float64>(
-            "/right_gripper/command", control_qos
+        // 右夹爪客户端
+        right_gripper_client_ = node_->create_client<qyh_gripper_msgs::srv::MoveGripper>(
+            "/right/move_gripper"
         );
         
         // 升降命令
@@ -450,13 +450,25 @@ void ROS2Bridge::publish_end_effector_command(const EndEffectorCommand& cmd) {
 }
 
 void ROS2Bridge::publish_gripper_command(const GripperCommand& cmd) {
-    std_msgs::msg::Float64 msg;
-    msg.data = cmd.position();
+    auto req = std::make_shared<qyh_gripper_msgs::srv::MoveGripper::Request>();
     
+    // Position: 0.0-1.0 -> 0-255
+    req->position = static_cast<uint8_t>(std::clamp(cmd.position() * 255.0, 0.0, 255.0));
+    
+    // Force: Assumed 0-255 from frontend
+    req->force = static_cast<uint8_t>(std::clamp(cmd.force(), 0.0, 255.0));
+    
+    // Speed: Default to max, as Proto doesn't support specific speed yet
+    req->speed = 255;
+
     if (cmd.gripper_id() == "left") {
-        left_gripper_cmd_pub_->publish(msg);
+        if (left_gripper_client_->service_is_ready()) {
+            left_gripper_client_->async_send_request(req);
+        }
     } else {
-        right_gripper_cmd_pub_->publish(msg);
+        if (right_gripper_client_->service_is_ready()) {
+            right_gripper_client_->async_send_request(req);
+        }
     }
 }
 

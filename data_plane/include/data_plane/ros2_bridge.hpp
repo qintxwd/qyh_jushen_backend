@@ -22,6 +22,8 @@
 #include <qyh_lift_msgs/msg/lift_state.hpp>
 #include <qyh_waist_msgs/msg/waist_state.hpp>
 #include <qyh_gripper_msgs/msg/gripper_state.hpp>
+#include <qyh_gripper_msgs/srv/move_gripper.hpp>
+#include <qyh_gripper_msgs/srv/activate_gripper.hpp>
 #include <qyh_standard_robot_msgs/msg/standard_robot_status.hpp>
 #include <qyh_jaka_control_msgs/msg/robot_state.hpp>
 #include <qyh_task_engine_msgs/msg/task_status.hpp>
@@ -229,8 +231,15 @@ private:
     rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr right_arm_cmd_pub_;
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr left_ee_cmd_pub_;
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr right_ee_cmd_pub_;
-    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr left_gripper_cmd_pub_;
-    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr right_gripper_cmd_pub_;
+    
+    // Gripper Service Clients
+    rclcpp::Client<qyh_gripper_msgs::srv::MoveGripper>::SharedPtr left_gripper_client_;
+    rclcpp::Client<qyh_gripper_msgs::srv::MoveGripper>::SharedPtr right_gripper_client_;
+
+    // Old publishers removed
+    // rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr left_gripper_cmd_pub_;
+    // rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr right_gripper_cmd_pub_;
+
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr lift_cmd_pub_;
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr waist_cmd_pub_;
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr head_pan_cmd_pub_;
