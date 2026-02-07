@@ -403,6 +403,143 @@ async def get_stations(
     )
 
 
+# ==================== 底盘控制 API (HTTP 后备) ====================
+
+@router.post("/manual_velocity", response_model=ApiResponse)
+async def manual_velocity(
+    request: ManualVelocityRequest,
+    current_user: User = Depends(get_current_operator),
+):
+    """手动速度控制 (HTTP 后备，推荐使用 WebSocket)"""
+    ros2_client = get_ros2_client()
+    if not ros2_client._initialized:
+        await ros2_client.initialize()
+
+    try:
+        await ros2_client.publish_manual_velocity(request.linear, request.angular)
+        return success_response(
+            data={"sent": True},
+            message="速度指令已发送"
+        )
+    except Exception as e:
+        return error_response(
+            code=ErrorCodes.ROS2_ERROR,
+            message=f"发送速度指令失败: {str(e)}"
+        )
+
+
+@router.post("/control_mode", response_model=ApiResponse)
+async def set_control_mode(
+    request: ControlModeRequest,
+    current_user: User = Depends(get_current_operator),
+):
+    """切换手动/自动控制模式"""
+    ros2_client = get_ros2_client()
+    if not ros2_client._initialized:
+        await ros2_client.initialize()
+
+    if request.mode not in (0, 1):
+        return error_response(
+            code=ErrorCodes.INVALID_PARAMS,
+            message="mode 仅支持 0(手动) 或 1(自动)"
+        )
+
+    result = await ros2_client.set_manual_control(request.mode == 0)
+    if result.success:
+        return success_response(
+            data={"mode": request.mode},
+            message=result.message or "模式切换成功"
+        )
+    return error_response(
+        code=ErrorCodes.OPERATION_FAILED,
+        message=result.message or "模式切换失败"
+    )
+
+
+@router.post("/system_reset", response_model=ApiResponse)
+async def system_reset(
+    current_user: User = Depends(get_current_operator),
+):
+    """系统复位"""
+    ros2_client = get_ros2_client()
+    if not ros2_client._initialized:
+        await ros2_client.initialize()
+
+    result = await ros2_client.system_reset()
+    if result.success:
+        return success_response(
+            data={"reset": True},
+            message=result.message or "系统复位成功"
+        )
+    return error_response(
+        code=ErrorCodes.OPERATION_FAILED,
+        message=result.message or "系统复位失败"
+    )
+
+
+@router.post("/stop_localization", response_model=ApiResponse)
+async def stop_localization(
+    current_user: User = Depends(get_current_operator),
+):
+    """停止定位"""
+    ros2_client = get_ros2_client()
+    if not ros2_client._initialized:
+        await ros2_client.initialize()
+
+    result = await ros2_client.stop_localization()
+    if result.success:
+        return success_response(
+            data={"stopped": True},
+            message=result.message or "定位已停止"
+        )
+    return error_response(
+        code=ErrorCodes.OPERATION_FAILED,
+        message=result.message or "停止定位失败"
+    )
+
+
+@router.post("/start_charging", response_model=ApiResponse)
+async def start_charging(
+    current_user: User = Depends(get_current_operator),
+):
+    """开始充电"""
+    ros2_client = get_ros2_client()
+    if not ros2_client._initialized:
+        await ros2_client.initialize()
+
+    result = await ros2_client.start_charging()
+    if result.success:
+        return success_response(
+            data={"charging": True},
+            message=result.message or "开始充电"
+        )
+    return error_response(
+        code=ErrorCodes.OPERATION_FAILED,
+        message=result.message or "开始充电失败"
+    )
+
+
+@router.post("/stop_charging", response_model=ApiResponse)
+async def stop_charging(
+    current_user: User = Depends(get_current_operator),
+):
+    """停止充电"""
+    ros2_client = get_ros2_client()
+    if not ros2_client._initialized:
+        await ros2_client.initialize()
+
+    result = await ros2_client.stop_charging()
+    if result.success:
+        return success_response(
+            data={"charging": False},
+            message=result.message or "停止充电"
+        )
+    return error_response(
+        code=ErrorCodes.OPERATION_FAILED,
+        message=result.message or "停止充电失败"
+    )
+
+
 # ==================== 注意 ====================
 # 
 # 底盘实时控制接口（速度命令、急停、导航）已移至 Data Plane WebSocket
@@ -446,6 +583,17 @@ class NavigateToStationRequest(BaseModel):
         le=1.0,
         description="速度因子 (0.1-1.0)"
     )
+
+
+class ManualVelocityRequest(BaseModel):
+    """手动速度命令请求"""
+    linear: float = Field(default=0.0, description="线速度 (m/s)")
+    angular: float = Field(default=0.0, description="角速度 (rad/s)")
+
+
+class ControlModeRequest(BaseModel):
+    """控制模式切换请求"""
+    mode: int = Field(..., description="0=手动, 1=自动")
 
 
 @router.post("/navigate/pose", response_model=ApiResponse)

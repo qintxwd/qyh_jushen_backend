@@ -170,6 +170,8 @@ class ROS2ServiceClient:
         
         # 紧急停止发布器
         self._emergency_stop_publisher = None
+        # 手动速度发布器
+        self._manual_velocity_publisher = None
         # LED 发布器
         self._led_color_publisher = None
         self._led_blink_publisher = None
@@ -272,6 +274,13 @@ class ROS2ServiceClient:
                 GoSetSpeedType,
                 GoSetSpeakerVolume,
                 GoSetObstacleStrategy,
+                ControlStopLocalization,
+                ControlSystemReset,
+                ControlStartCharging,
+                ControlStopCharging,
+                ControlStartManualControl,
+                ControlStopManualControl,
+                ControlReleaseEmergencyStop,
             )
             
             # 录制服务
@@ -393,6 +402,50 @@ class ROS2ServiceClient:
                 self._node.create_client(
                     GoSetObstacleStrategy,
                     'go_set_obstacle_strategy',
+                )
+            )
+
+            # 底盘控制服务
+            self._service_clients['chassis_stop_localization'] = (
+                self._node.create_client(
+                    ControlStopLocalization,
+                    'control_stop_localization',
+                )
+            )
+            self._service_clients['chassis_system_reset'] = (
+                self._node.create_client(
+                    ControlSystemReset,
+                    'control_system_reset',
+                )
+            )
+            self._service_clients['chassis_start_charging'] = (
+                self._node.create_client(
+                    ControlStartCharging,
+                    'control_start_charging',
+                )
+            )
+            self._service_clients['chassis_stop_charging'] = (
+                self._node.create_client(
+                    ControlStopCharging,
+                    'control_stop_charging',
+                )
+            )
+            self._service_clients['chassis_start_manual'] = (
+                self._node.create_client(
+                    ControlStartManualControl,
+                    'control_start_manual_control',
+                )
+            )
+            self._service_clients['chassis_stop_manual'] = (
+                self._node.create_client(
+                    ControlStopManualControl,
+                    'control_stop_manual_control',
+                )
+            )
+            self._service_clients['chassis_release_emergency'] = (
+                self._node.create_client(
+                    ControlReleaseEmergencyStop,
+                    'control_release_emergency_stop',
                 )
             )
             
@@ -541,11 +594,18 @@ class ROS2ServiceClient:
         try:
             from geometry_msgs.msg import Twist
             from std_msgs.msg import ColorRGBA, String
+            from qyh_standard_robot_msgs.msg import ManualVelocityCommand
             
             # 创建 cmd_vel 发布器（用于紧急停止）
             self._emergency_stop_publisher = self._node.create_publisher(
                 Twist,
                 '/cmd_vel',
+                10
+            )
+
+            self._manual_velocity_publisher = self._node.create_publisher(
+                ManualVelocityCommand,
+                '/manual_velocity_cmd',
                 10
             )
 
@@ -561,7 +621,7 @@ class ROS2ServiceClient:
                 10
             )
             
-            logger.info("ROS2 publishers created: /cmd_vel, /robot_led/*")
+            logger.info("ROS2 publishers created: /cmd_vel, /manual_velocity_cmd, /robot_led/*")
             
         except ImportError as e:
             logger.warning(
@@ -844,6 +904,23 @@ class ROS2ServiceClient:
             self._emergency_stop_publisher.publish(msg)
         except Exception as e:
             logger.error(f"publish_cmd_vel error: {e}")
+            raise
+
+    async def publish_manual_velocity(
+        self, linear_x: float, angular_z: float
+    ) -> None:
+        """发布手动速度命令到 /manual_velocity_cmd"""
+        if not self._manual_velocity_publisher:
+            raise RuntimeError("manual_velocity_cmd publisher not initialized")
+
+        try:
+            from qyh_standard_robot_msgs.msg import ManualVelocityCommand
+            msg = ManualVelocityCommand()
+            msg.vx = float(linear_x)
+            msg.w = float(angular_z)
+            self._manual_velocity_publisher.publish(msg)
+        except Exception as e:
+            logger.error(f"publish_manual_velocity error: {e}")
             raise
 
     async def navigate_to_pose(
@@ -1425,6 +1502,150 @@ class ROS2ServiceClient:
             logger.error(f"set_chassis_volume error: {e}")
             return ServiceResponse(False, str(e))
 
+    async def stop_localization(self) -> ServiceResponse:
+        """停止定位"""
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
+
+        try:
+            from qyh_standard_robot_msgs.srv import ControlStopLocalization
+
+            client = self._service_clients.get('chassis_stop_localization')
+            if not client or not client.wait_for_service(timeout_sec=5.0):
+                return ServiceResponse(False, "停止定位服务不可用")
+
+            request = ControlStopLocalization.Request()
+            future = client.call_async(request)
+            result = await self._wait_for_future(future, timeout=5.0)
+
+            if result is not None:
+                return ServiceResponse(result.success, result.message)
+            return ServiceResponse(False, "服务调用超时")
+        except Exception as e:
+            logger.error(f"stop_localization error: {e}")
+            return ServiceResponse(False, str(e))
+
+    async def system_reset(self) -> ServiceResponse:
+        """系统复位"""
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
+
+        try:
+            from qyh_standard_robot_msgs.srv import ControlSystemReset
+
+            client = self._service_clients.get('chassis_system_reset')
+            if not client or not client.wait_for_service(timeout_sec=5.0):
+                return ServiceResponse(False, "系统复位服务不可用")
+
+            request = ControlSystemReset.Request()
+            future = client.call_async(request)
+            result = await self._wait_for_future(future, timeout=5.0)
+
+            if result is not None:
+                return ServiceResponse(result.success, result.message)
+            return ServiceResponse(False, "服务调用超时")
+        except Exception as e:
+            logger.error(f"system_reset error: {e}")
+            return ServiceResponse(False, str(e))
+
+    async def start_charging(self) -> ServiceResponse:
+        """开始充电"""
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
+
+        try:
+            from qyh_standard_robot_msgs.srv import ControlStartCharging
+
+            client = self._service_clients.get('chassis_start_charging')
+            if not client or not client.wait_for_service(timeout_sec=5.0):
+                return ServiceResponse(False, "开始充电服务不可用")
+
+            request = ControlStartCharging.Request()
+            future = client.call_async(request)
+            result = await self._wait_for_future(future, timeout=5.0)
+
+            if result is not None:
+                return ServiceResponse(result.success, result.message)
+            return ServiceResponse(False, "服务调用超时")
+        except Exception as e:
+            logger.error(f"start_charging error: {e}")
+            return ServiceResponse(False, str(e))
+
+    async def stop_charging(self) -> ServiceResponse:
+        """停止充电"""
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
+
+        try:
+            from qyh_standard_robot_msgs.srv import ControlStopCharging
+
+            client = self._service_clients.get('chassis_stop_charging')
+            if not client or not client.wait_for_service(timeout_sec=5.0):
+                return ServiceResponse(False, "停止充电服务不可用")
+
+            request = ControlStopCharging.Request()
+            future = client.call_async(request)
+            result = await self._wait_for_future(future, timeout=5.0)
+
+            if result is not None:
+                return ServiceResponse(result.success, result.message)
+            return ServiceResponse(False, "服务调用超时")
+        except Exception as e:
+            logger.error(f"stop_charging error: {e}")
+            return ServiceResponse(False, str(e))
+
+    async def set_manual_control(self, enabled: bool) -> ServiceResponse:
+        """切换手动控制模式"""
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
+
+        try:
+            if enabled:
+                from qyh_standard_robot_msgs.srv import ControlStartManualControl
+                client_key = 'chassis_start_manual'
+                request = ControlStartManualControl.Request()
+            else:
+                from qyh_standard_robot_msgs.srv import ControlStopManualControl
+                client_key = 'chassis_stop_manual'
+                request = ControlStopManualControl.Request()
+
+            client = self._service_clients.get(client_key)
+            if not client or not client.wait_for_service(timeout_sec=5.0):
+                return ServiceResponse(False, "手动控制服务不可用")
+
+            future = client.call_async(request)
+            result = await self._wait_for_future(future, timeout=5.0)
+
+            if result is not None:
+                return ServiceResponse(result.success, result.message)
+            return ServiceResponse(False, "服务调用超时")
+        except Exception as e:
+            logger.error(f"set_manual_control error: {e}")
+            return ServiceResponse(False, str(e))
+
+    async def release_emergency_stop(self) -> ServiceResponse:
+        """解除急停"""
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
+
+        try:
+            from qyh_standard_robot_msgs.srv import ControlReleaseEmergencyStop
+
+            client = self._service_clients.get('chassis_release_emergency')
+            if not client or not client.wait_for_service(timeout_sec=5.0):
+                return ServiceResponse(False, "急停解除服务不可用")
+
+            request = ControlReleaseEmergencyStop.Request()
+            future = client.call_async(request)
+            result = await self._wait_for_future(future, timeout=5.0)
+
+            if result is not None:
+                return ServiceResponse(result.success, result.message)
+            return ServiceResponse(False, "服务调用超时")
+        except Exception as e:
+            logger.error(f"release_emergency_stop error: {e}")
+            return ServiceResponse(False, str(e))
+
     async def apply_chassis_config_if_needed(
         self,
         chassis_connected: bool,
@@ -1824,15 +2045,6 @@ class ROS2ServiceClient:
         
         # TODO: 实现重启功能（需要 qyh_shutdown 节点支持）
         return ServiceResponse(False, "重启功能暂未实现")
-    
-    async def release_emergency_stop(self) -> None:
-        """
-        解除紧急停止状态
-        
-        注意：此方法当前仅记录日志，实际的急停解除需要硬件层面确认
-        """
-        logger.info("Emergency stop release requested")
-        # TODO: 如果有专门的急停解除服务，在这里调用
     
     # ==================== 机械臂服务 ====================
     

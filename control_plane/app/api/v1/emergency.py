@@ -137,3 +137,58 @@ async def get_emergency_status(
             },
             message="ROS2 unavailable",
         )
+
+
+@router.post(
+    "/recover",
+    response_model=ApiResponse,
+    summary="Recover emergency stop",
+)
+async def recover_emergency_stop(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_db),
+) -> ApiResponse:
+    """Attempt to recover from emergency stop through ROS2 service."""
+    try:
+        ros2_client = get_ros2_client()
+        result = await ros2_client.release_emergency_stop()
+
+        await AuditService.log(
+            db=db,
+            action="emergency_recover",
+            resource="system",
+            resource_id="global",
+            details={
+                "success": result.success,
+                "message": result.message,
+                "timestamp": datetime.utcnow().isoformat(),
+                "source": "http_api",
+            },
+            user=current_user,
+        )
+
+        if result.success:
+            return success_response(
+                data={"recovered": True},
+                message=result.message or "Emergency stop recovered",
+            )
+
+        return error_response(
+            code=ErrorCodes.OPERATION_FAILED,
+            message=result.message or "Emergency stop recovery failed",
+        )
+
+    except RuntimeError as exc:
+        logger.error("Emergency recover failed - ROS2 unavailable: %s", exc)
+        return error_response(
+            code=ErrorCodes.ROS2_NOT_CONNECTED,
+            message="ROS2 service unavailable",
+            data={"error": str(exc)},
+        )
+    except Exception as exc:
+        logger.exception("Emergency recover failed")
+        return error_response(
+            code=ErrorCodes.INTERNAL_ERROR,
+            message="Emergency stop recovery failed",
+            data={"error": str(exc)},
+        )
