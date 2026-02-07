@@ -306,7 +306,7 @@ async def apply_preset(
             
             result = await ros2_client.arm_move_j(
                 joint_positions=joint_positions,
-                robot_side=robot_side,
+                robot_id=robot_side,
                 velocity=velocity,
                 acceleration=acceleration,
                 is_block=True  # 阻塞等待完成
