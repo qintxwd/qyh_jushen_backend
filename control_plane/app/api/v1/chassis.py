@@ -166,10 +166,42 @@ async def update_chassis_config(
             message=f"保存配置失败: {str(e)}"
         )
     
-    # TODO: 通知 Data Plane 配置已更新
-    # 可以通过 ROS2 参数服务器或专用话题通知
+    # 同步配置到底盘硬件
+    ros2 = get_ros2_client()
+    sync_errors = []
+    
+    if update.speed_level is not None:
+        try:
+            result = await ros2.set_chassis_speed_level(update.speed_level)
+            if not result.success:
+                sync_errors.append(f"速度设置失败: {result.message}")
+        except Exception as e:
+            sync_errors.append(f"速度设置异常: {str(e)}")
+    
+    if update.volume is not None:
+        try:
+            result = await ros2.set_chassis_volume(update.volume)
+            if not result.success:
+                sync_errors.append(f"音量设置失败: {result.message}")
+        except Exception as e:
+            sync_errors.append(f"音量设置异常: {str(e)}")
+    
+    if update.obstacle_strategy is not None:
+        try:
+            result = await ros2.set_chassis_obstacle_strategy(update.obstacle_strategy)
+            if not result.success:
+                sync_errors.append(f"避障策略设置失败: {result.message}")
+        except Exception as e:
+            sync_errors.append(f"避障策略设置异常: {str(e)}")
     
     config = ChassisConfig(**config_dict)
+    
+    if sync_errors:
+        return success_response(
+            data=config.model_dump(),
+            message=f"配置已保存，但部分同步失败: {'; '.join(sync_errors)}"
+        )
+    
     return success_response(
         data=config.model_dump(),
         message="底盘配置已更新"
@@ -251,16 +283,10 @@ async def exit_low_power(
             code=ErrorCodes.SERVICE_ERROR,
             message=f"退出低功耗模式失败: {result.message}"
         )
-    
-    config = ChassisConfig(**default_config)
-    return success_response(
-        data=config.model_dump(),
-        message="底盘配置已重置为默认值"
-    )
 
 
 # ==================== 底盘状态与控制 API ====================
-# 
+#
 # 重要设计说明：
 # - 状态获取：从 ROS2 订阅缓存读取真实数据
 # - 实时控制：应优先通过 Data Plane WebSocket，HTTP 仅作后备
@@ -310,8 +336,9 @@ async def get_chassis_status(
         "location_status_text": _get_location_status_text(
             status_data.get("location_status", 0) if status_data else 0
         ),
-        "operation_status": status_data.get("operation_status", 0) if status_data else 0,
-        "operation_status_text": _get_operation_status_text(
+        # 前端使用 motion_status，后端数据源是 operation_status
+        "motion_status": status_data.get("operation_status", 0) if status_data else 0,
+        "motion_status_text": _get_operation_status_text(
             status_data.get("operation_status", 0) if status_data else 0
         ),
     }
@@ -374,6 +401,22 @@ async def get_chassis_status(
             "is_loaded": False,
             "has_wifi": True,
         }
+    
+    # 读取当前地图名称
+    import os
+    workspace_root = Path(os.environ.get(
+        'QYH_WORKSPACE_ROOT', Path.home() / 'qyh-robot-system'
+    ))
+    current_map_file = workspace_root / "maps" / "current_map.txt"
+    if current_map_file.exists():
+        try:
+            response_data["current_map_name"] = current_map_file.read_text(
+                encoding='utf-8'
+            ).strip()
+        except Exception:
+            response_data["current_map_name"] = None
+    else:
+        response_data["current_map_name"] = None
     
     return success_response(
         data=response_data,
