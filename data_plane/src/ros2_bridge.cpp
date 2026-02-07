@@ -17,6 +17,7 @@
 
 #include <iostream>
 #include <algorithm>
+#include <algorithm>
 
 namespace {
 
@@ -191,9 +192,9 @@ bool ROS2Bridge::init() {
             "/right/move_gripper"
         );
         
-        // 升降命令
-        lift_cmd_pub_ = node_->create_publisher<std_msgs::msg::Float64>(
-            "/lift/command", control_qos
+        // 升降控制服务
+        lift_control_client_ = node_->create_client<qyh_lift_msgs::srv::LiftControl>(
+            "/lift_control"
         );
         
         // 腰部命令
@@ -521,29 +522,50 @@ void ROS2Bridge::resume_navigation() {
 }
 
 void ROS2Bridge::publish_lift_command(const LiftCommand& cmd) {
-    // 根据命令类型选择发布方式
+    if (!lift_control_client_) {
+        std::cout << "[ROS2Bridge] Lift control client not initialized" << std::endl;
+        return;
+    }
+
+    if (!lift_control_client_->service_is_ready()) {
+        std::cout << "[ROS2Bridge] Lift control service not ready" << std::endl;
+        return;
+    }
+
     const std::string& command = cmd.command();
-    
-    if (command == "stop") {
-        // 发布零速度或停止命令
-        std_msgs::msg::Float64 msg;
-        msg.data = 0.0;
-        lift_cmd_pub_->publish(msg);
-    } else if (command == "goto") {
-        // 发送目标高度
-        std_msgs::msg::Float64 msg;
-        msg.data = cmd.target_height();
-        lift_cmd_pub_->publish(msg);
+
+    auto send_request = [&](uint8_t command_id, float value, bool hold) {
+        auto request = std::make_shared<qyh_lift_msgs::srv::LiftControl::Request>();
+        request->command = command_id;
+        request->value = value;
+        request->hold = hold;
+        lift_control_client_->async_send_request(request);
+    };
+
+    // 速度 (m/s) -> (mm/s)
+    const float speed_mmps = static_cast<float>(std::max(0.0, cmd.speed()) * 1000.0);
+
+    if (command == "goto") {
+        if (speed_mmps > 0.0f) {
+            send_request(qyh_lift_msgs::srv::LiftControl::Request::CMD_SET_SPEED,
+                         speed_mmps, false);
+        }
+        send_request(qyh_lift_msgs::srv::LiftControl::Request::CMD_GO_POSITION,
+                     static_cast<float>(cmd.target_height()), false);
     } else if (command == "up") {
-        // 以指定速度向上移动
-        std_msgs::msg::Float64 msg;
-        msg.data = std::abs(cmd.speed());  // 正速度 = 向上
-        lift_cmd_pub_->publish(msg);
+        if (speed_mmps > 0.0f) {
+            send_request(qyh_lift_msgs::srv::LiftControl::Request::CMD_SET_SPEED,
+                         speed_mmps, false);
+        }
+        send_request(qyh_lift_msgs::srv::LiftControl::Request::CMD_MOVE_UP, 0.0f, true);
     } else if (command == "down") {
-        // 以指定速度向下移动
-        std_msgs::msg::Float64 msg;
-        msg.data = -std::abs(cmd.speed());  // 负速度 = 向下
-        lift_cmd_pub_->publish(msg);
+        if (speed_mmps > 0.0f) {
+            send_request(qyh_lift_msgs::srv::LiftControl::Request::CMD_SET_SPEED,
+                         speed_mmps, false);
+        }
+        send_request(qyh_lift_msgs::srv::LiftControl::Request::CMD_MOVE_DOWN, 0.0f, true);
+    } else if (command == "stop") {
+        send_request(qyh_lift_msgs::srv::LiftControl::Request::CMD_STOP, 0.0f, false);
     }
 }
 

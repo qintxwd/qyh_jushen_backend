@@ -23,6 +23,8 @@ class LiftStatus(BaseModel):
     is_moving: bool = Field(default=False, description="是否正在运动")
     error_code: int = Field(default=0, description="错误码")
     is_enabled: bool = Field(default=True, description="是否使能")
+    electromagnet_on: bool = Field(default=False, description="电磁铁状态")
+    connected: bool = Field(default=False, description="通信状态")
 
 
 class SetHeightRequest(BaseModel):
@@ -63,7 +65,9 @@ async def get_lift_status(
         height=float(lift_state.get("current_position", 0.0)),
         is_moving=is_moving,
         error_code=lift_state.get("alarm", 0),
-        is_enabled=lift_state.get("enabled", True)
+        is_enabled=lift_state.get("enabled", True),
+        electromagnet_on=lift_state.get("electromagnet_on", False),
+        connected=lift_state.get("connected", False),
     )
     
     return success_response(data=status.dict())
