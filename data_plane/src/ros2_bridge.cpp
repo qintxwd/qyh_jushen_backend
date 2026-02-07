@@ -285,6 +285,12 @@ void ROS2Bridge::publish_vr_intent(const VRControlIntent& intent) {
     // 将 VR 意图转换为 ROS2 消息发布
     // 这里使用 Float64MultiArray 作为临时方案
     // 实际项目中应定义专用的 ROS2 消息类型
+    //
+    // 布局 (v2):
+    //   head: 7 (pos xyz, orient xyzw)
+    //   left: active(1), pos(3), orient(4), trigger(1), grip(1), joystick(2), buttons(6)
+    //   right: active(1), pos(3), orient(4), trigger(1), grip(1), joystick(2), buttons(6)
+    //  total: 43
     
     std_msgs::msg::Float64MultiArray msg;
     
@@ -305,39 +311,67 @@ void ROS2Bridge::publish_vr_intent(const VRControlIntent& intent) {
     }
     
     // 左手控制器数据
-    if (intent.has_left_hand() && intent.left_hand().active()) {
+    if (intent.has_left_hand()) {
         const auto& hand = intent.left_hand();
+        msg.data.push_back(hand.active() ? 1.0 : 0.0);
         if (hand.has_pose() && hand.pose().has_position()) {
             msg.data.push_back(hand.pose().position().x());
             msg.data.push_back(hand.pose().position().y());
             msg.data.push_back(hand.pose().position().z());
+        } else {
+            msg.data.insert(msg.data.end(), {0.0, 0.0, 0.0});
         }
         if (hand.has_pose() && hand.pose().has_orientation()) {
             msg.data.push_back(hand.pose().orientation().x());
             msg.data.push_back(hand.pose().orientation().y());
             msg.data.push_back(hand.pose().orientation().z());
             msg.data.push_back(hand.pose().orientation().w());
+        } else {
+            msg.data.insert(msg.data.end(), {0.0, 0.0, 0.0, 1.0});
         }
         msg.data.push_back(hand.trigger());
         msg.data.push_back(hand.grip());
+        if (hand.joystick_size() >= 2) {
+            msg.data.push_back(hand.joystick(0));
+            msg.data.push_back(hand.joystick(1));
+        } else {
+            msg.data.insert(msg.data.end(), {0.0, 0.0});
+        }
+        for (int i = 0; i < 6; ++i) {
+            msg.data.push_back((hand.buttons_size() > i && hand.buttons(i)) ? 1.0 : 0.0);
+        }
     }
     
     // 右手控制器数据
-    if (intent.has_right_hand() && intent.right_hand().active()) {
+    if (intent.has_right_hand()) {
         const auto& hand = intent.right_hand();
+        msg.data.push_back(hand.active() ? 1.0 : 0.0);
         if (hand.has_pose() && hand.pose().has_position()) {
             msg.data.push_back(hand.pose().position().x());
             msg.data.push_back(hand.pose().position().y());
             msg.data.push_back(hand.pose().position().z());
+        } else {
+            msg.data.insert(msg.data.end(), {0.0, 0.0, 0.0});
         }
         if (hand.has_pose() && hand.pose().has_orientation()) {
             msg.data.push_back(hand.pose().orientation().x());
             msg.data.push_back(hand.pose().orientation().y());
             msg.data.push_back(hand.pose().orientation().z());
             msg.data.push_back(hand.pose().orientation().w());
+        } else {
+            msg.data.insert(msg.data.end(), {0.0, 0.0, 0.0, 1.0});
         }
         msg.data.push_back(hand.trigger());
         msg.data.push_back(hand.grip());
+        if (hand.joystick_size() >= 2) {
+            msg.data.push_back(hand.joystick(0));
+            msg.data.push_back(hand.joystick(1));
+        } else {
+            msg.data.insert(msg.data.end(), {0.0, 0.0});
+        }
+        for (int i = 0; i < 6; ++i) {
+            msg.data.push_back((hand.buttons_size() > i && hand.buttons(i)) ? 1.0 : 0.0);
+        }
     }
     
     vr_intent_pub_->publish(msg);
