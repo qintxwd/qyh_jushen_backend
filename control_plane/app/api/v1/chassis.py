@@ -104,6 +104,17 @@ class ChassisConfigUpdate(BaseModel):
     )
 
 
+class ManualVelocityRequest(BaseModel):
+    """手动速度命令请求"""
+    linear: float = Field(default=0.0, description="线速度 (m/s)")
+    angular: float = Field(default=0.0, description="角速度 (rad/s)")
+
+
+class ControlModeRequest(BaseModel):
+    """控制模式切换请求"""
+    mode: int = Field(..., description="0=手动, 1=自动")
+
+
 # ==================== API 端点 ====================
 
 @router.get("/config", response_model=ApiResponse)
@@ -585,15 +596,7 @@ class NavigateToStationRequest(BaseModel):
     )
 
 
-class ManualVelocityRequest(BaseModel):
-    """手动速度命令请求"""
-    linear: float = Field(default=0.0, description="线速度 (m/s)")
-    angular: float = Field(default=0.0, description="角速度 (rad/s)")
 
-
-class ControlModeRequest(BaseModel):
-    """控制模式切换请求"""
-    mode: int = Field(..., description="0=手动, 1=自动")
 
 
 @router.post("/navigate/pose", response_model=ApiResponse)

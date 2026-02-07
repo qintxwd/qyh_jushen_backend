@@ -25,7 +25,7 @@ echo -e "${GREEN}✓${NC} ROS2 $ROS_DISTRO 已加载"
 
 # 2. 检查自定义消息包
 echo -e "${YELLOW}[2/5]${NC} 检查自定义消息包..."
-REQUIRED_PKGS=("qyh_lift_msgs" "qyh_waist_msgs" "qyh_gripper_msgs" "qyh_standard_robot_msgs" "qyh_jaka_control_msgs")
+REQUIRED_PKGS=("qyh_lift_msgs" "qyh_waist_msgs" "qyh_gripper_msgs" "qyh_standard_robot_msgs" "qyh_jaka_control_msgs" "qyh_task_engine_msgs")
 MISSING_PKGS=()
 
 for pkg in "${REQUIRED_PKGS[@]}"; do
