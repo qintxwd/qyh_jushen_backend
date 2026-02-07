@@ -268,7 +268,7 @@ class ROS2ServiceClient:
             from std_srvs.srv import Trigger
             from qyh_lift_msgs.srv import LiftControl
             from qyh_waist_msgs.srv import WaistControl
-            from qyh_gripper_msgs.srv import MoveGripper
+            from qyh_gripper_msgs.srv import MoveGripper, ActivateGripper
             from std_srvs.srv import SetBool
             from qyh_standard_robot_msgs.srv import (
                 GoSetSpeedType,
@@ -375,6 +375,12 @@ class ROS2ServiceClient:
             )
             self._service_clients['gripper_right'] = self._node.create_client(
                 MoveGripper, '/right/move_gripper'
+            )
+            self._service_clients['gripper_left_activate'] = self._node.create_client(
+                ActivateGripper, '/left/activate_gripper'
+            )
+            self._service_clients['gripper_right_activate'] = self._node.create_client(
+                ActivateGripper, '/right/activate_gripper'
             )
             
             # 头部服务
@@ -2453,6 +2459,44 @@ class ROS2ServiceClient:
             return ServiceResponse(False, str(e))
     
     # ==================== 夹爪服务 ====================
+
+    async def gripper_activate(self, side: str) -> ServiceResponse:
+        """
+        激活夹爪
+        
+        Args:
+            side: "left" 或 "right"
+            
+        Returns:
+            ServiceResponse: 执行结果
+        """
+        if self._node is None:
+            return ServiceResponse(False, "ROS2 client not initialized")
+        
+        try:
+            from qyh_gripper_msgs.srv import ActivateGripper
+            
+            client_key = f'gripper_{side}_activate'
+            client = self._service_clients.get(client_key)
+            if not client:
+                 return ServiceResponse(False, f"{side}夹爪激活客户端未初始化")
+
+            if not client.wait_for_service(timeout_sec=5.0):
+                return ServiceResponse(False, f"{side}夹爪激活服务不可用")
+            
+            request = ActivateGripper.Request()
+            
+            future = client.call_async(request)
+            result = await self._wait_for_future(future, timeout=10.0)
+            
+            if result:
+                return ServiceResponse(result.success, result.message)
+            else:
+                return ServiceResponse(False, "夹爪激活服务调用超时")
+        
+        except Exception as e:
+            logger.error(f"Error calling gripper_activate: {e}")
+            return ServiceResponse(False, str(e))
     
     async def gripper_move(
         self,
