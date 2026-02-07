@@ -71,7 +71,7 @@ topics:
     chassis_state: "/chassis_state"
   # 发布话题
   publish:
-    vr_intent: "/vr_control_intent"
+    vr_intent: "/vr/control_intent"
     cmd_vel: "/cmd_vel"
     watchdog_heartbeat: "/watchdog/heartbeat"
 
